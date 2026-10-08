@@ -1,9 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "installCommand": "cd engineering-simulator && npm ci",
-  "buildCommand": "cd engineering-simulator && npm run build",
-  "outputDirectory": "engineering-simulator/dist",
   "headers": [
     {
       "source": "/assets/(.*)",
