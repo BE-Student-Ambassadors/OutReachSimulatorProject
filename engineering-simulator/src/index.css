@@ -1,8 +1,56 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-display: 'Bricolage Grotesque Variable', 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  --color-paper: #f4f3ec;
+  --color-line: #e1dfd3;
+  --color-ink: #1b2a20;
+  --color-forest: #2c5b3c;
+  --color-forest-dark: #1d4029;
+  --color-leaf: #74a85f;
+  --color-mint: #e5eedf;
+  --color-rust: #b8461b;
+  --color-sun: #d9a52b;
+
+  --animate-confetti: confetti 2.6s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
+  --animate-pop: pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  --animate-rise: rise 0.35s ease-out both;
+}
+
+@keyframes confetti {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--dx), 110vh, 0) rotate(var(--rot));
+    opacity: 0.9;
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes rise {
+  0% {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
 }
 
 html,
@@ -13,8 +61,8 @@ body,
 
 body {
   margin: 0;
-  background: #020617;
-  color: #e2e8f0;
+  background: var(--color-paper);
+  color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -22,4 +70,18 @@ body {
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Tactile "pressable" button: solid fill with an offset edge, no gradients. */
+.btn-press {
+  box-shadow: 0 3px 0 0 var(--edge, #1d4029);
+  transform: translateY(0);
+  transition:
+    transform 80ms ease,
+    box-shadow 80ms ease,
+    background-color 120ms ease;
+}
+.btn-press:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 0 var(--edge, #1d4029);
 }
