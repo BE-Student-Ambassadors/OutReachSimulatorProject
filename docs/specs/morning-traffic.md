@@ -45,14 +45,14 @@ The starting layout must fail clearly (§10).
 
 ## 4. Who's traveling
 
-1,800 students, plus background traffic. For performance, **one simulated agent = a small group** (for example 1 car = 1.3 students, 1 bus = 55 students, 1 walker agent = 5 students, 1 bike agent = 2 students). Count requirements in students, not agents.
+1,800 students, plus background traffic. For performance, **one simulated agent = a small group** (1 car = 2 students, 1 bus = 75 students, 1 walker agent = 4 students, 1 bike agent = 2 students). Count requirements in students, not agents.
 
 | Mode | Default share | Notes |
 |---|---|---|
-| Parent drop-off (car) | 50% | Enters, waits for a free curb slot, dwells about 20 s, leaves. May turn left in or out. |
+| Parent drop-off (car) | 40% | Enters, waits for a free curb slot, dwells about 20 s, leaves. May turn left in or out. |
 | Bus | 25% | 6 buses on fixed routes and schedules; dwells about 60 s |
-| Walk | 15% | Follows the sidewalk graph. Jaywalks when the detour to a crosswalk is too long (§6.4). |
-| Bike | 10% | Rides in a bike lane if one exists, otherwise mixed with traffic |
+| Walk | 20% | Follows the sidewalk graph. Jaywalks when the detour to a crosswalk is too long (§6.4). |
+| Bike | 15% | Rides in a bike lane if one exists, otherwise mixed with traffic |
 
 Arrivals follow a curve that peaks between 7:45 and 7:58. Through traffic on Main Street runs all morning.
 
@@ -67,17 +67,20 @@ As in Flooded Campus, all costs and effects live in `config.ts`. Several tools *
 | Crosswalk | $4,000 | snap: crossing site | Walkers cross here. Cars must yield, which slows them. |
 | Flashing Beacon | $15,000 | snap: on a crosswalk | Drivers yield sooner, so crossings at that crosswalk are safe |
 | Traffic Signal | $75,000 | snap: intersection | Fixed cycle with a protected walk phase. Configurable green split (Main vs side street). |
-| All-Way Stop | $1,500 | snap: intersection (not on Main Street) | Every car stops. Cheap, but slows things at high volume. |
+| All-Way Stop | $1,500 | snap: Oak Ave service drive or Elm St side gate | Every car stops. Cheap, but slows things at high volume. |
 | Crossing Guard | $6,000 | snap: on a crosswalk | Groups walkers and stops cars, so crossings are safe. Delays cars more than a beacon does. |
-| Drop-off Curb | $40 / ft | path along the loop or a side-street curb | More stopping slots, so a faster drop-off line |
+| Drop-off Curb | $40 / ft | snap: curb edge (loop, Oak Ave, staff lot) | More stopping slots, so a faster drop-off line |
 | Turn Lane | $30,000 | snap: approach | Left-turners wait in their own lane instead of blocking through traffic |
 | Bus Bay | $40,000 | snap: bus-bay site | Buses pull out of the lane, so they stop blocking traffic |
-| Bike Lane | $35 / ft | path along a street | Safer bikes. Shifts some car trips to bikes once it connects the neighborhood to campus. |
-| Sidewalk | $100 / ft | path, filling a gap | Walkers take this route instead of the street. Shrinks jaywalking detours. |
+| Bike Lane | $35 / ft | snap: street segment | Safer bikes. Shifts some car trips to bikes once it connects the neighborhood to campus. |
+| Sidewalk | $60 / ft | snap: sidewalk gap | Walkers take this route instead of the street. Shrinks jaywalking detours. |
 | Carpool Program | $20,000 | program card (no map placement) | −15% of car trips |
-| Open Side Gate | $8,000 | program card (staffing) | Opens the side entrance and lets cars drop off on Elm Street |
+| Open Side Gate | $8,000 | program card (staffing) | Opens a staff-lot drop-off reached from Elm Street |
+| Drop-off Helpers | $6,000 | program card (staff/volunteers) | Students are ready and cars pull forward: stop time 25 s → 14 s |
 
-Configurable properties (shown in the properties panel): signal green split (e.g. 60/40, 50/50, 40/60) and drop-off dwell policy ("Pull forward" vs "Stop anywhere"; pull-forward means more cars fit on the same curb).
+Configurable property (shown in the properties panel): signal green split (60/40, 50/50, 40/60 Main vs. side). The drop-off stop policy became the **Drop-off Helpers** program card instead of a property.
+
+Snap sites as built: 8 crossing sites, 4 signal intersections, 2 all-way-stop sites, 3 turn-lane sites (left-in, right-in, split exit), 3 bus-bay sites, 5 curb edges, 4 bike segments, 3 sidewalk gaps.
 
 ## 6. Simulation
 
@@ -164,12 +167,24 @@ Stats after a pass: total cost, on-time %, unsafe crossings, average drop-off wa
 
 At least these strategies must be able to pass within budget. Encode each one as a fixture design with a Vitest test, like `flood/sim/strategies.ts`:
 
-- **A: Flow engineering.** Turn lane + signal at the driveway + longer drop-off curb.
+- **A: Flow engineering.** Turn lanes (left-in, right-in, split exit) + longer drop-off curb. (A signal at the exit is a real tradeoff: it helps the loop but slows Main Street. The tuned design passes without one.)
 - **B: Mode shift.** Bike lane + sidewalk gap fixes + carpool program, so fewer cars.
 - **C: Spread the load.** Open the side gate (Elm Street drop-off) + bus bay + a couple of crosswalks.
-- **D: Low-cost operations.** Crossing guards + all-way stops + curb paint + one beacon.
+- **D: Low-cost operations.** Drop-off Helpers + carpool program + crossing guard + all-way stops + curb paint.
 
 Also test: "a crosswalk with no protection on a busy Main Street location slows cars measurably" (the safety-vs-flow tradeoff) and "a bike lane that doesn't connect shifts no trips".
+
+### Phase 1 results (balancing table, `TUNE=1 npx vitest run traffic/sim/tune`)
+
+| Design | Cost | On time | Unsafe | Rainy Monday |
+|---|---|---|---|---|
+| Nothing placed | $0 | 79% | 846 | 64% |
+| Random items | $43k | 88% | 846 | 71% |
+| A | $149k | 96.6% | 0 | 82% |
+| B | $180k | 100% | 0 | 93% |
+| C | $108k | 98.8% | 0 | 69% |
+| D | $81k | 96.6% | 0 | 86% |
+| Everything | $632k | 100% | 0 | 100% |
 
 ## 11. Architecture and shell changes
 
