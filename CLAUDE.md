@@ -2,7 +2,7 @@
 
 Browser-based engineering sandbox for a high-school outreach event (Sequoia High School × UC Santa Cruz Engineering). Small groups of students get 10–15 minutes to design, test, fail, and iterate until their design meets measurable requirements.
 
-Full spec for the current scenario: `docs/specs/flooded-campus.md`. Read it before working on gameplay, balancing, or UI.
+Scenario specs: `docs/specs/flooded-campus.md` (built, live at besachallenge.vercel.app) and `docs/specs/morning-traffic.md` (next). Read the relevant one before working on gameplay, balancing, or UI.
 
 ## Repo layout
 
