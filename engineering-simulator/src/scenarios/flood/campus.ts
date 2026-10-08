@@ -90,7 +90,7 @@ const BUILDINGS: Omit<Building, 'index'>[] = [
 ]
 
 const swale = { x0: 21, y0: 20, x1: 56, y1: 45 }
-const bowl = { x: 56, y: 46, r: 11, depth: 2.4 }
+const bowl = { x: 56, y: 46, r: 9, depth: 0.5 }
 
 export function groundElevation(x: number, y: number): number {
   let e = 20 - 0.1 * y - 0.025 * x
@@ -99,13 +99,10 @@ export function groundElevation(x: number, y: number): number {
   const dy = swale.y1 - swale.y0
   const t = Math.max(0, Math.min(1, ((x - swale.x0) * dx + (y - swale.y0) * dy) / (dx * dx + dy * dy)))
   const sd = Math.hypot(x - (swale.x0 + t * dx), y - (swale.y0 + t * dy))
-  e -= 0.7 * Math.exp(-(sd * sd) / (2 * 5 * 5))
+  e -= 0.5 * Math.exp(-(sd * sd) / (2 * 5 * 5))
   // The low bowl around Building B.
   const bd = Math.hypot(x - bowl.x, y - bowl.y)
   e -= bowl.depth * Math.exp(-(bd * bd) / (2 * bowl.r * bowl.r))
-  // A gentle rise on the east side of the courtyard keeps it from draining east.
-  const rd = Math.hypot(x - 84, y - 30)
-  e += 0.8 * Math.exp(-(rd * rd) / (2 * 8 * 8))
   return e
 }
 
@@ -154,6 +151,7 @@ export function createCampus(): Campus {
     outlets: [
       { id: 'outlet-sewer', name: 'Storm Sewer Main', x: 2, y: 46 },
       { id: 'outlet-creek', name: 'Creek Outfall', x: 94, y: 56 },
+      { id: 'outlet-south', name: 'South Sewer Manhole', x: 38, y: 58 },
     ],
     existingDrains: [
       { id: 'existing-1', x: 26, y: 10 },

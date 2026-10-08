@@ -60,11 +60,11 @@ export function renderTerrain(canvas: HTMLCanvasElement, campus: Campus) {
       const e = elevAt(gx, gy)
       const slopeX = elevAt(gx + 0.5, gy) - elevAt(gx - 0.5, gy)
       const slopeY = elevAt(gx, gy + 0.5) - elevAt(gx, gy - 0.5)
-      const shade = Math.max(-0.1, Math.min(0.1, -(slopeX + slopeY) * 1.6))
+      const shade = Math.max(-0.05, Math.min(0.05, -(slopeX + slopeY) * 0.8))
       const height = (e - emin) / (emax - emin)
       const n = hash(px, py)
       const grain = s === SURF.grass || s === SURF.field ? (n - 0.5) * 0.14 : (n - 0.5) * 0.06
-      let k = 0.8 + 0.32 * height + shade + grain
+      let k = 0.9 + 0.16 * height + shade + grain
       if (s === SURF.field) k += Math.floor((px / CELL_PX - FIELD.x) / 2) % 2 === 0 ? 0.04 : -0.02
       const [r, g, b] = SURFACE_RGB[s]
       const i = (py * W + px) * 4
@@ -86,8 +86,11 @@ export function renderTerrain(canvas: HTMLCanvasElement, campus: Campus) {
   drawCourtyard(ctx)
   drawField(ctx)
   drawCreek(ctx)
-  for (const b of campus.buildings) drawBuilding(ctx, b)
+  // Building footprints: a dark pad under each 3D building.
+  ctx.fillStyle = 'rgba(40,44,38,0.55)'
+  for (const b of campus.buildings) ctx.fillRect(b.x - 0.15, b.y - 0.15, b.w + 0.3, b.h + 0.3)
   ctx.restore()
+  return canvas
 }
 
 /** Faint topo lines every 0.5 ft (stronger every 2 ft) so students can read the slope. */
@@ -166,25 +169,6 @@ function drawParking(ctx: CanvasRenderingContext2D, campus: Campus) {
   ctx.moveTo(p.x + 1, p.y + 8.6)
   ctx.lineTo(p.x + p.w - 1, p.y + 8.6)
   ctx.stroke()
-  // A few parked cars for scale.
-  const cars = [
-    [p.x + 3, p.y + 0.8, '#ef4444'],
-    [p.x + 9, p.y + 0.8, '#f8fafc'],
-    [p.x + 15, p.y + 6.4, '#3b82f6'],
-    [p.x + 23, p.y + 9, '#facc15'],
-    [p.x + 5, p.y + 9, '#94a3b8'],
-    [p.x + 19, p.y + 0.8, '#1e293b'],
-  ] as const
-  for (const [x, y, c] of cars) {
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'
-    roundRect(ctx, x + 0.25, y + 0.15, 1.5, 2.4, 0.35)
-    ctx.fill()
-    ctx.fillStyle = c
-    roundRect(ctx, x + 0.15, y, 1.5, 2.4, 0.35)
-    ctx.fill()
-    ctx.fillStyle = 'rgba(15,23,42,0.55)'
-    ctx.fillRect(x + 0.35, y + 0.55, 1.1, 0.5)
-  }
   ctx.restore()
 }
 
@@ -203,24 +187,6 @@ function drawCourtyard(ctx: CanvasRenderingContext2D) {
     ctx.lineTo(c.x + c.w, y)
   }
   ctx.stroke()
-  // Planters with trees.
-  const planters = [
-    [c.x + 6, c.y + 6],
-    [c.x + 20, c.y + 4],
-    [c.x + 34, c.y + 8],
-  ]
-  for (const [x, y] of planters) {
-    ctx.fillStyle = '#8b7355'
-    ctx.fillRect(x - 1.2, y - 1.2, 2.4, 2.4)
-    ctx.fillStyle = 'rgba(0,0,0,0.25)'
-    ctx.beginPath()
-    ctx.arc(x + 0.3, y + 0.3, 1.5, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.fillStyle = '#3f8f46'
-    ctx.beginPath()
-    ctx.arc(x, y, 1.5, 0, Math.PI * 2)
-    ctx.fill()
-  }
   ctx.restore()
 }
 
@@ -253,27 +219,4 @@ function drawCreek(ctx: CanvasRenderingContext2D) {
     ctx.stroke()
   }
   ctx.restore()
-}
-
-function drawBuilding(ctx: CanvasRenderingContext2D, b: Campus['buildings'][number]) {
-  ctx.save()
-  ctx.fillStyle = 'rgba(0,0,0,0.35)'
-  ctx.fillRect(b.x + 0.5, b.y + 0.5, b.w, b.h)
-  ctx.fillStyle = b.roof
-  ctx.fillRect(b.x, b.y, b.w, b.h)
-  ctx.strokeStyle = 'rgba(15,23,42,0.35)'
-  ctx.lineWidth = 0.18
-  ctx.strokeRect(b.x + 0.1, b.y + 0.1, b.w - 0.2, b.h - 0.2)
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)'
-  ctx.lineWidth = 0.08
-  ctx.strokeRect(b.x + 0.7, b.y + 0.7, b.w - 1.4, b.h - 1.4)
-  // Rooftop HVAC units.
-  ctx.fillStyle = '#94a3b8'
-  for (let i = 0; i < 2; i++) ctx.fillRect(b.x + 2 + i * 2.2, b.y + 1.6, 1.6, 1.2)
-  ctx.restore()
-}
-
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath()
-  ctx.roundRect(x, y, w, h, r)
 }

@@ -15,12 +15,15 @@ Full spec for the current scenario: `docs/specs/flooded-campus.md`. Read it befo
 - `npm run dev` — dev server
 - `npm run build` — type-check + production build (must pass before calling work done)
 - `npm run lint` — ESLint
-- `npm test` — Vitest (engine/balancing tests; add Vitest if not yet installed)
+- `npm test` — Vitest balancing + physics tests (~30 s)
+- `TUNE=1 npx vitest run tune` — prints a balancing table for all reference strategies
+- URL flags: `?play` skips the start screen, `?debug` (or Shift+D) shows grid/elevation info
 
 ## Stack decisions
 
 - **Client-side only.** No backend, no Firebase, no Express. Don't add one unless the user asks.
-- React + TypeScript + Vite + Tailwind CSS. Canvas for the terrain and water layer, React/SVG for UI and placed objects.
+- React + TypeScript + Vite + Tailwind CSS. The world is **3D**: Three.js via `@react-three/fiber` + `@react-three/drei` (CameraControls, Line). Don't use drei `<Html>` (it breaks under React 19 StrictMode); 3D-pinned labels go through `world/Labels.tsx`.
+- Look: green and white ("Sequoia green" `forest`, `paper`, `mint`; `rust` for failures). Avoid blue in the UI chrome — water is the only blue. Fonts are bundled (offline-safe): Bricolage Grotesque (display), Instrument Sans (body), IBM Plex Mono (numbers). Theme tokens live in `src/index.css`.
 - Target: Chrome on ordinary school laptops at 1366×768 and up. Desktop only; mobile isn't needed.
 - Keep dependencies minimal. Ask before adding anything heavy (game engines, physics libraries, state libraries beyond a small store such as Zustand).
 
