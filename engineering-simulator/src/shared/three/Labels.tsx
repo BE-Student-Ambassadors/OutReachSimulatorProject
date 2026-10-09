@@ -44,7 +44,8 @@ export function LabelLayer({ labels, els }: { labels: PinnedLabel[]; els: RefObj
 
 const v = new THREE.Vector3()
 
-export function LabelProjector({ labels, els }: { labels: PinnedLabel[]; els: RefObject<LabelEls> }) {
+/** Moves any DOM elements registered in `els` to follow their 3D anchor points. */
+export function LabelProjector({ labels, els }: { labels: { key: string; pos: [number, number, number] }[]; els: RefObject<LabelEls> }) {
   const { camera, size } = useThree()
   useFrame(() => {
     for (const l of labels) {

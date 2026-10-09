@@ -1,6 +1,6 @@
 import { CameraControls } from '@react-three/drei'
 import { Canvas, useThree } from '@react-three/fiber'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { WorldProps } from '../../../core/scenario'
 import type { CameraHome } from '../../../shared/three/camera'
@@ -10,7 +10,9 @@ import { CLOCK } from '../config'
 import { crossingEdge, MAP_H, MAP_W } from '../network'
 import type { TrafficResult, TrafficRun } from '../sim/engine'
 import type { GapId, TrafficObject } from '../types'
+import { sitesFor, type Site } from '../sites'
 import { Agents } from './Agents'
+import { PlacedObject, SiteOutline } from './Placed'
 import { Streets, Zebra } from './Streets'
 
 const HOME: CameraHome = {
@@ -33,7 +35,17 @@ const LABELS: PinnedLabel[] = [
 ]
 
 export function TrafficWorld(props: WorldProps<TrafficObject, TrafficResult>) {
-  const { design, run } = props
+  const { design, run, activeTool, selectedId, locked, onCommit, onSelect, onToolDone } = props
+  const [hot, setHot] = useState<string | null>(null)
+  const siteEls = useRef<LabelEls>(new Map())
+  const sites = useMemo(() => (activeTool && !locked ? sitesFor(activeTool, design) : []), [activeTool, locked, design])
+  const anchors = useMemo(() => sites.map((s) => ({ key: s.key, pos: [s.x, 4, s.y] as [number, number, number] })), [sites])
+  const place = (site: Site) => {
+    const o = site.make()
+    onCommit([...design, o], o.id)
+    onToolDone()
+    setHot(null)
+  }
   const trafficRun = run as TrafficRun | null
   const controls = useRef<CameraControls>(null)
   const labelEls = useRef<LabelEls>(new Map())
@@ -45,7 +57,13 @@ export function TrafficWorld(props: WorldProps<TrafficObject, TrafficResult>) {
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl bg-[#dfe9dc] ring-1 ring-black/10" onContextMenu={(e) => e.preventDefault()}>
-      <Canvas shadows="percentage" dpr={[1, 1.75]} camera={{ fov: 32, near: 2, far: 3000, position: [...HOME.pos] }} gl={{ antialias: true }}>
+      <Canvas
+        shadows="percentage"
+        dpr={[1, 1.75]}
+        camera={{ fov: 32, near: 2, far: 3000, position: [...HOME.pos] }}
+        gl={{ antialias: true }}
+        onPointerMissed={() => !activeTool && onSelect(null)}
+      >
         <CameraRig controlsRef={controls} home={HOME} maxDistance={1200} />
         <Lights />
         <LabelProjector labels={LABELS} els={labelEls} />
@@ -53,12 +71,61 @@ export function TrafficWorld(props: WorldProps<TrafficObject, TrafficResult>) {
         {crosswalks.map((s) => (
           <Zebra key={s} edgeIndex={crossingEdge(s)} />
         ))}
+        {design.map((o) => (
+          <PlacedObject key={o.id} o={o} selected={o.id === selectedId} run={trafficRun} onSelect={(id) => !locked && !activeTool && onSelect(id)} />
+        ))}
+        {sites.map((s) => s.outline && <SiteOutline key={s.key} pts={s.outline} hot={hot === s.key} />)}
+        <LabelProjector labels={anchors} els={siteEls} />
         <Agents run={trafficRun} />
         {import.meta.env.DEV && <TestHook />}
       </Canvas>
       <LabelLayer labels={LABELS} els={labelEls} />
+      <SiteButtons sites={sites} els={siteEls} hot={hot} onHover={setHot} onPick={place} />
+      {activeTool && !locked && (
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-forest px-4 py-1.5 text-sm font-medium text-white shadow-lg">
+          {sites.length ? 'Pick one of the highlighted spots.' : 'There are no more spots for this tool.'} <span className="ml-1 text-white/60">Esc to cancel</span>
+        </div>
+      )}
       <ViewButtons controlsRef={controls} home={HOME} zoomStep={60} />
       {trafficRun && <Clock run={trafficRun} />}
+    </div>
+  )
+}
+
+/** Clickable markers for the armed tool's candidate sites, pinned to the 3D map. */
+function SiteButtons({ sites, els, hot, onHover, onPick }: { sites: Site[]; els: React.RefObject<LabelEls>; hot: string | null; onHover(k: string | null): void; onPick(s: Site): void }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {sites.map((s) => (
+        <div
+          key={s.key}
+          ref={(el) => {
+            if (el) els.current.set(s.key, el)
+            else els.current.delete(s.key)
+          }}
+          className="absolute left-0 top-0 will-change-transform"
+          style={{ visibility: 'hidden' }}
+        >
+          <button
+            type="button"
+            onClick={() => onPick(s)}
+            onPointerEnter={() => onHover(s.key)}
+            onPointerLeave={() => onHover(null)}
+            className={`pointer-events-auto flex items-center gap-1.5 whitespace-nowrap rounded-full py-1 pl-1 pr-2.5 text-xs font-semibold shadow-lg ring-2 transition ${
+              hot === s.key ? 'scale-105 bg-forest text-white ring-white' : 'bg-white text-ink ring-forest/70'
+            }`}
+          >
+            <span className={`grid size-5 place-items-center rounded-full text-sm leading-none ${hot === s.key ? 'bg-white text-forest' : 'bg-forest text-white'}`}>+</span>
+            {hot === s.key ? (
+              <>
+                {s.name} <span className="font-mono font-medium opacity-80">${s.cost.toLocaleString()}</span>
+              </>
+            ) : (
+              <span className="font-mono font-medium">${(s.cost / 1000).toFixed(s.cost < 10000 ? 1 : 0)}k</span>
+            )}
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

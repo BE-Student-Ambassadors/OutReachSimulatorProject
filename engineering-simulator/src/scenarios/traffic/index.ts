@@ -1,12 +1,12 @@
 import { TrafficArt } from './CardArt'
 import { Bike, BusFront, CornerUpLeft, DoorOpen, Footprints, HandHelping, Octagon, Route, ShieldUser, Siren, SquareParking, TrafficCone, Users } from 'lucide-react'
-import { count, money } from '../../core/format'
+import { count, money, uid } from '../../core/format'
 import type { Scenario, ToolDef } from '../../core/scenario'
 import { BUDGET, COST, REQUIRED, VARIANTS, type VariantId } from './config'
 import { designCost } from './cost'
 import { TrafficRun, type TrafficResult } from './sim/engine'
 import { TrafficProperties } from './TrafficProperties'
-import type { TrafficObject } from './types'
+import type { ProgramId, TrafficObject } from './types'
 import { TrafficWorld } from './world/TrafficWorld'
 
 const perFt = (n: number) => `$${n} / ft`
@@ -99,7 +99,23 @@ export const trafficScenario: Scenario<TrafficObject, TrafficResult> = {
   ],
   initialDesign: () => [],
   cost: designCost,
-  remove: (design, id) => design.filter((o) => o.id !== id),
+  remove: (design, id) => {
+    const gone = design.find((o) => o.id === id)
+    // A beacon or guard belongs to its crosswalk: removing the crosswalk removes them too.
+    return design.filter(
+      (o) => o.id !== id && !(gone?.kind === 'crosswalk' && (o.kind === 'beacon' || o.kind === 'guard') && o.site === gone.site),
+    )
+  },
+  programs: {
+    isOn: (design, toolId) => design.some((o) => o.kind === 'program' && `program:${o.program}` === toolId),
+    toggle: (design, toolId) => {
+      const program = toolId.replace('program:', '') as ProgramId
+      const on = design.some((o) => o.kind === 'program' && o.program === program)
+      return on
+        ? design.filter((o) => !(o.kind === 'program' && o.program === program))
+        : [...design, { id: uid('program'), kind: 'program', program }]
+    },
+  },
   createRun: (design, variantId) => new TrafficRun(design, variantId as VariantId),
   observations,
   stats: (r, design) => [

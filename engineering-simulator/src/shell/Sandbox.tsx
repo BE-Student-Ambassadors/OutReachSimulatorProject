@@ -191,7 +191,14 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <Toolbox tools={scenario.tools} activeTool={activeTool} disabled={locked} onPick={setActiveTool} />
+        <Toolbox
+          tools={scenario.tools}
+          activeTool={activeTool}
+          disabled={locked}
+          onPick={setActiveTool}
+          isProgramOn={(id) => scenario.programs?.isOn(state.design, id) ?? false}
+          onToggleProgram={(id) => scenario.programs && !locked && commit(scenario.programs.toggle(state.design, id), null)}
+        />
 
         <main className="relative min-w-0 flex-1 p-3">
           <World

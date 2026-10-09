@@ -127,6 +127,11 @@ export interface Scenario<O extends DesignObject, R> {
   World: ComponentType<WorldProps<O, R>>
   Properties: ComponentType<PropertiesProps<O>>
   overlayLabel?: string
+  /** For 'program' tools: whether a program is on, and how to switch it. */
+  programs?: {
+    isOn(design: O[], toolId: string): boolean
+    toggle(design: O[], toolId: string): O[]
+  }
   /** Illustration for the start-screen card. */
   CardArt?: ComponentType
 }
