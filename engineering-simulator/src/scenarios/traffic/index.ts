@@ -85,7 +85,7 @@ export const trafficScenario: Scenario<TrafficObject, TrafficResult> = {
     {
       id: 'unsafe',
       label: 'Unsafe Crossings',
-      passLabel: 'Safe Crossings',
+      passLabel: 'Crossings Kept Safe',
       target: `≤ ${REQUIRED.maxUnsafe}`,
       status: (r) => (r ? { value: count(r.unsafe), pass: r.unsafe <= REQUIRED.maxUnsafe } : { value: null, pass: null }),
     },
@@ -133,4 +133,6 @@ export const trafficScenario: Scenario<TrafficObject, TrafficResult> = {
   World: TrafficWorld,
   Properties: TrafficProperties,
   CardArt: TrafficArt,
+  overlayLabel: 'Delay map',
+  overlayLegend: { title: 'Where cars sat stopped, last test', colors: ['#fde68a', '#fb923c', '#b8461b', '#5c1a0b'], range: '½ → 10+ car-min' },
 }

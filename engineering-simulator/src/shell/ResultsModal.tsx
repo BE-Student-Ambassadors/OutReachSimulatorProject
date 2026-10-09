@@ -91,7 +91,7 @@ export function ResultsModal({ scenario, result, cost, variantLabel, stats, obse
               onClick={onShowOverlay}
               className="flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-ink ring-1 ring-line hover:bg-paper"
             >
-              <Eye className="size-4" /> See flood map
+              <Eye className="size-4" /> See {scenario.overlayLabel?.toLowerCase() ?? 'overlay'}
             </button>
           )}
           <button

@@ -169,7 +169,7 @@ export class TrafficRun {
   readonly peds: Ped[] = []
   /** Seconds until which each pedestrian edge is occupied by people crossing. */
   readonly edgeBusy = new Float64Array(PED_EDGES.length)
-  /** Recent unsafe crossings (for the 3D flash), as [x, y, time]. */
+  /** Every unsafe crossing so far (append-only, for the 3D flash), as [x, y, sim time]. */
   readonly flashes: [number, number, number][] = []
 
   private readonly r = rng(20251008)
@@ -466,7 +466,6 @@ export class TrafficRun {
     this.measure()
     this.tick++
     this.t = this.tick * SIM.dt
-    while (this.flashes.length && this.t - this.flashes[0][2] > 2.5) this.flashes.shift()
     return !this.done
   }
 

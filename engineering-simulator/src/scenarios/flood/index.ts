@@ -129,4 +129,5 @@ export const floodScenario: Scenario<FloodObject, FloodResult> = {
   Properties: FloodProperties,
   CardArt: StormArt,
   overlayLabel: 'Flood map',
+  overlayLegend: { title: 'Deepest water, last test', colors: ['#fde68a', '#fb923c', '#7f1d1d'], range: '¼″ → 5″+' },
 }

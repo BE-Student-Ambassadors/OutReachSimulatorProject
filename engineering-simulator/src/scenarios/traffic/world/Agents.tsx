@@ -42,6 +42,9 @@ export function Agents({ run }: { run: TrafficRun | null }) {
   const walker = useRef<THREE.InstancedMesh>(null)
   const bike = useRef<THREE.InstancedMesh>(null)
   const flash = useRef<THREE.InstancedMesh>(null)
+  const beam = useRef<THREE.InstancedMesh>(null)
+  /** Flashes are timed in real seconds (the sim runs ~150× faster than real time). */
+  const seen = useRef({ run: null as TrafficRun | null, count: 0, live: [] as { x: number; y: number; born: number }[] })
 
   const geo = useMemo(
     () => ({
@@ -52,7 +55,8 @@ export function Agents({ run }: { run: TrafficRun | null }) {
       busRoof: new THREE.BoxGeometry(11.6, 0.6, 2.56).translate(0, 2.2, 0),
       walker: new THREE.CapsuleGeometry(0.45, 1.1, 3, 8).translate(0, 1.0, 0),
       bike: new THREE.BoxGeometry(1.9, 1.4, 0.5).translate(0, 0.9, 0),
-      flash: new THREE.RingGeometry(1.6, 2.6, 28).rotateX(-Math.PI / 2).translate(0, 0.2, 0),
+      flash: new THREE.RingGeometry(3, 5, 32).rotateX(-Math.PI / 2).translate(0, 0.25, 0),
+      beam: new THREE.CylinderGeometry(0.9, 0.9, 14, 10, 1, true).translate(0, 7, 0),
     }),
     [],
   )
@@ -70,10 +74,10 @@ export function Agents({ run }: { run: TrafficRun | null }) {
     ;(w.material as THREE.Material).needsUpdate = true
   }, [])
 
-  useFrame(() => {
-    const meshes = [body.current, cabin.current, brakes.current, bus.current, busRoof.current, walker.current, bike.current, flash.current]
+  useFrame(({ clock }) => {
+    const meshes = [body.current, cabin.current, brakes.current, bus.current, busRoof.current, walker.current, bike.current, flash.current, beam.current]
     if (meshes.some((m) => !m)) return
-    const [B, C, K, U, R, W, Y, F] = meshes as THREE.InstancedMesh[]
+    const [B, C, K, U, R, W, Y, F, M] = meshes as THREE.InstancedMesh[]
     let nc = 0
     let nk = 0
     let nb = 0
@@ -119,11 +123,20 @@ export function Agents({ run }: { run: TrafficRun | null }) {
           place(W, nw++, p.x, 0, p.y, ang, PERSON_SCALE)
         }
       }
-      const t = run.t
-      for (const [x, y, t0] of run.flashes) {
+      const now = clock.elapsedTime
+      const fl = seen.current
+      if (fl.run !== run) Object.assign(fl, { run, count: 0, live: [] })
+      for (; fl.count < run.flashes.length; fl.count++) {
+        const [x, y] = run.flashes[fl.count]
+        fl.live.push({ x, y, born: now })
+      }
+      fl.live = fl.live.filter((f) => now - f.born < 1.6)
+      for (const f of fl.live) {
         if (nf >= MAX_FLASH) break
-        const age = t - t0
-        place(F, nf++, x, 0, y, 0, 1 + age * 0.9)
+        const age = now - f.born
+        place(F, nf, f.x, 0, f.y, 0, 1 + age * 1.4)
+        place(M, nf, f.x, 0, f.y, 0, Math.max(0.05, 1 - age / 1.6))
+        nf++
       }
     }
     B.count = nc
@@ -134,7 +147,8 @@ export function Agents({ run }: { run: TrafficRun | null }) {
     W.count = nw
     Y.count = ny
     F.count = nf
-    for (const m of [B, C, K, U, R, W, Y, F]) m.instanceMatrix.needsUpdate = true
+    M.count = nf
+    for (const m of [B, C, K, U, R, W, Y, F, M]) m.instanceMatrix.needsUpdate = true
     if (B.instanceColor) B.instanceColor.needsUpdate = true
     if (W.instanceColor) W.instanceColor.needsUpdate = true
   })
@@ -163,7 +177,11 @@ export function Agents({ run }: { run: TrafficRun | null }) {
         <meshStandardMaterial color="#d0702a" roughness={0.6} />
       </instancedMesh>
       <instancedMesh ref={flash} args={[geo.flash, undefined, MAX_FLASH]} frustumCulled={false}>
-        <meshBasicMaterial color="#e5341b" transparent opacity={0.85} depthWrite={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial color="#e5341b" transparent opacity={0.9} depthWrite={false} side={THREE.DoubleSide} />
+      </instancedMesh>
+      {/* A short red beam makes each unsafe crossing visible from across the map. */}
+      <instancedMesh ref={beam} args={[geo.beam, undefined, MAX_FLASH]} frustumCulled={false}>
+        <meshBasicMaterial color="#ff3b1f" transparent opacity={0.55} depthWrite={false} side={THREE.DoubleSide} />
       </instancedMesh>
     </group>
   )

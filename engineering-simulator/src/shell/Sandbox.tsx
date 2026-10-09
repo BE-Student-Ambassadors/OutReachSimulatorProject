@@ -214,12 +214,12 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
             onSelect={(id: string | null) => dispatch({ type: 'select', id })}
             onToolDone={() => setActiveTool(null)}
           />
-          {overlay && !!result && (
+          {overlay && !!result && scenario.overlayLegend && (
             <div className="pointer-events-none absolute left-6 top-6 rounded-xl bg-white/95 px-3 py-2 shadow ring-1 ring-black/10">
-              <div className="font-display text-sm font-semibold">Deepest water, last test</div>
+              <div className="font-display text-sm font-semibold">{scenario.overlayLegend.title}</div>
               <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-ink/70">
-                <span className="h-2.5 w-28 rounded-full bg-gradient-to-r from-[#fde68a] via-[#fb923c] to-[#7f1d1d]" />
-                ¼″ → 5″+
+                <span className="h-2.5 w-28 rounded-full" style={{ background: `linear-gradient(to right, ${scenario.overlayLegend.colors.join(', ')})` }} />
+                {scenario.overlayLegend.range}
               </div>
             </div>
           )}
@@ -300,7 +300,7 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
               type="button"
               disabled={locked || !passed}
               onClick={() => startRun(advanced.id)}
-              title={passed ? advanced.blurb : 'Pass the storm test first'}
+              title={passed ? advanced.blurb : `Pass the ${scenario.variants[0].label.toLowerCase()} first`}
               style={{ ['--edge' as string]: '#a77c17' }}
               className="btn-press flex items-center gap-2 rounded-xl bg-sun px-4 py-2.5 text-sm font-bold text-ink disabled:cursor-not-allowed disabled:bg-paper disabled:text-ink/35 disabled:shadow-none"
             >

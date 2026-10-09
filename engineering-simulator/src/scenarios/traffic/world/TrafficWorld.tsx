@@ -12,6 +12,7 @@ import type { TrafficResult, TrafficRun } from '../sim/engine'
 import type { GapId, TrafficObject } from '../types'
 import { sitesFor, type Site } from '../sites'
 import { Agents } from './Agents'
+import { DelayMap } from './DelayMap'
 import { PlacedObject, SiteOutline } from './Placed'
 import { Streets, Zebra } from './Streets'
 
@@ -35,7 +36,13 @@ const LABELS: PinnedLabel[] = [
 ]
 
 export function TrafficWorld(props: WorldProps<TrafficObject, TrafficResult>) {
-  const { design, run, activeTool, selectedId, locked, onCommit, onSelect, onToolDone } = props
+  const { design, run, activeTool, selectedId, locked, onCommit, onSelect, onToolDone, lastResult, showOverlay } = props
+  const pinEls = useRef<LabelEls>(new Map())
+  const overlay = showOverlay && lastResult && !run ? lastResult : null
+  const pins = useMemo(
+    () => (overlay ? overlay.unsafeSpots.map((p, i) => ({ key: `pin${i}`, pos: [p.x, 3, p.y] as [number, number, number], students: p.students, name: p.name })) : []),
+    [overlay],
+  )
   const [hot, setHot] = useState<string | null>(null)
   const siteEls = useRef<LabelEls>(new Map())
   const sites = useMemo(() => (activeTool && !locked ? sitesFor(activeTool, design) : []), [activeTool, locked, design])
@@ -77,9 +84,29 @@ export function TrafficWorld(props: WorldProps<TrafficObject, TrafficResult>) {
         {sites.map((s) => s.outline && <SiteOutline key={s.key} pts={s.outline} hot={hot === s.key} />)}
         <LabelProjector labels={anchors} els={siteEls} />
         <Agents run={trafficRun} />
-        {import.meta.env.DEV && <TestHook />}
+        {overlay && <DelayMap result={overlay} />}
+        <LabelProjector labels={pins} els={pinEls} />
+        {import.meta.env.DEV && <TestHook run={trafficRun} />}
       </Canvas>
       <LabelLayer labels={LABELS} els={labelEls} />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {pins.map((p) => (
+          <div
+            key={p.key}
+            ref={(el) => {
+              if (el) pinEls.current.set(p.key, el)
+              else pinEls.current.delete(p.key)
+            }}
+            className="absolute left-0 top-0 will-change-transform"
+            style={{ visibility: 'hidden' }}
+            title={p.name}
+          >
+            <span className="flex items-center gap-1 whitespace-nowrap rounded-full bg-rust px-2 py-0.5 font-mono text-[11px] font-semibold text-white shadow-lg ring-2 ring-white">
+              ! {p.students} unsafe
+            </span>
+          </div>
+        ))}
+      </div>
       <SiteButtons sites={sites} els={siteEls} hot={hot} onHover={setHot} onPick={place} />
       {activeTool && !locked && (
         <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-forest px-4 py-1.5 text-sm font-medium text-white shadow-lg">
@@ -190,15 +217,16 @@ function Clock({ run }: { run: TrafficRun }) {
 }
 
 /** Dev-only: lets browser automation convert map meters to screen pixels. */
-function TestHook() {
+function TestHook({ run }: { run: TrafficRun | null }) {
   const { camera, gl } = useThree()
   useEffect(() => {
-    const w = window as unknown as { __trafficProject?: (x: number, y: number) => { x: number; y: number } }
+    const w = window as unknown as { __trafficProject?: (x: number, y: number) => { x: number; y: number }; __trafficFlashes?: () => number }
+    w.__trafficFlashes = () => run?.flashes.length ?? 0 // total so far
     w.__trafficProject = (x, y) => {
       const v = new THREE.Vector3(x, 0, y).project(camera)
       const r = gl.domElement.getBoundingClientRect()
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height }
     }
-  }, [camera, gl])
+  }, [camera, gl, run])
   return null
 }

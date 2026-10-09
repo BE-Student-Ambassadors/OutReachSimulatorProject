@@ -127,6 +127,8 @@ export interface Scenario<O extends DesignObject, R> {
   World: ComponentType<WorldProps<O, R>>
   Properties: ComponentType<PropertiesProps<O>>
   overlayLabel?: string
+  /** Legend shown over the map while the diagnostic overlay is on. */
+  overlayLegend?: { title: string; colors: string[]; range: string }
   /** For 'program' tools: whether a program is on, and how to switch it. */
   programs?: {
     isOn(design: O[], toolId: string): boolean
