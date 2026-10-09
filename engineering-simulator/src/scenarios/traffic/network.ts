@@ -174,6 +174,8 @@ export const CROSS_SITES: Record<CrossSiteId, { name: string; x: number; y: numb
   'elm-150': { name: 'Elm St at the side gate', x: 360, y: 150, stop: 'elm-150' },
 }
 
+export const crossingEdge = (site: CrossSiteId) => PED_EDGES.findIndex((e) => e.site === site)
+
 /** The crossing sites that exist before students change anything. */
 export const EXISTING_CROSSWALKS: CrossSiteId[] = ['main-40']
 

@@ -362,11 +362,13 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
 
 function StatusPill({ status, variantLabel, run }: { status: Status; variantLabel: string; run: SimRun<unknown> | null }) {
   const bar = useRef<HTMLDivElement>(null)
+  const clock = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     if (status !== 'running' || !run) return
     let raf = 0
     const tick = () => {
       if (bar.current) bar.current.style.width = `${run.progress * 100}%`
+      if (clock.current && run.clockLabel) clock.current.textContent = run.clockLabel()
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -378,6 +380,7 @@ function StatusPill({ status, variantLabel, run }: { status: Status; variantLabe
       <div className="w-44">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-forest">
           <span className="size-2 animate-pulse rounded-full bg-forest" /> {variantLabel} running
+          <span ref={clock} className="ml-auto font-mono text-ink/70" />
         </div>
         <div className="mt-1 h-2 overflow-hidden rounded-full bg-mint">
           <div ref={bar} className="h-full rounded-full bg-forest" style={{ width: 0 }} />

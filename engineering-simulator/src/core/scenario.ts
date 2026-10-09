@@ -7,8 +7,12 @@ import type { LucideIcon } from 'lucide-react'
  * scenario-specific; everything it needs comes through this interface.
  */
 
-/** How a tool is put onto the world. The World component interprets it. */
-export type PlacementMode = 'point' | 'footprint' | 'path' | 'paint' | 'link'
+/**
+ * How a tool is put onto the world. The World component interprets all of these
+ * except 'program', which has no map placement: the shell shows it as a toggle card.
+ * 'snap' tools place onto candidate sites the World highlights.
+ */
+export type PlacementMode = 'point' | 'footprint' | 'path' | 'paint' | 'link' | 'snap' | 'program'
 
 export interface ToolDef {
   id: string
@@ -55,6 +59,8 @@ export interface SimRun<R> {
   readonly intensity: number
   readonly totalTicks: number
   result(): R
+  /** Optional in-world clock for the status bar, e.g. "7:52". */
+  clockLabel?(): string
 }
 
 export interface Variant {
@@ -121,6 +127,8 @@ export interface Scenario<O extends DesignObject, R> {
   World: ComponentType<WorldProps<O, R>>
   Properties: ComponentType<PropertiesProps<O>>
   overlayLabel?: string
+  /** Illustration for the start-screen card. */
+  CardArt?: ComponentType
 }
 
 // Scenarios are heterogeneous; the shell treats their object/result types opaquely.

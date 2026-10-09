@@ -6,10 +6,12 @@ import { Sandbox } from './shell/Sandbox'
 import { StartScreen } from './shell/StartScreen'
 
 export default function App() {
-  // `?play` skips straight into the first scenario (handy for testing and kiosks).
-  const [scenario, setScenario] = useState<AnyScenario | null>(() =>
-    new URLSearchParams(location.search).has('play') ? scenarios[0] : null,
-  )
+  // `?play` skips straight into the first scenario; `?play=traffic` picks one by id.
+  const [scenario, setScenario] = useState<AnyScenario | null>(() => {
+    const play = new URLSearchParams(location.search).get('play')
+    if (play === null) return null
+    return scenarios.find((s) => s.id === play) ?? scenarios[0]
+  })
   const [intro, setIntro] = useState(false)
 
   if (!scenario)

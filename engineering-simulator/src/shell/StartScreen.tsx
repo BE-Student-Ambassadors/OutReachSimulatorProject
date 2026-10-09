@@ -15,7 +15,7 @@ export function StartScreen({ scenarios, onStart }: { scenarios: AnyScenario[]; 
       </div>
 
       <div className="relative mt-10 flex flex-wrap justify-center gap-5">
-        {scenarios.map((s) => (
+        {scenarios.map((s, i) => (
           <button
             key={s.id}
             type="button"
@@ -23,9 +23,9 @@ export function StartScreen({ scenarios, onStart }: { scenarios: AnyScenario[]; 
             className="group w-[min(420px,90vw)] overflow-hidden rounded-2xl bg-white text-left shadow-[0_12px_40px_-12px_rgba(27,42,32,0.35)] ring-1 ring-black/5 transition hover:-translate-y-0.5"
           >
             <div className="relative h-36 overflow-hidden bg-forest">
-              <StormArt />
+              {s.CardArt && <s.CardArt />}
               <span className="absolute left-4 top-4 rounded-full bg-white/15 px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-white">
-                Challenge 1
+                Challenge {i + 1}
               </span>
             </div>
             <div className="p-5">
@@ -57,23 +57,6 @@ function Contours() {
           strokeWidth={i % 4 === 0 ? 1.6 : 0.8}
         />
       ))}
-    </svg>
-  )
-}
-
-function StormArt() {
-  return (
-    <svg viewBox="0 0 420 144" className="absolute inset-0 h-full w-full" aria-hidden>
-      <defs>
-        <pattern id="rain" width="14" height="22" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
-          <line x1="7" y1="0" x2="7" y2="10" stroke="rgba(255,255,255,0.35)" strokeWidth="1.4" strokeLinecap="round" />
-        </pattern>
-      </defs>
-      <rect width="420" height="144" fill="url(#rain)" />
-      {/* Simple campus skyline with rising water */}
-      <path d="M0 112 H60 V86 H130 V112 H170 V72 H250 V112 H290 V94 H360 V112 H420 V144 H0 Z" fill="#f4f3ec" opacity="0.95" />
-      <path d="M0 120 Q 52 114 105 120 T 210 120 T 315 120 T 420 120 V144 H0 Z" fill="#9fd3e6" opacity="0.9" />
-      <path d="M0 128 Q 52 122 105 128 T 210 128 T 315 128 T 420 128 V144 H0 Z" fill="#5fa8c9" />
     </svg>
   )
 }

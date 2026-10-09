@@ -1,3 +1,4 @@
+import { StormArt } from './CardArt'
 import { BrickWall, CircleDot, Droplets, Fan, Flower2, Grid3x3, Spline, TreeDeciduous, Waves } from 'lucide-react'
 import { count, money } from '../../core/format'
 import type { Scenario, ToolDef } from '../../core/scenario'
@@ -126,5 +127,6 @@ export const floodScenario: Scenario<FloodObject, FloodResult> = {
   summary: (r) => `${r.maxFloodIn.toFixed(1)} in · ${Math.floor(r.runoffManagedPct)}%`,
   World: FloodWorld,
   Properties: FloodProperties,
+  CardArt: StormArt,
   overlayLabel: 'Flood map',
 }
