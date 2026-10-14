@@ -1,0 +1,115 @@
+rules_version = '2';
+
+// Sequoia Engineering Lab — live multiplayer sessions.
+//
+// Who is who:
+//   Instructor: signed in with Google, verified email at ucsc.edu or listed in /instructors/{email}.
+//   Student:    signed in anonymously; joins a session by its 6-digit code with a display name.
+//
+// Data (all scenario-agnostic):
+//   codes/{code}                                  -> { sessionId, hostUid }
+//   sessions/{sid}                                -> game state, controlled by the host
+//   sessions/{sid}/players/{uid}                  -> { name, groupId, joinedAt, lastSeen }
+//   sessions/{sid}/groups/{gid}                   -> { name, color, order }
+//   sessions/{sid}/groups/{gid}/shared/{doc}      -> live shared state for the group (e.g. the design)
+//   sessions/{sid}/groups/{gid}/events/{eid}      -> append-only group activity (test runs, results)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isInstructor() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true
+        && (request.auth.token.email.matches('.*@ucsc[.]edu$')
+            || exists(/databases/$(database)/documents/instructors/$(request.auth.token.email)));
+    }
+
+    function sessionData(sid) {
+      return get(/databases/$(database)/documents/sessions/$(sid)).data;
+    }
+
+    function isHost(sid) {
+      return signedIn() && sessionData(sid).hostUid == request.auth.uid;
+    }
+
+    function playerPath(sid) {
+      return /databases/$(database)/documents/sessions/$(sid)/players/$(request.auth.uid);
+    }
+
+    function inGroup(sid, gid) {
+      return signedIn() && exists(playerPath(sid)) && get(playerPath(sid)).data.groupId == gid;
+    }
+
+    function validName(name) {
+      return name is string && name.size() >= 1 && name.size() <= 24;
+    }
+
+    // Instructor allow-list (managed in the Firebase console; doc id = email).
+    match /instructors/{email} {
+      allow read: if signedIn() && request.auth.token.email == email;
+      allow write: if false;
+    }
+
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if isInstructor()
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['sessionId', 'hostUid', 'createdAt']);
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.hostUid == request.auth.uid;
+    }
+
+    match /sessions/{sid} {
+      // Anyone signed in who knows the session id can read it (ids are random; students get it from a code).
+      allow get: if signedIn();
+      allow list: if isInstructor() && resource.data.hostUid == request.auth.uid;
+      allow create: if isInstructor()
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.state == 'lobby';
+      allow update: if isHost(sid) && request.resource.data.hostUid == resource.data.hostUid;
+      allow delete: if isHost(sid);
+
+      match /players/{uid} {
+        allow read: if signedIn();
+        allow create: if request.auth.uid == uid
+          && sessionData(sid).state != 'ended'
+          && validName(request.resource.data.name)
+          && request.resource.data.groupId == null
+          && request.resource.data.keys().hasOnly(['name', 'groupId', 'joinedAt', 'lastSeen']);
+        // Students may rename themselves and update presence; only the host assigns groups.
+        allow update: if (request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastSeen'])
+            && validName(request.resource.data.name))
+          || isHost(sid);
+        allow delete: if request.auth.uid == uid || isHost(sid);
+      }
+
+      match /groups/{gid} {
+        allow read: if signedIn();
+        allow write: if isHost(sid);
+
+        match /shared/{doc} {
+          allow read: if signedIn();
+          allow write: if isHost(sid)
+            || (inGroup(sid, gid)
+                && sessionData(sid).state == 'playing'
+                && request.resource.data.keys().hasOnly(['data', 'rev', 'updatedBy', 'updatedAt'])
+                && request.resource.data.updatedBy == request.auth.uid);
+        }
+
+        match /events/{eid} {
+          allow read: if signedIn();
+          allow create: if (isHost(sid) || inGroup(sid, gid))
+            && request.resource.data.by == request.auth.uid
+            && request.resource.data.keys().hasOnly(['type', 'by', 'byName', 'at', 'payload']);
+          allow update, delete: if false;
+        }
+      }
+    }
+  }
+}

@@ -1,8 +1,8 @@
 import { Bug, CloudRain, Layers, Lock, RotateCcw, Trash2, Undo2, Zap } from 'lucide-react'
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from 'react'
 import { money } from '../core/format'
 import { designReducer, initDesignState } from '../core/history'
-import type { AnyScenario, DesignObject, SimRun } from '../core/scenario'
+import type { AnyScenario, DesignObject, GroupSync, SimRun } from '../core/scenario'
 import { RequirementsPanel } from './RequirementsPanel'
 import { ResultsModal } from './ResultsModal'
 import { Toolbox } from './Toolbox'
@@ -20,7 +20,18 @@ interface LogEntry {
   cost: number
 }
 
-export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?(): void }) {
+interface SandboxProps {
+  scenario: AnyScenario
+  onExit?(): void
+  /** Multiplayer: keep this design in sync with the group and play teammates' tests. */
+  sync?: GroupSync
+  /** Multiplayer: team name, members, timer, shown in the top bar. */
+  headerExtra?: ReactNode
+  /** Multiplayer: the round isn't running (lobby, time up, ended) — view only. */
+  frozen?: boolean
+}
+
+export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }: SandboxProps) {
   const [state, dispatch] = useReducer(designReducer<DesignObject>, scenario, (s) => initDesignState(s.initialDesign()))
   const [activeTool, setActiveTool] = useState<string | null>(null)
   const [debug, setDebug] = useState(() => new URLSearchParams(location.search).has('debug'))
@@ -36,7 +47,7 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
   const [overlay, setOverlay] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
 
-  const locked = status !== 'editing'
+  const locked = status !== 'editing' || frozen
   const cost = scenario.cost(state.design)
   const over = cost > scenario.budget
   const World = scenario.World
@@ -54,27 +65,76 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
     commit(scenario.remove(state.design, state.selectedId), null)
   }, [locked, state.design, state.selectedId, scenario, commit])
 
-  const startRun = (variantId: string) => {
-    if (status !== 'editing') return
+  const startRun = (variantId: string, design: DesignObject[] = state.design, byTeammate = false) => {
+    if (statusRef.current === 'running') return
+    if (!byTeammate && (status !== 'editing' || frozen)) return
     const v = scenario.variants.find((x) => x.id === variantId) ?? scenario.variants[0]
+    const c = scenario.cost(design)
     setActiveTool(null)
     setOverlay(false)
     dispatch({ type: 'select', id: null })
     setVariant(v)
-    pending.current = { variant: v, cost, passed }
-    setResultCost(cost)
-    setResultDesign(state.design)
-    setRun(scenario.createRun(state.design, v.id))
+    pending.current = { variant: v, cost: c, passed, mine: !byTeammate }
+    setResultCost(c)
+    setResultDesign(design)
+    setRun(scenario.createRun(design, v.id))
     setStatus('running')
+    statusRef.current = 'running'
+    if (sync && !byTeammate) sync.announceRun(v.id, design)
   }
 
   // Values the end-of-test callback needs, captured when the test starts.
-  const pending = useRef({ variant: scenario.variants[0], cost: 0, passed: false })
+  const pending = useRef({ variant: scenario.variants[0], cost: 0, passed: false, mine: true })
+  const statusRef = useRef<Status>('editing')
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  // ---- multiplayer sync: apply teammates' edits, push ours, play teammates' tests
+  const fromRemote = useRef(false)
+  const hydrated = useRef(!sync)
+  const appliedRev = useRef(0)
+  useEffect(() => {
+    if (!sync) return
+    return sync.onRemoteDesign((d) => {
+      const first = !hydrated.current
+      hydrated.current = true
+      if (!d || d.rev <= appliedRev.current) return
+      appliedRev.current = d.rev
+      // Our own writes echo back; only apply other people's (or the first load).
+      if (d.updatedBy === sync.me && !first) return
+      fromRemote.current = true
+      dispatch({ type: 'replace', design: d.design })
+    })
+  }, [sync])
+  useEffect(() => {
+    if (!sync || !hydrated.current) return
+    if (fromRemote.current) {
+      fromRemote.current = false
+      return
+    }
+    sync.push(state.design)
+  }, [state.design, sync])
+  const startRunRef = useRef(startRun)
+  useEffect(() => {
+    startRunRef.current = startRun
+  })
+  useEffect(() => {
+    if (!sync) return
+    return sync.onTeammateRun((r) => {
+      if (statusRef.current === 'running') return
+      fromRemote.current = true
+      dispatch({ type: 'replace', design: r.design })
+      setStatus('editing')
+      startRunRef.current(r.variantId, r.design, true)
+    })
+  }, [sync])
 
   const finishRun = useCallback(
     (r: unknown) => {
-      const { variant: v, cost: c, passed: wasPassed } = pending.current
+      const { variant: v, cost: c, passed: wasPassed, mine } = pending.current
       const pass = scenario.requirements.every((q) => q.status(r, c).pass)
+      if (mine) sync?.reportResult({ variantId: v.id, pass, summary: scenario.summary(r), cost: c })
       setResult(r)
       setLog((l) => [...l, { n: l.length + 1, variant: v.label, pass, summary: scenario.summary(r), cost: c }].slice(-8))
       const firstPass = pass && !wasPassed && v.id === scenario.variants[0].id
@@ -82,10 +142,12 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
       setJustUnlocked(firstPass ? (scenario.variants.find((x) => x.requiresPass)?.label ?? null) : null)
       setStatus('results')
     },
-    [scenario],
+    [scenario, sync],
   )
 
   // Step the simulation in real time. React only hears about it when the test ends.
+  // Browsers pause animation frames in background tabs, so a 1 s timer keeps the test
+  // advancing there too (otherwise a hidden tab would never finish or report its result).
   useEffect(() => {
     if (status !== 'running' || !run) return
     const tps = run.totalTicks / RUN_SECONDS
@@ -93,19 +155,30 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
     let last = performance.now()
     let raf = 0
     let finishTimer = 0
-    const frame = (now: number) => {
-      acc += Math.min(0.1, (now - last) / 1000) * tps
+    let finished = false
+    const advance = (now: number, maxDt: number) => {
+      acc += Math.min(maxDt, (now - last) / 1000) * tps
       last = now
       while (acc >= 1 && !run.done) {
         run.step()
         acc -= 1
       }
+      if (run.done && !finished) {
+        finished = true
+        finishTimer = window.setTimeout(() => finishRun(run.result()), document.hidden ? 0 : 900)
+      }
+    }
+    const frame = (now: number) => {
+      advance(now, 0.1)
       if (!run.done) raf = requestAnimationFrame(frame)
-      else finishTimer = window.setTimeout(() => finishRun(run.result()), 900)
     }
     raf = requestAnimationFrame(frame)
+    const background = window.setInterval(() => {
+      if (document.hidden && !run.done) advance(performance.now(), 1.5)
+    }, 1000)
     return () => {
       cancelAnimationFrame(raf)
+      clearInterval(background)
       clearTimeout(finishTimer)
     }
   }, [status, run, finishRun])
@@ -155,7 +228,7 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
           type="button"
           onClick={() => {
             if (locked) return
-            if (state.design.length && !confirm('Leave this challenge? Your design will be cleared.')) return
+            if (sync ? !confirm('Leave this game? You can rejoin with the same code.') : state.design.length && !confirm('Leave this challenge? Your design will be cleared.')) return
             onExit?.()
           }}
           className="flex items-center gap-2.5 text-left"
@@ -171,6 +244,7 @@ export function Sandbox({ scenario, onExit }: { scenario: AnyScenario; onExit?()
         </button>
 
         <div className="ml-auto flex items-center gap-5">
+          {headerExtra}
           <div className="w-64">
             <div className="flex items-baseline justify-between">
               <span className="text-xs font-medium text-ink/60">Project cost</span>

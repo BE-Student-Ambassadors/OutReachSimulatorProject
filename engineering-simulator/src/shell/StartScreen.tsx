@@ -2,7 +2,7 @@ import { ArrowRight } from 'lucide-react'
 import type { AnyScenario } from '../core/scenario'
 import { SequoiaMark } from './Sandbox'
 
-export function StartScreen({ scenarios, onStart }: { scenarios: AnyScenario[]; onStart(s: AnyScenario): void }) {
+export function StartScreen({ scenarios, onStart, onJoin, onHost }: { scenarios: AnyScenario[]; onStart(s: AnyScenario): void; onJoin?(): void; onHost?(): void }) {
   return (
     <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-paper px-6">
       <Contours />
@@ -12,9 +12,26 @@ export function StartScreen({ scenarios, onStart }: { scenarios: AnyScenario[]; 
           Sequoia Engineering Lab
         </h1>
         <p className="mt-3 font-display text-xl text-ink/70">Can your team engineer a solution?</p>
+        {onJoin && (
+          <div className="mt-6 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onJoin}
+              className="btn-press rounded-xl bg-forest px-7 py-3 font-display text-base font-bold uppercase tracking-wide text-white hover:bg-forest-dark"
+            >
+              Join a game
+            </button>
+            {onHost && (
+              <button type="button" onClick={onHost} className="rounded-xl px-5 py-3 text-sm font-semibold text-ink ring-1 ring-line hover:bg-white">
+                Host a game
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="relative mt-10 flex flex-wrap justify-center gap-5">
+      {onJoin && <p className="relative mt-10 text-sm font-semibold uppercase tracking-wider text-ink/45">Or practice on your own</p>}
+      <div className="relative mt-4 flex flex-wrap justify-center gap-5">
         {scenarios.map((s, i) => (
           <button
             key={s.id}

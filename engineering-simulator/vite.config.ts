@@ -9,5 +9,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     testTimeout: 60_000,
+    exclude: ['**/node_modules/**', '**/*.emulator.test.ts'],
   },
 })

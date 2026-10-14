@@ -11,6 +11,8 @@ export type DesignAction<O> =
   | { type: 'select'; id: string | null }
   | { type: 'undo' }
   | { type: 'reset'; design: O[] }
+  /** Replace the design with someone else's version (multiplayer), without an undo step. */
+  | { type: 'replace'; design: O[] }
 
 const MAX_HISTORY = 100
 
@@ -39,6 +41,8 @@ export function designReducer<O extends { id: string }>(
     }
     case 'reset':
       return { design: action.design, past: [], selectedId: null }
+    case 'replace':
+      return { design: action.design, past: state.past, selectedId: keepSelection(action.design, state.selectedId) }
   }
 }
 

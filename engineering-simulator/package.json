@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:mp": "cd .. && firebase emulators:exec --only auth,firestore --project demo-sequoia 'cd engineering-simulator && npx vitest run --config vitest.emulator.config.ts'",
+    "emulators": "cd .. && firebase emulators:start --only auth,firestore --project demo-sequoia",
+    "dev:mp": "VITE_FIREBASE_EMULATORS=1 vite"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
@@ -17,6 +20,7 @@
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "@tailwindcss/vite": "^4.3.3",
+    "firebase": "^13.0.0",
     "lucide-react": "^1.53.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

@@ -17,11 +17,15 @@ Scenario specs: `docs/specs/flooded-campus.md` (built, live at besachallenge.ver
 - `npm run lint` — ESLint
 - `npm test` — Vitest balancing + physics tests (~30 s)
 - `TUNE=1 npx vitest run tune` — prints a balancing table for all reference strategies
+- `npm run test:mp` — multiplayer flow + security-rule tests against the Firebase emulators (needs Java 21+ on PATH, e.g. `export PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH`)
+- `npm run emulators` + `npm run dev:mp` — run the app against local emulators (no real data touched)
+- Deploy rules: `firebase deploy --only firestore:rules` (from the repo root)
 - URL flags: `?play` skips the start screen, `?debug` (or Shift+D) shows grid/elevation info
 
 ## Stack decisions
 
-- **Client-side only.** No backend, no Firebase, no Express. Don't add one unless the user asks.
+- **Backend = Firebase only** (project `sequoia-eng-lab`, free Spark plan): Google sign-in for instructors, anonymous sign-in for students, Firestore realtime for live sessions. No servers, no Cloud Functions, no Express. Single-player challenges still run fully client-side.
+- **Multiplayer** lives in `engineering-simulator/src/multiplayer/` (api, hooks, ui) and is scenario-agnostic: sessions, 6-digit join codes, players, groups, per-group shared docs and event feeds. Security rules: `firebase/firestore.rules` — change them together with `src/multiplayer/api.emulator.test.ts`. The shell's `Sandbox` takes an optional `GroupSync` (shared design + teammates' test runs).
 - React + TypeScript + Vite + Tailwind CSS. The world is **3D**: Three.js via `@react-three/fiber` + `@react-three/drei` (CameraControls, Line). Don't use drei `<Html>` (it breaks under React 19 StrictMode); 3D-pinned labels go through `world/Labels.tsx`.
 - Look: green and white ("Sequoia green" `forest`, `paper`, `mint`; `rust` for failures). Avoid blue in the UI chrome — water is the only blue. Fonts are bundled (offline-safe): Bricolage Grotesque (display), Instrument Sans (body), IBM Plex Mono (numbers). Theme tokens live in `src/index.css`.
 - Target: Chrome on ordinary school laptops at 1366×768 and up. Desktop only; mobile isn't needed.

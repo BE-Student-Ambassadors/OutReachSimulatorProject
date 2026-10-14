@@ -141,3 +141,18 @@ export interface Scenario<O extends DesignObject, R> {
 // Scenarios are heterogeneous; the shell treats their object/result types opaquely.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyScenario = Scenario<any, any>
+
+/**
+ * Optional live-sync hooks for playing a scenario together (multiplayer groups).
+ * The shell stays scenario-agnostic: it only moves design arrays and run requests around.
+ */
+export interface GroupSync<O extends DesignObject = DesignObject> {
+  me: string
+  /** Subscribe to the group's shared design (null = nobody has edited yet). Returns an unsubscribe. */
+  onRemoteDesign(cb: (d: { design: O[]; rev: number; updatedBy: string } | null) => void): () => void
+  push(design: O[]): void
+  /** Subscribe to tests started by teammates, so this device plays the same test. */
+  onTeammateRun(cb: (r: { id: string; variantId: string; design: O[]; byName: string }) => void): () => void
+  announceRun(variantId: string, design: O[]): void
+  reportResult(r: { variantId: string; pass: boolean; summary: string; cost: number }): void
+}
