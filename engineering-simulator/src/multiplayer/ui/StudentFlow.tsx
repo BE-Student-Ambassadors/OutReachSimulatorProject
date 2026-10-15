@@ -7,27 +7,14 @@ import { Sandbox } from '../../shell/Sandbox'
 import { eventsCol, joinSession, JoinError, postEvent, sharedRef, touchPresence, writeShared } from '../api'
 import { auth, db } from '../firebase'
 import { isOnline, useAuthUser, useGroups, useNow, usePlayers, useSession } from '../hooks'
+import { saveGame, savedGame } from '../saved'
 import { Card, Countdown, PrimaryButton, Screen } from './common'
-
-const SAVED = 'sel-student-session'
-
-function savedSession(): string | null {
-  try {
-    return sessionStorage.getItem(SAVED)
-  } catch {
-    return null
-  }
-}
 
 /** Student entry: type the code, type a name, wait in the lobby, then play with your group. */
 export function StudentFlow({ scenarios, initialCode, onExit }: { scenarios: AnyScenario[]; initialCode: string; onExit(): void }) {
-  const [sid, setSid] = useState<string | null>(savedSession)
+  const [sid, setSid] = useState<string | null>(() => savedGame('student'))
   const leave = () => {
-    try {
-      sessionStorage.removeItem(SAVED)
-    } catch {
-      /* ignore */
-    }
+    saveGame('student', null)
     setSid(null)
     onExit()
   }
@@ -37,11 +24,7 @@ export function StudentFlow({ scenarios, initialCode, onExit }: { scenarios: Any
         initialCode={initialCode}
         onBack={onExit}
         onJoined={(id) => {
-          try {
-            sessionStorage.setItem(SAVED, id)
-          } catch {
-            /* private mode: rejoin by code */
-          }
+          saveGame('student', id)
           setSid(id)
         }}
       />
@@ -129,6 +112,15 @@ function StudentSession({ sid, scenarios, onLeave }: { sid: string; scenarios: A
     return () => clearInterval(t)
   }, [user, me, sid])
 
+  if (session === null)
+    return (
+      <Screen onBack={onLeave}>
+        <Card>
+          <h1 className="font-display text-2xl font-bold">This game is no longer available</h1>
+          <PrimaryButton className="mt-4" onClick={onLeave}>Back</PrimaryButton>
+        </Card>
+      </Screen>
+    )
   if (user === undefined || !session || !players.length) return <Screen onBack={onLeave}><Card>Connecting…</Card></Screen>
   if (!me)
     return (

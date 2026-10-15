@@ -6,29 +6,13 @@ import { assignGroups, createSession, MAX_GROUPS, movePlayer, placeLateJoiners, 
 import { auth, db } from '../firebase'
 import { isOnline, useAuthUser, useEvents, useGroups, useNow, usePlayers, useSession } from '../hooks'
 import type { Group, Player, Session } from '../types'
+import { saveGame, savedGame } from '../saved'
 import { Card, Countdown, PrimaryButton, Screen, SecondaryButton } from './common'
-
-const SAVED = 'sel-host-session'
-const read = () => {
-  try {
-    return sessionStorage.getItem(SAVED)
-  } catch {
-    return null
-  }
-}
-const write = (sid: string | null) => {
-  try {
-    if (sid) sessionStorage.setItem(SAVED, sid)
-    else sessionStorage.removeItem(SAVED)
-  } catch {
-    /* ignore */
-  }
-}
 
 /** Instructor: sign in with Google, set up a game, run the lobby, watch the groups live. */
 export function HostFlow({ scenarios, onExit }: { scenarios: AnyScenario[]; onExit(): void }) {
   const user = useAuthUser()
-  const [sid, setSid] = useState<string | null>(read)
+  const [sid, setSid] = useState<string | null>(() => savedGame('host'))
   const [error, setError] = useState<string | null>(null)
 
   if (user === undefined) return <Screen onBack={onExit}><Card>Loading…</Card></Screen>
@@ -55,7 +39,7 @@ export function HostFlow({ scenarios, onExit }: { scenarios: AnyScenario[]; onEx
 
   const hostName = user.displayName ?? user.email ?? 'Instructor'
   const exit = () => {
-    write(null)
+    saveGame('host', null)
     setSid(null)
     onExit()
   }
@@ -68,12 +52,12 @@ export function HostFlow({ scenarios, onExit }: { scenarios: AnyScenario[]; onEx
         onBack={onExit}
         onCreate={async (gameId, groupCount) => {
           const s = await createSession(db, { uid: user.uid, name: hostName }, { gameId, groupCount })
-          write(s.id)
+          saveGame('host', s.id)
           setSid(s.id)
         }}
       />
     )
-  return <HostSession sid={sid} scenarios={scenarios} onDone={exit} onNew={() => (write(null), setSid(null))} />
+  return <HostSession sid={sid} scenarios={scenarios} onDone={exit} onNew={() => (saveGame('host', null), setSid(null))} />
 }
 
 function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: AnyScenario[]; hostName: string; email: string | null; onCreate(gameId: string, groups: number): Promise<void>; onBack(): void }) {
