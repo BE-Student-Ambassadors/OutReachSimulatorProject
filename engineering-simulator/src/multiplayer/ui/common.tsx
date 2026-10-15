@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { SequoiaMark } from '../../shell/Sandbox'
+import { BrandMark } from '../../shell/BrandMark'
 import { usingEmulators } from '../firebase'
 import { useNow } from '../hooks'
 
@@ -9,8 +9,8 @@ export function Screen({ children, wide = false, onBack }: { children: ReactNode
     <div className="flex h-full flex-col overflow-y-auto bg-paper">
       <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-line bg-white px-5">
         <button type="button" onClick={onBack} className="flex items-center gap-2.5" title="Back">
-          <SequoiaMark />
-          <span className="font-display text-[17px] font-bold tracking-tight text-forest">Sequoia Engineering Lab</span>
+          <BrandMark />
+          <span className="font-display text-[17px] font-bold tracking-tight text-forest">BESA Engineering Lab</span>
         </button>
         {usingEmulators && <span className="ml-auto rounded-full bg-sun/20 px-2.5 py-1 font-mono text-[11px] font-semibold text-ink">local emulator</span>}
       </header>

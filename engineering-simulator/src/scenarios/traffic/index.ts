@@ -54,7 +54,7 @@ export const trafficScenario: Scenario<TrafficObject, TrafficResult> = {
   intro: {
     heading: 'Morning Gridlock',
     paragraphs: [
-      'Every morning, traffic around Sequoia High School grinds to a halt.',
+      'Every morning, traffic around the high school grinds to a halt.',
       'Parent drop-off lines spill onto Main Street, buses get stuck, and students dodge cars to make it to class.',
       'The city has asked your engineering team to redesign how students get to school.',
       'Get students to class on time and safely, while staying within budget.',

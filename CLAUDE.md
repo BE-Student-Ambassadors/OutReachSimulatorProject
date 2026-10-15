@@ -1,8 +1,14 @@
-# Sequoia Engineering Lab
+# BESA Engineering Lab
 
-Browser-based engineering sandbox for a high-school outreach event (Sequoia High School × UC Santa Cruz Engineering). Small groups of students get 10–15 minutes to design, test, fail, and iterate until their design meets measurable requirements.
+Browser-based engineering sandbox for a high-school outreach event (Baskin Engineering Student Ambassadors — BESA — at UC Santa Cruz, visiting high schools). Small groups of students get 10–15 minutes to design, test, fail, and iterate until their design meets measurable requirements.
 
 Scenario specs: `docs/specs/flooded-campus.md` (built, live at besachallenge.vercel.app) and `docs/specs/morning-traffic.md` (next). Read the relevant one before working on gameplay, balancing, or UI.
+
+## Branding
+
+- The product is **BESA Engineering Lab**, by the Baskin Engineering Student Ambassadors. Logo: `src/shell/BrandMark.tsx`.
+- Never name a specific school. Say "high school", "the school", or "your high school".
+- The Firebase project ID `sequoia-eng-lab` is permanent (Google can't rename project IDs); it is internal only.
 
 ## Repo layout
 
@@ -27,7 +33,7 @@ Scenario specs: `docs/specs/flooded-campus.md` (built, live at besachallenge.ver
 - **Backend = Firebase only** (project `sequoia-eng-lab`, free Spark plan): Google sign-in for instructors, anonymous sign-in for students, Firestore realtime for live sessions. No servers, no Cloud Functions, no Express. Single-player challenges still run fully client-side.
 - **Multiplayer** lives in `engineering-simulator/src/multiplayer/` (api, hooks, ui) and is scenario-agnostic: sessions, 6-digit join codes, players, groups, per-group shared docs and event feeds. Security rules: `firebase/firestore.rules` — change them together with `src/multiplayer/api.emulator.test.ts`. The shell's `Sandbox` takes an optional `GroupSync` (shared design + teammates' test runs).
 - React + TypeScript + Vite + Tailwind CSS. The world is **3D**: Three.js via `@react-three/fiber` + `@react-three/drei` (CameraControls, Line). Don't use drei `<Html>` (it breaks under React 19 StrictMode); 3D-pinned labels go through `world/Labels.tsx`.
-- Look: green and white ("Sequoia green" `forest`, `paper`, `mint`; `rust` for failures). Avoid blue in the UI chrome — water is the only blue. Fonts are bundled (offline-safe): Bricolage Grotesque (display), Instrument Sans (body), IBM Plex Mono (numbers). Theme tokens live in `src/index.css`.
+- Look: green and white ("forest" green `forest`, `paper`, `mint`; `rust` for failures). Avoid blue in the UI chrome — water is the only blue. Fonts are bundled (offline-safe): Bricolage Grotesque (display), Instrument Sans (body), IBM Plex Mono (numbers). Theme tokens live in `src/index.css`.
 - Target: Chrome on ordinary school laptops at 1366×768 and up. Desktop only; mobile isn't needed.
 - Keep dependencies minimal. Ask before adding anything heavy (game engines, physics libraries, state libraries beyond a small store such as Zustand).
 

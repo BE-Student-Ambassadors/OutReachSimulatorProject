@@ -62,7 +62,7 @@ export const floodScenario: Scenario<FloodObject, FloodResult> = {
   intro: {
     heading: 'Severe Storm Warning',
     paragraphs: [
-      'A major storm is approaching Sequoia High School.',
+      'A major storm is approaching your high school.',
       "The campus's existing drainage system cannot handle the expected rainfall. Several classrooms and important facilities are at risk of flooding.",
       'Your engineering team has been asked to redesign the campus stormwater system.',
       'Protect the school while staying within budget.',

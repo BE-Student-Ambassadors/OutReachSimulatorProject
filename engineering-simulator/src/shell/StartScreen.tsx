@@ -1,16 +1,17 @@
 import { ArrowRight } from 'lucide-react'
 import type { AnyScenario } from '../core/scenario'
-import { SequoiaMark } from './Sandbox'
+import { BrandMark } from './BrandMark'
 
 export function StartScreen({ scenarios, onStart, onJoin, onHost }: { scenarios: AnyScenario[]; onStart(s: AnyScenario): void; onJoin?(): void; onHost?(): void }) {
   return (
     <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-paper px-6">
       <Contours />
       <div className="relative flex flex-col items-center text-center">
-        <SequoiaMark size={56} />
+        <BrandMark size={56} />
         <h1 className="mt-5 font-display text-[clamp(40px,6vw,72px)] font-extrabold leading-[0.95] tracking-tight text-forest">
-          Sequoia Engineering Lab
+          BESA Engineering Lab
         </h1>
+        <p className="mt-2 font-mono text-xs uppercase tracking-[0.2em] text-ink/50">Baskin Engineering Student Ambassadors</p>
         <p className="mt-3 font-display text-xl text-ink/70">Can your team engineer a solution?</p>
         {onJoin && (
           <div className="mt-6 flex items-center gap-3">

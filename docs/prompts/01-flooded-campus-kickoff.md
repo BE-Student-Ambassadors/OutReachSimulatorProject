@@ -4,7 +4,7 @@ Paste everything below the line into Claude Code (from the repo root). Start in 
 
 ---
 
-Build the **Flooded Campus** scenario for Sequoia Engineering Lab. The full requirements are in `docs/specs/flooded-campus.md` and the project rules are in `CLAUDE.md`. Read both first.
+Build the **Flooded Campus** scenario for BESA Engineering Lab. The full requirements are in `docs/specs/flooded-campus.md` and the project rules are in `CLAUDE.md`. Read both first.
 
 **Before writing code:**
 1. Inspect `engineering-simulator/`. It's a fresh Vite + React 19 + TS scaffold. Remove the demo content.

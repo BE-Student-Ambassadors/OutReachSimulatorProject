@@ -1,5 +1,5 @@
 /**
- * The fictional Sequoia High campus: terrain, surfaces, buildings, outlets.
+ * A fictional high-school campus: terrain, surfaces, buildings, outlets.
  * North (top) is high ground; the land falls ~1% toward the south-east. A swale
  * carries parking-lot runoff toward a low bowl where Building B sits.
  */

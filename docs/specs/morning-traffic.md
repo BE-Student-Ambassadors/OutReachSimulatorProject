@@ -11,7 +11,7 @@ Every school morning, about 1,800 students arrive between 7:25 and 8:05. Parent 
 Story intro (one modal, same style as Flooded Campus):
 
 > **MORNING GRIDLOCK**
-> Every morning, traffic around Sequoia High School grinds to a halt.
+> Every morning, traffic around the high school grinds to a halt.
 > Parent drop-off lines spill onto Main Street, buses get stuck, and students dodge cars to make it to class.
 > The city has asked your engineering team to redesign how students get to school.
 > Get students to class on time and safely, while staying within budget.
@@ -30,7 +30,7 @@ The fourth thing the city cares about, cars queued back onto Main Street, is **n
 
 ## 3. Map
 
-A fictional block, not the real Sequoia layout. Built as a **lane network** (directed lane segments plus intersection nodes), not a water grid. Suggested features:
+A fictional block, not any real school's layout. Built as a **lane network** (directed lane segments plus intersection nodes), not a water grid. Suggested features:
 
 - **Main Street** across the north edge: an arterial with 2 lanes each way and steady through traffic that has nothing to do with school.
 - **Oak Avenue**, a residential street on the west side, and **Elm Street** on the east side.

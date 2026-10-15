@@ -18,7 +18,7 @@ import {
 import { placeLate, planTeams } from './teams'
 import type { Group, Player, Session, SessionState, SharedDoc } from './types'
 
-export const GROUP_NAMES = ['Redwood', 'Oak', 'Cedar', 'Pine', 'Maple', 'Willow', 'Aspen', 'Birch', 'Cypress', 'Juniper', 'Sequoia', 'Laurel']
+export const GROUP_NAMES = ['Redwood', 'Oak', 'Cedar', 'Pine', 'Maple', 'Willow', 'Aspen', 'Birch', 'Cypress', 'Juniper', 'Spruce', 'Laurel']
 export const GROUP_COLORS = ['#2c5b3c', '#b8461b', '#5d7ea6', '#d9a52b', '#7c5cbf', '#2b8a8a', '#c4568d', '#74a85f', '#8e5a3c', '#3d4a43', '#d0702a', '#4a6fa5']
 export const MAX_GROUPS = GROUP_NAMES.length * 3
 export const MIN_TEAM_SIZE = 2

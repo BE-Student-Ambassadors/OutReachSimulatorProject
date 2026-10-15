@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Sequoia Engineering Lab — live multiplayer sessions.
+// BESA Engineering Lab — live multiplayer sessions.
 //
 // Who is who:
 //   Instructor: signed in with Google, verified email at ucsc.edu or listed in /instructors/{email}.

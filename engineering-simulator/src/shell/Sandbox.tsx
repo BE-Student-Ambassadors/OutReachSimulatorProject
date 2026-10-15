@@ -3,6 +3,7 @@ import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } 
 import { money } from '../core/format'
 import { designReducer, initDesignState } from '../core/history'
 import type { AnyScenario, DesignObject, GroupSync, SimRun } from '../core/scenario'
+import { BrandMark } from './BrandMark'
 import { RequirementsPanel } from './RequirementsPanel'
 import { ResultsModal } from './ResultsModal'
 import { Toolbox } from './Toolbox'
@@ -234,9 +235,9 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
           className="flex items-center gap-2.5 text-left"
           title="Back to challenges"
         >
-          <SequoiaMark />
+          <BrandMark />
           <span className="leading-none">
-            <span className="block font-display text-[17px] font-bold tracking-tight text-forest">Sequoia Engineering Lab</span>
+            <span className="block font-display text-[17px] font-bold tracking-tight text-forest">BESA Engineering Lab</span>
             <span className="block pt-0.5 text-xs text-ink/55">
               {scenario.title} · {scenario.discipline}
             </span>
@@ -501,16 +502,5 @@ function BarButton({
       <Icon className="size-4" />
       {label}
     </button>
-  )
-}
-
-/** Simple stacked-tier sequoia mark. */
-export function SequoiaMark({ size = 34 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden>
-      <rect width="40" height="40" rx="10" fill="#2c5b3c" />
-      <path d="M20 6 L27 16 H23.5 L29 24 H24.5 L30 31 H10 L15.5 24 H11 L16.5 16 H13 Z" fill="#f4f3ec" />
-      <rect x="18.3" y="30" width="3.4" height="5" rx="1" fill="#f4f3ec" />
-    </svg>
   )
 }

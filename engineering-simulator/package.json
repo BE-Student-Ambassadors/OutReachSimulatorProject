@@ -9,8 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:mp": "cd .. && firebase emulators:exec --only auth,firestore --project demo-sequoia 'cd engineering-simulator && npx vitest run --config vitest.emulator.config.ts'",
-    "emulators": "cd .. && firebase emulators:start --only auth,firestore --project demo-sequoia",
+    "test:mp": "cd .. && firebase emulators:exec --only auth,firestore --project demo-besa 'cd engineering-simulator && npx vitest run --config vitest.emulator.config.ts'",
+    "emulators": "cd .. && firebase emulators:start --only auth,firestore --project demo-besa",
     "dev:mp": "VITE_FIREBASE_EMULATORS=1 vite"
   },
   "dependencies": {

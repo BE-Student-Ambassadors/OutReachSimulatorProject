@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from 'vitest'
 import { createSession, joinSession, makeTeams, placeLateJoiners, postEvent, setChoices, setSessionState, writeShared } from './api'
 import type { Group, Player } from './types'
 
-const PROJECT = 'demo-sequoia'
+const PROJECT = 'demo-besa'
 const apps: FirebaseApp[] = []
 let n = 0
 
