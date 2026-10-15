@@ -9,8 +9,9 @@ rules_version = '2';
 // Data (all scenario-agnostic):
 //   codes/{code}                                  -> { sessionId, hostUid }
 //   sessions/{sid}                                -> game state, controlled by the host
-//   sessions/{sid}/players/{uid}                  -> { name, groupId, joinedAt, lastSeen }
-//   sessions/{sid}/groups/{gid}                   -> { name, color, order }
+//   sessions/{sid}                                -> { gameIds (offered challenges), teamSize, state, ... }
+//   sessions/{sid}/players/{uid}                  -> { name, choices (ranked picks), groupId, joinedAt, lastSeen }
+//   sessions/{sid}/groups/{gid}                   -> { name, color, order, gameId, station }
 //   sessions/{sid}/groups/{gid}/shared/{doc}      -> live shared state for the group (e.g. the design)
 //   sessions/{sid}/groups/{gid}/events/{eid}      -> append-only group activity (test runs, results)
 service cloud.firestore {
@@ -48,6 +49,11 @@ service cloud.firestore {
       return name is string && name.size() >= 1 && name.size() <= 24;
     }
 
+    // Ranked picks: at most two, all from the challenges this session offers.
+    function validChoices(sid, choices) {
+      return choices is list && choices.size() <= 2 && sessionData(sid).gameIds.hasAll(choices);
+    }
+
     // Instructor allow-list (managed in the Firebase console; doc id = email).
     match /instructors/{email} {
       allow read: if signedIn() && request.auth.token.email == email;
@@ -70,7 +76,9 @@ service cloud.firestore {
       allow list: if isInstructor() && resource.data.hostUid == request.auth.uid;
       allow create: if isInstructor()
         && request.resource.data.hostUid == request.auth.uid
-        && request.resource.data.state == 'lobby';
+        && request.resource.data.state == 'lobby'
+        && request.resource.data.gameIds is list && request.resource.data.gameIds.size() > 0
+        && request.resource.data.teamSize is int;
       allow update: if isHost(sid) && request.resource.data.hostUid == resource.data.hostUid;
       allow delete: if isHost(sid);
 
@@ -80,11 +88,13 @@ service cloud.firestore {
           && sessionData(sid).state != 'ended'
           && validName(request.resource.data.name)
           && request.resource.data.groupId == null
-          && request.resource.data.keys().hasOnly(['name', 'groupId', 'joinedAt', 'lastSeen']);
-        // Students may rename themselves and update presence; only the host assigns groups.
+          && request.resource.data.choices == []
+          && request.resource.data.keys().hasOnly(['name', 'choices', 'groupId', 'joinedAt', 'lastSeen']);
+        // Students may rename themselves, update presence, and set their picks; only the host assigns teams.
         allow update: if (request.auth.uid == uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastSeen'])
-            && validName(request.resource.data.name))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastSeen', 'choices'])
+            && validName(request.resource.data.name)
+            && validChoices(sid, request.resource.data.choices))
           || isHost(sid);
         allow delete: if request.auth.uid == uid || isHost(sid);
       }

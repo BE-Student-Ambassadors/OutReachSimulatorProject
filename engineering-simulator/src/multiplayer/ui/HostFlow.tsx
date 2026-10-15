@@ -2,7 +2,7 @@ import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth'
 import { Clock, LogOut, Play, Plus, Shuffle, Square, UserX, Users } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { AnyScenario } from '../../core/scenario'
-import { assignGroups, createSession, MAX_GROUPS, movePlayer, placeLateJoiners, removePlayer, setSessionState, updateSession } from '../api'
+import { createSession, makeTeams, MAX_TEAM_SIZE, MIN_TEAM_SIZE, movePlayer, placeLateJoiners, removePlayer, setSessionState, updateSession } from '../api'
 import { auth, db } from '../firebase'
 import { isOnline, useAuthUser, useEvents, useGroups, useNow, usePlayers, useSession } from '../hooks'
 import type { Group, Player, Session } from '../types'
@@ -50,8 +50,8 @@ export function HostFlow({ scenarios, onExit }: { scenarios: AnyScenario[]; onEx
         hostName={hostName}
         email={user.email}
         onBack={onExit}
-        onCreate={async (gameId, groupCount) => {
-          const s = await createSession(db, { uid: user.uid, name: hostName }, { gameId, groupCount })
+        onCreate={async (gameIds, teamSize) => {
+          const s = await createSession(db, { uid: user.uid, name: hostName }, { gameIds, teamSize })
           saveGame('host', s.id)
           setSid(s.id)
         }}
@@ -60,11 +60,12 @@ export function HostFlow({ scenarios, onExit }: { scenarios: AnyScenario[]; onEx
   return <HostSession sid={sid} scenarios={scenarios} onDone={exit} onNew={() => (saveGame('host', null), setSid(null))} />
 }
 
-function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: AnyScenario[]; hostName: string; email: string | null; onCreate(gameId: string, groups: number): Promise<void>; onBack(): void }) {
-  const [gameId, setGameId] = useState(scenarios[0].id)
-  const [groups, setGroups] = useState(4)
+function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: AnyScenario[]; hostName: string; email: string | null; onCreate(gameIds: string[], teamSize: number): Promise<void>; onBack(): void }) {
+  const [picked, setPicked] = useState<string[]>(scenarios.map((s) => s.id))
+  const [teamSize, setTeamSize] = useState(4)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : scenarios.map((s) => s.id).filter((x) => x === id || p.includes(x))))
   return (
     <Screen onBack={onBack}>
       <Card>
@@ -80,31 +81,37 @@ function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: An
             <LogOut className="size-3.5" /> Sign out
           </button>
         </div>
-        <div className="mt-6 space-y-3">
-          <div className="text-sm font-semibold">Challenge</div>
-          {scenarios.map((s) => (
-            <label key={s.id} className={`flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-1 ${gameId === s.id ? 'bg-mint ring-2 ring-forest' : 'ring-line hover:bg-paper'}`}>
-              <input type="radio" name="game" className="accent-forest" checked={gameId === s.id} onChange={() => setGameId(s.id)} />
-              <span>
-                <span className="block font-display font-bold">{s.title}</span>
-                <span className="block text-xs text-ink/60">{s.discipline}</span>
-              </span>
-            </label>
-          ))}
+        <div className="mt-6">
+          <div className="text-sm font-semibold">Challenges to offer</div>
+          <p className="text-xs text-ink/55">Students rank their top two; teams form within each challenge.</p>
+          <div className="mt-2 space-y-2">
+            {scenarios.map((s) => (
+              <label key={s.id} className={`flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-1 ${picked.includes(s.id) ? 'bg-mint ring-2 ring-forest' : 'ring-line hover:bg-paper'}`}>
+                <input type="checkbox" className="size-4 accent-forest" checked={picked.includes(s.id)} onChange={() => toggle(s.id)} />
+                <span>
+                  <span className="block font-display font-bold">{s.title}</span>
+                  <span className="block text-xs text-ink/60">{s.discipline}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
         <div className="mt-6 flex items-center justify-between">
-          <span className="text-sm font-semibold">Number of teams</span>
-          <Stepper value={groups} min={1} max={MAX_GROUPS} onChange={setGroups} />
+          <span>
+            <span className="block text-sm font-semibold">Students per team</span>
+            <span className="block text-xs text-ink/55">Teams are split as close to this as possible.</span>
+          </span>
+          <Stepper value={teamSize} min={MIN_TEAM_SIZE} max={MAX_TEAM_SIZE} onChange={setTeamSize} />
         </div>
         {error && <p className="mt-4 rounded-lg bg-[#fbeee6] px-3 py-2 text-sm font-medium text-rust">{error}</p>}
         <PrimaryButton
           className="mt-6 w-full"
-          disabled={busy}
+          disabled={busy || !picked.length}
           onClick={async () => {
             setBusy(true)
             setError(null)
             try {
-              await onCreate(gameId, groups)
+              await onCreate(picked, teamSize)
             } catch (e) {
               const code = (e as { code?: string }).code
               setError(code === 'permission-denied' ? 'This account is not allowed to host games. Ask an admin to add your email to the instructor list.' : 'Could not create the game. Check your connection and try again.')
@@ -138,7 +145,7 @@ function HostSession({ sid, scenarios, onDone, onNew }: { sid: string; scenarios
   const groups = useGroups(sid)
   const now = useNow()
   const [minutes, setMinutes] = useState(15)
-  const scenario = scenarios.find((s) => s.id === session?.gameId)
+  const offered = scenarios.filter((s) => session?.gameIds.includes(s.id))
 
   // While playing, put late joiners on the smallest team, and end the round when time is up.
   const unassigned = players.filter((p) => !p.groupId).length
@@ -156,7 +163,7 @@ function HostSession({ sid, scenarios, onDone, onNew }: { sid: string; scenarios
     <Screen wide onBack={onDone}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="font-mono text-xs uppercase tracking-wider text-ink/50">{scenario?.title ?? session.gameId}</div>
+          <div className="font-mono text-xs uppercase tracking-wider text-ink/50">{offered.map((s) => s.title).join(' · ')}</div>
           <h1 className="font-display text-3xl font-extrabold text-forest">
             {session.state === 'lobby' ? 'Waiting for players' : session.state === 'playing' ? 'Game in progress' : 'Game over'}
           </h1>
@@ -198,71 +205,116 @@ function HostSession({ sid, scenarios, onDone, onNew }: { sid: string; scenarios
       )}
 
       {session.state === 'lobby' && (
-        <Lobby session={session} players={players} groups={groups} minutes={minutes} setMinutes={setMinutes} />
+        <Lobby session={session} offered={offered} players={players} groups={groups} minutes={minutes} setMinutes={setMinutes} />
       )}
-      {session.state !== 'lobby' && (
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {groups.map((g) => (
-            <GroupCard key={g.id} sid={sid} group={g} players={players.filter((p) => p.groupId === g.id)} since={session.createdAt} now={now} />
-          ))}
-        </div>
-      )}
+      {session.state !== 'lobby' &&
+        offered.map((sc) => {
+          const teams = groups.filter((g) => g.gameId === sc.id)
+          if (!teams.length) return null
+          return (
+            <section key={sc.id} className="mt-6">
+              <h2 className="font-display text-xl font-bold">{sc.title}</h2>
+              <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {teams.map((g) => (
+                  <GroupCard key={g.id} sid={sid} group={g} players={players.filter((p) => p.groupId === g.id)} since={session.createdAt} now={now} />
+                ))}
+              </div>
+            </section>
+          )
+        })}
     </Screen>
   )
 }
 
-function Lobby({ session, players, groups, minutes, setMinutes }: { session: Session; players: Player[]; groups: Group[]; minutes: number; setMinutes(m: number): void }) {
+function Lobby({ session, offered, players, groups, minutes, setMinutes }: { session: Session; offered: AnyScenario[]; players: Player[]; groups: Group[]; minutes: number; setMinutes(m: number): void }) {
   const sid = session.id
-  const [teams, setTeams] = useState(session.groupCount)
   const now = useNow(5000)
   const grouped = groups.length > 0 && players.every((p) => p.groupId)
+  const title = (id: string) => offered.find((s) => s.id === id)?.title ?? id
   return (
     <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-xl font-bold">Teams</h2>
-          <div className="flex items-center gap-3">
-            <Stepper value={teams} min={1} max={MAX_GROUPS} onChange={setTeams} />
-            <SecondaryButton disabled={!players.length} onClick={() => void assignGroups(db, sid, teams)}>
-              <Shuffle className="size-4" /> {groups.length ? 'Reshuffle' : 'Make teams'}
-            </SecondaryButton>
-          </div>
-        </div>
-        {groups.length === 0 ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {players.map((p) => (
-              <PlayerChip key={p.id} sid={sid} p={p} now={now} />
-            ))}
-            {!players.length && <p className="text-ink/55">Players appear here as they join.</p>}
-          </div>
-        ) : (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {groups.map((g) => (
-              <div key={g.id} className="rounded-xl p-3 ring-1 ring-line">
-                <div className="mb-2 flex items-center gap-2 font-display font-bold" style={{ color: g.color }}>
-                  <Users className="size-4" /> {g.name}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {players.filter((p) => p.groupId === g.id).map((p) => (
-                    <PlayerChip key={p.id} sid={sid} p={p} now={now} groups={groups} />
-                  ))}
-                </div>
-              </div>
-            ))}
-            {players.some((p) => !p.groupId) && (
-              <div className="rounded-xl bg-paper p-3 ring-1 ring-line sm:col-span-2">
-                <div className="mb-2 text-sm font-semibold text-ink/60">Not on a team yet</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {players.filter((p) => !p.groupId).map((p) => (
-                    <PlayerChip key={p.id} sid={sid} p={p} now={now} groups={groups} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+      <div className="space-y-6">
+        {offered.length > 1 && (
+          <Card>
+            <h2 className="font-display text-xl font-bold">Interest</h2>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {offered.map((s) => {
+                const first = players.filter((p) => p.choices?.[0] === s.id).length
+                const second = players.filter((p) => p.choices?.[1] === s.id).length
+                return (
+                  <div key={s.id} className="flex items-center justify-between rounded-xl bg-paper px-3 py-2 ring-1 ring-line">
+                    <span className="font-semibold">{s.title}</span>
+                    <span className="font-mono text-sm">
+                      <span className="font-semibold text-forest">{first}</span> 1st · <span className="text-ink/60">{second}</span> 2nd
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="mt-2 text-xs text-ink/55">{players.filter((p) => !p.choices?.length).length} still choosing</p>
+          </Card>
         )}
-      </Card>
-      <Card>
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-xl font-bold">Teams</h2>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-ink/60">per team</span>
+              <Stepper value={session.teamSize} min={MIN_TEAM_SIZE} max={MAX_TEAM_SIZE} onChange={(v) => void updateSession(db, sid, { teamSize: v })} />
+              <SecondaryButton disabled={!players.length} onClick={() => void makeTeams(db, sid)}>
+                <Shuffle className="size-4" /> {groups.length ? 'Remake teams' : 'Make teams'}
+              </SecondaryButton>
+            </div>
+          </div>
+          {groups.length === 0 ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {players.map((p) => (
+                <PlayerChip key={p.id} sid={sid} p={p} now={now} picks={(p.choices ?? []).map(title)} />
+              ))}
+              {!players.length && <p className="text-ink/55">Players appear here as they join.</p>}
+            </div>
+          ) : (
+            <div className="mt-4 space-y-4">
+              {offered.map((sc) => {
+                const teams = groups.filter((g) => g.gameId === sc.id)
+                if (!teams.length) return null
+                return (
+                  <div key={sc.id}>
+                    <div className="mb-2 text-sm font-semibold text-ink/60">{sc.title}</div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {teams.map((g) => (
+                        <div key={g.id} className="rounded-xl p-3 ring-1 ring-line">
+                          <div className="mb-2 flex items-center justify-between font-display font-bold" style={{ color: g.color }}>
+                            <span className="flex items-center gap-2">
+                              <Users className="size-4" /> {g.name}
+                            </span>
+                            <span className="rounded-full bg-paper px-2 py-0.5 font-mono text-xs text-ink ring-1 ring-line">Station {g.station}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {players.filter((p) => p.groupId === g.id).map((p) => (
+                              <PlayerChip key={p.id} sid={sid} p={p} now={now} groups={groups} gameTitle={title} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+              {players.some((p) => !p.groupId) && (
+                <div className="rounded-xl bg-paper p-3 ring-1 ring-line">
+                  <div className="mb-2 text-sm font-semibold text-ink/60">Not on a team yet</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {players.filter((p) => !p.groupId).map((p) => (
+                      <PlayerChip key={p.id} sid={sid} p={p} now={now} groups={groups} gameTitle={title} picks={(p.choices ?? []).map(title)} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
+      <Card className="h-fit">
         <h2 className="font-display text-xl font-bold">Start</h2>
         <div className="mt-3 text-sm font-semibold text-ink/60">Round length</div>
         <div className="mt-2 grid grid-cols-4 gap-1 rounded-lg bg-paper p-1 ring-1 ring-black/5">
@@ -279,17 +331,20 @@ function Lobby({ session, players, groups, minutes, setMinutes }: { session: Ses
         >
           <Play className="size-4" /> Start game
         </PrimaryButton>
-        {!grouped && <p className="mt-2 text-xs text-ink/55">Make teams first. Students who join later are added to the smallest team.</p>}
+        <p className="mt-2 text-xs text-ink/55">
+          {grouped ? 'Students will see their team and station number.' : 'Make teams first. Students who join later go to the smallest team of their top pick.'}
+        </p>
       </Card>
     </div>
   )
 }
 
-function PlayerChip({ sid, p, now, groups }: { sid: string; p: Player; now: number; groups?: Group[] }) {
+function PlayerChip({ sid, p, now, groups, picks, gameTitle }: { sid: string; p: Player; now: number; groups?: Group[]; picks?: string[]; gameTitle?(id: string): string }) {
   return (
     <span className="group/chip flex items-center gap-1.5 rounded-full bg-white py-1 pl-2.5 pr-1 text-sm ring-1 ring-line">
       <span className={`size-2 rounded-full ${isOnline(p.lastSeen, now) ? 'bg-leaf' : 'bg-line'}`} />
       {p.name}
+      {picks && picks.length > 0 && <span className="font-mono text-[10px] text-ink/50">{picks.map((t, i) => `${i + 1}. ${t}`).join('  ')}</span>}
       {groups && groups.length > 1 && (
         <select
           aria-label={`Move ${p.name}`}
@@ -299,7 +354,7 @@ function PlayerChip({ sid, p, now, groups }: { sid: string; p: Player; now: numb
         >
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
-              {g.name.replace('Team ', '')}
+              St {g.station} · {gameTitle ? gameTitle(g.gameId) : g.name}
             </option>
           ))}
         </select>
@@ -327,7 +382,7 @@ function GroupCard({ sid, group, players, since, now }: { sid: string; group: Gr
     <Card className="!p-4">
       <div className="flex items-center justify-between">
         <div className="font-display text-lg font-bold" style={{ color: group.color }}>
-          {group.name}
+          {group.name} <span className="ml-1 font-mono text-xs font-medium text-ink/50">Station {group.station}</span>
         </div>
         {passes.length > 0 && <span className="rounded-full bg-forest px-2 py-0.5 text-xs font-bold text-white">Passed ✓</span>}
       </div>
