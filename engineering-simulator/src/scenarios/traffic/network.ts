@@ -1,5 +1,5 @@
 /**
- * The fictional streets around Sequoia High (meters; x east, y south; map is 400 × 260).
+ * The fictional streets around a high school (meters; x east, y south; map is 400 × 260).
  *
  *   y=19  ─────────── north sidewalk (apartments beyond) ────────────
  *   y=25/28 Main St westbound (WB_R outer, WB_L inner)

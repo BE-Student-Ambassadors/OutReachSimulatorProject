@@ -58,6 +58,8 @@ export interface SimRun<R> {
   /** 0..1, how intense the event currently is (drives sky/rain/shake effects). */
   readonly intensity: number
   readonly totalTicks: number
+  /** Optional custom real-time playback duration in seconds (defaults to 18s). */
+  readonly durationSeconds?: number
   result(): R
   /** Optional in-world clock for the status bar, e.g. "7:52". */
   clockLabel?(): string
@@ -93,6 +95,10 @@ export interface WorldProps<O extends DesignObject, R> {
   onSelect(id: string | null): void
   /** The active tool finished its placement. */
   onToolDone(): void
+  /** Optional multiplayer group sync context. */
+  sync?: GroupSync<O>
+  /** Optional callback allowing a scenario workstation to trigger a specific test variant. */
+  onStartRun?(variantId: string): void
 }
 
 export interface PropertiesProps<O extends DesignObject> {
@@ -136,6 +142,8 @@ export interface Scenario<O extends DesignObject, R> {
   }
   /** Illustration for the start-screen card. */
   CardArt?: ComponentType
+  /** When true, hides the CAD toolbox/sidebars so World renders a clean step-by-step guided UI. */
+  minimalShell?: boolean
 }
 
 // Scenarios are heterogeneous; the shell treats their object/result types opaquely.
@@ -148,6 +156,8 @@ export type AnyScenario = Scenario<any, any>
  */
 export interface GroupSync<O extends DesignObject = DesignObject> {
   me: string
+  meName?: string
+  teammates?: { id: string; name: string }[]
   /** Subscribe to the group's shared design (null = nobody has edited yet). Returns an unsubscribe. */
   onRemoteDesign(cb: (d: { design: O[]; rev: number; updatedBy: string } | null) => void): () => void
   push(design: O[]): void

@@ -10,12 +10,12 @@ Students should learn by experimenting. The game reports **what** failed and nev
 
 ## 2. Screens and flow
 
-1. **Start screen.** Title "SEQUOIA ENGINEERING LAB", tagline "Can your team engineer a solution?", and one scenario card:
+1. **Start screen.** Title "BESA ENGINEERING LAB", tagline "Can your team engineer a solution?", and one scenario card:
    - FLOODED CAMPUS · Civil + Environmental Engineering
    - "A severe storm is approaching. Protect the school from flooding."
    - [START CHALLENGE]
    - Show only real scenarios. No fake cards.
-2. **Story intro** (one modal): "SEVERE STORM WARNING". A major storm is approaching Sequoia High School. The campus's existing drainage system can't handle the expected rainfall, and several classrooms and important facilities are at risk of flooding. Your engineering team has been asked to redesign the campus stormwater system. Protect the school while staying within budget.
+2. **Story intro** (one modal): "SEVERE STORM WARNING". A major storm is approaching your high school. The campus's existing drainage system can't handle the expected rainfall, and several classrooms and important facilities are at risk of flooding. Your engineering team has been asked to redesign the campus stormwater system. Protect the school while staying within budget.
 3. **First-run instructions** (show once; remember with localStorage):
    1. Drag engineering tools onto the campus.
    2. Stay within your $150,000 budget.
@@ -30,7 +30,7 @@ Students should learn by experimenting. The game reports **what** failed and nev
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ SEQUOIA ENGINEERING LAB · Flooded Campus   $118,000 / $150,000  ● Ready│  top bar
+│ BESA ENGINEERING LAB · Flooded Campus   $118,000 / $150,000  ● Ready│  top bar
 ├────────────┬───────────────────────────────────────┬─────────────────┤
 │ TOOLBOX    │                                       │ REQUIREMENTS    │
 │ (drag)     │        CAMPUS MAP (visual focus)      │ live metrics    │
@@ -57,7 +57,7 @@ Show each one with its target, the current or last-test value, and ✅/❌. Cost
 
 ## 5. Campus map
 
-A fictional campus, not the real Sequoia layout, containing Classroom Building A, Classroom Building B, Gym, Cafeteria, Parking lot, Courtyard, Athletic field, Roads, Sidewalks, and grassy areas.
+A fictional campus, not any real school's layout, containing Classroom Building A, Classroom Building B, Gym, Cafeteria, Parking lot, Courtyard, Athletic field, Roads, Sidewalks, and grassy areas.
 
 - Grid-based terrain (suggested size about 80×50 cells; tune for performance). Each cell has `elevation`, `surface` (asphalt | concrete | grass | field | permeable | rainGarden | building | water), `water`, `permeability`/infiltration rate, `drainCapacity`, and `buildingId?`.
 - Subtle elevation differences. Water flows downhill. Render elevation with gentle shading and landscaping, and hide the grid except in debug mode (toggle with `D` or `?debug`).

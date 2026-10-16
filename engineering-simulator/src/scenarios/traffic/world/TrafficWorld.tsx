@@ -28,7 +28,7 @@ const LABELS: PinnedLabel[] = [
   { key: 'oak', pos: [40, 1, 200], text: 'Oak Ave', tone: 'street' },
   { key: 'elm', pos: [360, 1, 215], text: 'Elm St', tone: 'street' },
   { key: 'pine', pos: [120, 1, 250], text: 'Pine St', tone: 'street' },
-  { key: 'school', pos: [200, 14, 127], text: 'Sequoia High School', tone: 'place' },
+  { key: 'school', pos: [200, 14, 127], text: 'High School', tone: 'place' },
   { key: 'entrance', pos: [200, 3, 44], text: 'Main entrance', tone: 'tag' },
   { key: 'loop', pos: [200, 2, 80], text: 'Drop-off loop', tone: 'tag' },
   { key: 'side', pos: [350, 3, 150], text: 'Side gate', tone: 'tag' },

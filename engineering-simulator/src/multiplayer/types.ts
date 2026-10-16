@@ -7,10 +7,11 @@ export interface Session {
   code: string
   hostUid: string
   hostName: string
-  /** Which game/scenario this session plays, e.g. 'flood' or 'traffic'. */
-  gameId: string
+  /** Challenges offered in this session (scenario ids); students rank their favourites. */
+  gameIds: string[]
   state: SessionState
-  groupCount: number
+  /** Target number of students per team. */
+  teamSize: number
   /** Milliseconds since epoch when the round ends, or null for no timer. */
   endsAt: number | null
   /** Optional message the host broadcasts to every device. */
@@ -21,6 +22,8 @@ export interface Session {
 export interface Player {
   id: string
   name: string
+  /** Ranked challenge picks, best first (up to 2). */
+  choices: string[]
   groupId: string | null
   joinedAt: number
   lastSeen: number
@@ -31,6 +34,10 @@ export interface Group {
   name: string
   color: string
   order: number
+  /** The challenge this team plays. */
+  gameId: string
+  /** Where the team meets in the room (tables labelled 1, 2, 3…). */
+  station: number
 }
 
 /** A live shared document for one group (e.g. the group's design). `rev` increases on every write. */

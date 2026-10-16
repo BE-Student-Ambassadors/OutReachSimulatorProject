@@ -13,8 +13,9 @@ export function useAuthUser() {
   return user // undefined while loading
 }
 
+/** undefined while loading, null if the game doesn't exist (e.g. deleted). */
 export function useSession(sid: string | null) {
-  const [session, setSession] = useState<Session | null>(null)
+  const [session, setSession] = useState<Session | null | undefined>(undefined)
   useEffect(() => {
     if (!sid) return
     return onSnapshot(doc(db, 'sessions', sid), (s) => setSession(s.exists() ? ({ id: s.id, ...s.data() } as Session) : null))

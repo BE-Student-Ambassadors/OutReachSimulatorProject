@@ -4,7 +4,7 @@ Paste everything below the line into Claude Code (from the repo root). Start in 
 
 ---
 
-Build the **Morning Traffic** scenario for Sequoia Engineering Lab. The requirements are in `docs/specs/morning-traffic.md`, and the project rules are in `CLAUDE.md`. Flooded Campus (`engineering-simulator/src/scenarios/flood/`) is the reference implementation: match its structure, and read spec §12 ("Lessons from Flooded Campus") before you start.
+Build the **Morning Traffic** scenario for BESA Engineering Lab. The requirements are in `docs/specs/morning-traffic.md`, and the project rules are in `CLAUDE.md`. Flooded Campus (`engineering-simulator/src/scenarios/flood/`) is the reference implementation: match its structure, and read spec §12 ("Lessons from Flooded Campus") before you start.
 
 **Before writing code:**
 1. Read the spec, `CLAUDE.md`, `src/core/scenario.ts`, and skim `src/scenarios/flood/`.

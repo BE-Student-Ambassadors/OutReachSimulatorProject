@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { AnyScenario } from './core/scenario'
+import { savedGame } from './multiplayer/saved'
 import { HostFlow } from './multiplayer/ui/HostFlow'
 import { StudentFlow } from './multiplayer/ui/StudentFlow'
 import { scenarios } from './scenarios/registry'
@@ -17,6 +18,9 @@ function initialMode(): Mode {
   const q = new URLSearchParams(location.search)
   if (q.has('join')) return { kind: 'join', code: (q.get('join') ?? '').replace(/\D/g, '').slice(0, 6) }
   if (q.has('host')) return { kind: 'host' }
+  // A refresh (or reopened tab) goes straight back into a live game this browser is in.
+  if (savedGame('student')) return { kind: 'join', code: '' }
+  if (savedGame('host')) return { kind: 'host' }
   const play = q.get('play')
   if (play !== null) return { kind: 'solo', scenario: scenarios.find((s) => s.id === play) ?? scenarios[0], intro: false }
   return { kind: 'start' }

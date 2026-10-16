@@ -19,7 +19,7 @@ export const firebaseConfig = {
 export const usingEmulators = import.meta.env.VITE_FIREBASE_EMULATORS === '1'
 
 // In emulator mode use a demo- project id so nothing can ever reach the real project.
-export const app = getApps().length ? getApp() : initializeApp(usingEmulators ? { ...firebaseConfig, projectId: 'demo-sequoia' } : firebaseConfig)
+export const app = getApps().length ? getApp() : initializeApp(usingEmulators ? { ...firebaseConfig, projectId: 'demo-besa' } : firebaseConfig)
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 
