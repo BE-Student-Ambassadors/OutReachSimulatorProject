@@ -68,6 +68,7 @@ export function BattlebotApp() {
 
   const toastTimeoutRef = useRef<number | null>(null);
   const installTimeoutRef = useRef<number | null>(null);
+  const toastCounterRef = useRef<number>(0);
 
   const stats = useMemo(() => calculateEngineeringStats(config), [config]);
 
@@ -118,8 +119,9 @@ export function BattlebotApp() {
     }, 650);
 
     if (changes.length > 0) {
+      toastCounterRef.current += 1;
       setConsequenceToast({
-        id: Date.now(),
+        id: toastCounterRef.current,
         componentName,
         category,
         changes,
@@ -132,7 +134,7 @@ export function BattlebotApp() {
   };
 
   const handleEquipPart = (category: ComponentCategory, id: string, labelName?: string) => {
-    let nextConfig = { ...config };
+    const nextConfig = { ...config };
     let partName = labelName || id.toUpperCase();
 
     switch (category) {

@@ -359,13 +359,11 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   );
   const [camMode, setCamMode] = useState<SpectatorCamMode>('director');
 
-  const simRef = useRef<LiveBattleSimulation | null>(null);
-  if (!simRef.current) {
-    simRef.current = createBattleSimulation(playerConfig, selectedStrategy);
-  }
+  const [initialSim] = useState(() => createBattleSimulation(playerConfig, selectedStrategy));
+  const simRef = useRef<LiveBattleSimulation | null>(initialSim);
 
-  const [hudPlayer, setHudPlayer] = useState<CombatantTelemetry>(simRef.current.player);
-  const [hudBull, setHudBull] = useState<CombatantTelemetry>(simRef.current.bull);
+  const [hudPlayer, setHudPlayer] = useState<CombatantTelemetry>(() => initialSim.player);
+  const [hudBull, setHudBull] = useState<CombatantTelemetry>(() => initialSim.bull);
   const [hudTimeSec, setHudTimeSec] = useState<number>(0);
   const [hudEvents, setHudEvents] = useState<BattleEventLog[]>([]);
   const [analysisReport, setAnalysisReport] = useState<BattleAnalysisReport | null>(null);
