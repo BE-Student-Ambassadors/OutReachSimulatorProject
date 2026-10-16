@@ -154,13 +154,39 @@ export async function updateSession(db: Firestore, sid: string, patch: Partial<P
   await updateDoc(sessionRef(db, sid), patch)
 }
 
+interface TimestampedItem {
+  id: string
+  updatedAt?: number
+}
+
+function isTimestampedArray(v: unknown): v is TimestampedItem[] {
+  return (
+    Array.isArray(v) &&
+    v.length > 0 &&
+    v.every((x) => typeof x === 'object' && x !== null && 'id' in x && typeof (x as TimestampedItem).updatedAt === 'number')
+  )
+}
+
 /** Write a group's shared document; `rev` increments so every device can tell new state apart. */
 export async function writeShared<T>(db: Firestore, sid: string, gid: string, docId: string, data: T, uid: string): Promise<number> {
   const ref = sharedRef(db, sid, gid, docId)
   return runTransaction(db, async (tx) => {
     const cur = await tx.get(ref)
-    const rev = (cur.exists() ? ((cur.data() as SharedDoc).rev ?? 0) : 0) + 1
-    tx.set(ref, { data, rev, updatedBy: uid, updatedAt: Date.now() })
+    const prevDoc = cur.exists() ? (cur.data() as SharedDoc) : null
+    const rev = (prevDoc?.rev ?? 0) + 1
+    let merged: unknown = data
+    if (prevDoc && isTimestampedArray(prevDoc.data) && isTimestampedArray(data)) {
+      const byId = new Map<string, TimestampedItem>()
+      for (const item of prevDoc.data) byId.set(item.id, item)
+      for (const item of data) {
+        const existing = byId.get(item.id)
+        if (!existing || (item.updatedAt ?? 0) >= (existing.updatedAt ?? 0)) {
+          byId.set(item.id, item)
+        }
+      }
+      merged = [...byId.values()]
+    }
+    tx.set(ref, { data: merged, rev, updatedBy: uid, updatedAt: Date.now() })
     return rev
   })
 }

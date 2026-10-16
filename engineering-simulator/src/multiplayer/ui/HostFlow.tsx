@@ -62,7 +62,7 @@ export function HostFlow({ scenarios, onExit }: { scenarios: AnyScenario[]; onEx
 
 function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: AnyScenario[]; hostName: string; email: string | null; onCreate(gameIds: string[], teamSize: number): Promise<void>; onBack(): void }) {
   const [picked, setPicked] = useState<string[]>(scenarios.map((s) => s.id))
-  const [teamSize, setTeamSize] = useState(4)
+  const [teamSize, setTeamSize] = useState(() => (scenarios.some((s) => s.id === 'rocket') ? 6 : 4))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : scenarios.map((s) => s.id).filter((x) => x === id || p.includes(x))))

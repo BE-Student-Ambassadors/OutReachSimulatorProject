@@ -144,6 +144,7 @@ function StudentSession({ sid, scenarios, onLeave }: { sid: string; scenarios: A
         gid={group.id}
         uid={user!.uid}
         name={me.name}
+        teammates={teammates.map((p) => ({ id: p.id, name: p.name }))}
         scenario={scenario}
         frozen={timeUp}
         onLeave={onLeave}
@@ -253,17 +254,20 @@ function GroupPlay(props: {
   gid: string
   uid: string
   name: string
+  teammates: { id: string; name: string }[]
   scenario: AnyScenario
   frozen: boolean
   header: React.ReactNode
   onLeave(): void
 }) {
-  const { sid, gid, uid, name, scenario, frozen, header, onLeave } = props
+  const { sid, gid, uid, name, teammates, scenario, frozen, header, onLeave } = props
   // Only replay teammates' tests that start after this device opened the game.
   const [joinedAt] = useState(() => Date.now() - 2000)
   const sync = useMemo<GroupSync>(
     () => ({
       me: uid,
+      meName: name,
+      teammates,
       onRemoteDesign: (cb) =>
         onSnapshot(sharedRef(db, sid, gid, 'design'), (s) => {
           const d = s.data()
@@ -281,7 +285,7 @@ function GroupPlay(props: {
       announceRun: (variantId, design) => void postEvent(db, sid, gid, 'run', { variantId, design }, { uid, name }).catch(() => {}),
       reportResult: (r) => void postEvent(db, sid, gid, 'result', r, { uid, name }).catch(() => {}),
     }),
-    [sid, gid, uid, name, joinedAt],
+    [sid, gid, uid, name, teammates, joinedAt],
   )
   return <Sandbox scenario={scenario} sync={sync} frozen={frozen} headerExtra={header} onExit={onLeave} />
 }
