@@ -1,4 +1,5 @@
 import { OrbitControls } from '@react-three/drei';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
@@ -28,7 +29,7 @@ const CameraController: React.FC<{
   activeTest: ActiveTestVisualState;
 }> = ({ mode, resetTrigger, activeTest }) => {
   const { camera } = useThree();
-  const controlsRef = useRef<any>(null);
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
 
   useEffect(() => {
     if (mode === 'test-lab') {

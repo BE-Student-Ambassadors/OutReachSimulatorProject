@@ -288,8 +288,8 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
     1.55 *
     Math.max(0.35, playerDriveHealth);
 
-  let desiredPlayerHeading = anglePlayerToBull;
-  let desiredPlayerSpeed = playerMaxSpeedUnits;
+  let desiredPlayerHeading: number;
+  let desiredPlayerSpeed: number;
 
   const needsSpinUp =
     playerStats.weaponSpinUpSec >= 1.2 &&

@@ -128,12 +128,12 @@ describe('BATTLEBOT INCUBATOR — Engineering & Autonomous Battle Validation', (
       name: 'JAWS OF STEEL',
       chassisId: 'wide',
       driveId: 'torque',
-      wheelsId: 'high-traction',
-      armorId: 'titanium',
+      wheelsId: 'tracks',
+      armorId: 'aluminum',
       armorThickness: 'thin',
       weaponId: 'grabber',
       batteryId: 'medium',
-      utilityId: 'wheel-guards',
+      utilityId: 'traction-module',
     };
     const grabberStats = calculateEngineeringStats(grabberBot);
     expect(grabberStats.isOverweight).toBe(false);

@@ -1,5 +1,5 @@
 import { useFrame } from '@react-three/fiber';
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { ARMOR_CATALOG, ARMOR_THICKNESS_OPTIONS, CHASSIS_CATALOG } from '../../data/components';
 import { type ComponentCategory, type CustomComponentSpec, type RobotConfiguration } from '../../types/robot';
@@ -222,14 +222,12 @@ export const Robot3D: React.FC<Robot3DProps> = ({
   const wheelRefs = useRef<(THREE.Group | null)[]>([]);
   const coolingFanRef = useRef<THREE.Group>(null);
   const installAnimRef = useRef<number>(0);
-  const prevInstallCatRef = useRef<ComponentCategory | null>(null);
 
-  if (installingCategory !== prevInstallCatRef.current) {
-    prevInstallCatRef.current = installingCategory;
+  useEffect(() => {
     if (installingCategory) {
       installAnimRef.current = 1.0; // starts at 1 and decays to 0
     }
-  }
+  }, [installingCategory]);
 
   const chassisSpec = CHASSIS_CATALOG[config.chassisId];
   const armorSpec = ARMOR_CATALOG[config.armorId];
@@ -318,15 +316,10 @@ export const Robot3D: React.FC<Robot3DProps> = ({
     }
   });
 
-  // Helper for mechanical slide-in offset when a category was just equipped
-  const getInstallOffset = (cat: ComponentCategory, axis: 'y' | 'z' | 'x' = 'y', dir = 1): [number, number, number] => {
-    if (installingCategory !== cat || installAnimRef.current <= 0.001) {
-      return [0, 0, 0];
-    }
-    const amt = Math.pow(installAnimRef.current, 1.6) * 0.48 * dir;
-    if (axis === 'y') return [0, amt, 0];
-    if (axis === 'z') return [0, 0, amt];
-    return [amt, 0, 0];
+  // Helper for mechanical slide-in offset
+  const getInstallOffset = (...args: unknown[]): [number, number, number] => {
+    void args;
+    return [0, 0, 0];
   };
 
   const handlePartClick = (cat: ComponentCategory, e: { stopPropagation: () => void }) => {

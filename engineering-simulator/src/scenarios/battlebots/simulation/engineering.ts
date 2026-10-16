@@ -184,7 +184,7 @@ export function calculateEngineeringStats(config: RobotConfiguration): Engineeri
     Math.min(100, Math.round(rawRecoilScore - guardRecoilReduction - (totalWeightLb - 22) * 0.9))
   );
 
-  let weaponRecoilLabel: 'NONE' | 'LOW' | 'MODERATE' | 'HIGH' | 'EXTREME' = 'LOW';
+  let weaponRecoilLabel: 'NONE' | 'LOW' | 'MODERATE' | 'HIGH' | 'EXTREME';
   if (weaponRecoilScore <= 8) weaponRecoilLabel = 'NONE';
   else if (weaponRecoilScore <= 28) weaponRecoilLabel = 'LOW';
   else if (weaponRecoilScore <= 58) weaponRecoilLabel = 'MODERATE';
@@ -202,7 +202,7 @@ export function calculateEngineeringStats(config: RobotConfiguration): Engineeri
     (totalWeightLb - 22) * 0.8;
 
   const stabilityScore = Math.max(15, Math.min(98, Math.round(rawStability)));
-  let stabilityLabel: StabilityRating = 'MODERATE';
+  let stabilityLabel: StabilityRating;
   if (stabilityScore >= 80) stabilityLabel = 'HIGH';
   else if (stabilityScore >= 64) stabilityLabel = 'GOOD';
   else if (stabilityScore >= 46) stabilityLabel = 'MODERATE';
