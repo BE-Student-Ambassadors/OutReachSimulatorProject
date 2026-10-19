@@ -8,9 +8,14 @@ import {
   getLaunchSetup,
   getPayloadMotor,
   getPayloadTestRig,
+  getWeightDist,
+  ROCKET_BAYS,
 } from '../config'
 import type { RocketRun } from '../sim/engine'
 import type { AirframeMaterialId, RocketObject } from '../types'
+import { BreakupDebris, SmokeTrail } from './RocketFx'
+import { makeEmitters } from './smokeEmitters'
+import { ALT_SCALE, DIST_SCALE, PAD_X } from './sceneScale'
 
 export type CameraFocusMode = 'overview' | 'payload-closeup' | 'rocket-closeup'
 
@@ -100,9 +105,9 @@ const DEBRIS_PIECES: DebrisPieceSpec[] = Array.from({ length: 32 }, (_, i) => {
   }
 })
 
-const ALT_SCALE = 1 / 38
-const DIST_SCALE = 1 / 4.5
-const PAD_X = -28
+/** Speed of sound at the launch site in ft/s, for the vapor cone. */
+const MACH1_FPS = 1115
+const HEAT_GLOW = new THREE.Color('#ff4d1a')
 
 export function RocketScene({
   design,
@@ -140,6 +145,8 @@ function SceneContents({
   const motor = getPayloadMotor(design)
   const gyro = getGyroConfig(design)
   const testRig = getPayloadTestRig(design)
+  const bayColors = getWeightDist(design).bayOrder.map((id) => ROCKET_BAYS[id].color)
+  const weakestIsFins = run?.result().telemetry.weakestPart === 'fins'
 
   const matStyle = MATERIAL_STYLES[airframe.materialId] ?? MATERIAL_STYLES.fiberglass
   const railTiltRad = ((90 - launch.railAngleDeg) * Math.PI) / 180
@@ -225,7 +232,23 @@ function SceneContents({
 
   const rocketGroup = useRef<THREE.Group>(null)
   const flameGroup = useRef<THREE.Group>(null)
-  const shredGroup = useRef<THREE.Group>(null)
+  const shakeGroup = useRef<THREE.Group>(null)
+  const flameLight = useRef<THREE.PointLight>(null)
+  const vaporCone = useRef<THREE.Mesh>(null)
+  const finRefs = useRef<(THREE.Mesh | null)[]>([])
+  // Airframe materials that glow hot as the rocket nears its safe speed.
+  const glowMats = useRef<(THREE.MeshStandardMaterial | null)[]>([])
+  const emitters = useRef(makeEmitters())
+  const nozzleLocal = useMemo(() => new THREE.Vector3(0, -6.1, 0), [])
+  // Vapor cone fades from dense at the airframe to nothing at its flared trailing edge.
+  const vaporFade = useMemo(() => {
+    const n = 32
+    const data = new Uint8Array(n * 4)
+    for (let i = 0; i < n; i++) data.set([255, Math.round(255 * Math.pow(i / (n - 1), 1.8)), 255, 255], i * 4)
+    const tex = new THREE.DataTexture(data, 1, n)
+    tex.needsUpdate = true
+    return tex
+  }, [])
 
   const payloadGroup = useRef<THREE.Group>(null)
   const payloadBody = useRef<THREE.Group>(null)
@@ -284,7 +307,11 @@ function SceneContents({
         rocketGroup.current.rotation.set(0, t * 0.25, -railTiltRad)
       }
       if (flameGroup.current) flameGroup.current.visible = false
-      if (shredGroup.current) shredGroup.current.visible = false
+      if (vaporCone.current) vaporCone.current.visible = false
+      if (shakeGroup.current) shakeGroup.current.position.set(0, 0, 0)
+      finRefs.current.forEach((fin) => fin?.rotation.set(0, 0, 0))
+      glowMats.current.forEach((m) => m?.emissive.setRGB(0, 0, 0))
+      emitters.current.nozzle.active = false
 
       if (payloadGroup.current) {
         payloadGroup.current.visible = true
@@ -342,23 +369,53 @@ function SceneContents({
     const rz = f.rocketPos[2] * DIST_SCALE
 
     if (rocketGroup.current) {
-      rocketGroup.current.visible = !isPayloadPhase || run.result().mode === 'full'
+      rocketGroup.current.visible = (!isPayloadPhase || run.result().mode === 'full') && !f.rocketShredded
       rocketGroup.current.position.set(rx, ry, rz)
       rocketGroup.current.rotation.set(f.rocketRot[0], f.rocketRot[1], -f.rocketRot[2])
     }
 
+    // Near its safe speed the airframe glows, the whole rocket buzzes and weak fins flutter.
+    const strain = isPayloadPhase ? 0 : THREE.MathUtils.clamp((f.structuralStress - 0.86) / 0.14, 0, 1)
+    if (shakeGroup.current) {
+      const amp = strain * strain * 0.09
+      shakeGroup.current.position.set(Math.sin(t * 83) * amp, 0, Math.cos(t * 71) * amp)
+    }
+    glowMats.current.forEach((m) => {
+      if (!m) return
+      m.emissive.copy(HEAT_GLOW)
+      m.emissiveIntensity = strain * strain * 0.6
+    })
+    finRefs.current.forEach((fin) => {
+      if (!fin) return
+      const flutter = weakestIsFins ? strain * 0.32 : strain * 0.05
+      fin.rotation.set(Math.sin(t * 64 + fin.id) * flutter, 0, Math.cos(t * 51 + fin.id) * flutter * 0.4)
+    })
+
+    const thrusting = f.rocketThrusting && !isPayloadPhase && !f.rocketShredded
     if (flameGroup.current) {
-      flameGroup.current.visible = f.rocketThrusting && !isPayloadPhase
-      const flicker = 0.9 + Math.sin(t * 55) * 0.22
-      flameGroup.current.scale.set(flicker, 1 + Math.cos(t * 42) * 0.28, flicker)
+      flameGroup.current.visible = thrusting
+      const flicker = 0.9 + Math.sin(t * 55) * 0.18
+      flameGroup.current.scale.set(flicker, 1.1 + Math.cos(t * 42) * 0.25, flicker)
+    }
+    if (flameLight.current) flameLight.current.intensity = thrusting ? 30 + Math.sin(t * 37) * 6 : 0
+
+    // Condensation cloud that forms around the airframe as it passes the speed of sound.
+    if (vaporCone.current) {
+      const mach = f.hudSpeedFps / MACH1_FPS
+      const vapor = isPayloadPhase || f.rocketShredded ? 0 : Math.max(0, 1 - Math.abs(mach - 1) / 0.08)
+      vaporCone.current.visible = vapor > 0.02
+      ;(vaporCone.current.material as THREE.MeshBasicMaterial).opacity = vapor * 0.85
+      vaporCone.current.scale.set(1 + Math.sin(t * 30) * 0.03, 1, 1 + Math.cos(t * 27) * 0.03)
     }
 
-    if (shredGroup.current && rocketGroup.current) {
-      shredGroup.current.visible = f.rocketShredded
-      if (f.rocketShredded) {
-        shredGroup.current.position.copy(rocketGroup.current.position)
-        shredGroup.current.rotation.set(t * 3, t * 2, t)
-      }
+    // Exhaust smoke comes from the nozzle while the motor burns.
+    if (rocketGroup.current) {
+      rocketGroup.current.updateMatrixWorld()
+      emitters.current.nozzle.active = thrusting
+      // A billowing ground cloud right off the pad, then a thinner trail.
+      emitters.current.nozzle.size = f.hudAltitudeFt < 350 ? 2.4 : 1.0
+      emitters.current.nozzle.pos.copy(nozzleLocal)
+      rocketGroup.current.localToWorld(emitters.current.nozzle.pos)
     }
 
     // ---- Update Payload, Parachute & Comedic Splatter ----
@@ -458,15 +515,18 @@ function SceneContents({
         pz + lookOffsetRef.current.z,
       )
     } else {
-      // Lock onto the ascending rocket with zero vertical lag
-      const desiredOffset = new THREE.Vector3(2.2, 2.0, 18.5)
-      const desiredLookOffset = new THREE.Vector3(0, 0.4, 0)
-      camOffsetRef.current.lerp(desiredOffset, Math.min(1, dt * 5))
+      // Lock onto the ascending rocket with zero vertical lag; pull back to take in a breakup.
+      const breaking = f.rocketShredded
+      // A little below and further back than the rocket so its smoke trail stretches down the frame.
+      const desiredOffset = breaking ? new THREE.Vector3(4, 4.5, 34) : new THREE.Vector3(3.5, -3.5, 24)
+      const desiredLookOffset = new THREE.Vector3(0, breaking ? -1 : -2.2, 0)
+      camOffsetRef.current.lerp(desiredOffset, Math.min(1, dt * (breaking ? 2.2 : 5)))
       lookOffsetRef.current.lerp(desiredLookOffset, Math.min(1, dt * 6))
 
+      const jolt = breaking ? Math.max(0, 1 - f.breakupSeconds / 0.7) * 0.9 : strain * strain * 0.12
       cam.position.set(
-        rx + camOffsetRef.current.x,
-        Math.max(8, ry + camOffsetRef.current.y),
+        rx + camOffsetRef.current.x + Math.sin(t * 61) * jolt,
+        Math.max(8, ry + camOffsetRef.current.y) + Math.cos(t * 53) * jolt,
         rz + camOffsetRef.current.z,
       )
       cam.lookAt(
@@ -609,10 +669,14 @@ function SceneContents({
           SLEEK AEROSPACE IREC SOUNDING ROCKET (Multi-Stage + Curved Ogive + Airfoil Fins)
          ===================================================================== */}
       <group ref={rocketGroup} position={[PAD_X, 6.6, 0]}>
+        <group ref={shakeGroup}>
         {/* 1. Curved Tangent-Ogive / Von Kármán Nose Cone */}
         <group position={[0, 3.4, 0]}>
           <mesh geometry={ogiveNoseGeo} castShadow>
             <meshStandardMaterial
+              ref={(m) => {
+                glowMats.current[0] = m
+              }}
               color={matStyle.upperColor}
               metalness={matStyle.metalness}
               roughness={matStyle.roughness}
@@ -633,6 +697,9 @@ function SceneContents({
         <mesh castShadow position={[0, 1.85, 0]}>
           <cylinderGeometry args={[0.52, 0.52, 3.0, 32]} />
           <meshStandardMaterial
+            ref={(m) => {
+              glowMats.current[1] = m
+            }}
             color={matStyle.upperColor}
             metalness={matStyle.metalness}
             roughness={matStyle.roughness}
@@ -658,6 +725,9 @@ function SceneContents({
         <mesh castShadow position={[0, -1.7, 0]}>
           <cylinderGeometry args={[0.52, 0.52, 3.9, 32]} />
           <meshStandardMaterial
+            ref={(m) => {
+              glowMats.current[2] = m
+            }}
             color={matStyle.lowerColor}
             metalness={matStyle.metalness}
             roughness={matStyle.roughness}
@@ -680,6 +750,9 @@ function SceneContents({
         {[0, 1, 2, 3].map((idx) => (
           <group key={idx} rotation={[0, (idx * Math.PI) / 2, 0]}>
             <mesh
+              ref={(m) => {
+                finRefs.current[idx] = m
+              }}
               geometry={airframe.finProfileId === 'clipped-delta' ? deltaFinGeo : sweptFinGeo}
               position={[0.92, -2.75, 0]}
               castShadow
@@ -705,33 +778,64 @@ function SceneContents({
         <group ref={flameGroup} position={[0, -5.05, 0]} visible={false}>
           {/* Inner White-Hot Core */}
           <mesh position={[0, -1.2, 0]} rotation={[Math.PI, 0, 0]}>
-            <coneGeometry args={[0.28, 2.4, 16]} />
-            <meshBasicMaterial color="#fef08a" />
+            <coneGeometry args={[0.24, 2.4, 16]} />
+            <meshBasicMaterial color="#fffbeb" />
+          </mesh>
+          <mesh position={[0, -1.6, 0]} rotation={[Math.PI, 0, 0]}>
+            <coneGeometry args={[0.38, 3.2, 16]} />
+            <meshBasicMaterial color="#fde047" transparent opacity={0.9} depthWrite={false} />
           </mesh>
           {/* Outer Supersonic Orange Plume */}
-          <mesh position={[0, -2.3, 0]} rotation={[Math.PI, 0, 0]}>
-            <coneGeometry args={[0.62, 4.6, 18]} />
-            <meshBasicMaterial color="#f97316" transparent opacity={0.82} />
+          <mesh position={[0, -2.6, 0]} rotation={[Math.PI, 0, 0]}>
+            <coneGeometry args={[0.66, 5.2, 18]} />
+            <meshBasicMaterial color="#f97316" transparent opacity={0.7} depthWrite={false} />
+          </mesh>
+          <mesh position={[0, -3.4, 0]} rotation={[Math.PI, 0, 0]}>
+            <coneGeometry args={[0.9, 6.8, 18]} />
+            <meshBasicMaterial color="#dc2626" transparent opacity={0.28} depthWrite={false} />
           </mesh>
           {/* Mach Shock Diamonds */}
           {[-1.0, -2.1, -3.2].map((dy, i) => (
             <mesh key={i} position={[0, dy, 0]} scale={[1 - i * 0.22, 0.45, 1 - i * 0.22]}>
               <octahedronGeometry args={[0.38, 1]} />
-              <meshBasicMaterial color="#ffffff" transparent opacity={0.85} />
+              <meshBasicMaterial color="#ffffff" transparent opacity={0.85} depthWrite={false} />
             </mesh>
           ))}
+          <pointLight ref={flameLight} position={[0, -1.5, 0]} color="#fb923c" intensity={0} distance={40} decay={1.2} />
+        </group>
+
+        {/* Vapor cone: the cloud that forms around a rocket passing the speed of sound */}
+        <mesh ref={vaporCone} position={[0, 0.2, 0]} visible={false}>
+          <cylinderGeometry args={[0.56, 1.7, 2.6, 32, 1, true]} />
+          <meshBasicMaterial color="#f8fafc" alphaMap={vaporFade} transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
         </group>
       </group>
 
-      {/* Structural Shred Debris (if rocket breaks apart at Max-Q) */}
-      <group ref={shredGroup} visible={false}>
-        {[-1.5, -0.5, 0.6, 1.4].map((offset, i) => (
-          <mesh key={i} position={[offset * 1.4, offset, 0]} rotation={[i, i * 0.8, 0]}>
-            <boxGeometry args={[0.7, 1.2, 0.4]} />
-            <meshStandardMaterial color="#dc2626" />
-          </mesh>
-        ))}
-      </group>
+      {/* Exhaust smoke trail and the breakup when the rocket flies faster than it can survive */}
+      <SmokeTrail run={run} emitters={emitters} />
+      <BreakupDebris
+        run={run}
+        geos={{
+          nose: ogiveNoseGeo,
+          tip: tipCapGeo,
+          boatTail: boatTailGeo,
+          nozzle: nozzleBellGeo,
+          fin: airframe.finProfileId === 'clipped-delta' ? deltaFinGeo : sweptFinGeo,
+        }}
+        bodyColors={{
+          upper: matStyle.upperColor,
+          lower: matStyle.lowerColor,
+          fin: matStyle.finColor,
+          metalness: matStyle.metalness,
+          roughness: matStyle.roughness,
+        }}
+        bayColors={bayColors}
+        onMotorSmoke={(pos, burning) => {
+          emitters.current.motor.active = burning
+          emitters.current.motor.pos.copy(pos)
+        }}
+      />
 
       {/* =====================================================================
           SLEEK SPACECRAFT PAYLOAD CAPSULE, REACTION FLYWHEEL & DOME PARACHUTE

@@ -8,7 +8,7 @@ import {
   getLaunchSetup,
   getPayloadMotor,
   getPayloadTestRig,
-   getWeightDist,
+  getWeightDist,
   hasProgram,
   IMPULSE_CLASSES,
   NOSE_CONES,
@@ -48,6 +48,15 @@ export interface RocketTelemetrySummary {
   structuralLimitKpa: number
   /** Peak Mach number during ascent. */
   maxMach: number
+  /** Peak speed the rocket would reach at motor burnout, intact (mph). */
+  peakSpeedMph: number
+  /** Fastest the rocket can fly before something tears off (mph): the weaker of airframe and fins. */
+  maxSafeSpeedMph: number
+  /** Which part gives out first when the rocket flies too fast. */
+  weakestPart: 'airframe' | 'fins'
+  /** Speed (mph) and altitude (ft) where the rocket tore apart; 0 when it held together. */
+  breakupSpeedMph: number
+  breakupAltFt: number
   /** Whether the motor nozzle is properly positioned at the tail (slot 5). */
   nozzleAtTail: boolean
   /** Average gyroscope calibration score (0..100%). */
@@ -106,9 +115,69 @@ export interface LiveSimFrame {
   hudSpeedFps: number
   /** Whether the user can currently press "DEPLOY PARACHUTE NOW!". */
   canDeployChute: boolean
+  /** Current speed ÷ max safe speed during ascent (≥ 1 means it is tearing apart). */
+  structuralStress: number
+  /** 0 until the rocket tears apart, then 0..1 through the breakup animation. */
+  breakupProgress: number
+  /** Seconds since breakup (drives debris motion in the 3D scene). */
+  breakupSeconds: number
+  /** Where the rocket was when it tore apart (world feet), and how fast it was climbing. */
+  breakupPos: [number, number, number]
+  breakupClimbFps: number
 }
 
 const BAY_POSITIONS_CAL: number[] = [1.5, 2.8, 4.1, 5.4, 6.9, 8.6]
+
+/** Air density at the launch site (~4,600 ft elevation), kg/m³. */
+const AIR_DENSITY = 1.05
+const SPEED_OF_SOUND_MS = 340
+const MS_TO_MPH = 2.237
+const MS_TO_FPS = 3.281
+
+/**
+ * Dynamic pressure q = ½ρv², so the speed at which the air pushes with q kPa is v = √(2q/ρ).
+ * A part rated for q kPa is therefore rated for exactly this speed.
+ */
+export function speedForPressureMph(qKpa: number): number {
+  return Math.round(Math.sqrt((2 * qKpa * 1000) / AIR_DENSITY) * MS_TO_MPH)
+}
+
+/** Share of the climb (by time) spent burning; speed peaks at burnout, then the rocket coasts. */
+export const BOOST_FRACTION = 0.22
+
+/** Speed ÷ peak speed at ascent progress p (0..1): linear rise during the burn, linear coast-down after. */
+export function ascentSpeedFrac(p: number): number {
+  if (p <= BOOST_FRACTION) return p / BOOST_FRACTION
+  return Math.max(0, 1 - (p - BOOST_FRACTION) / (1 - BOOST_FRACTION))
+}
+
+/** Altitude ÷ apogee at ascent progress p (the integral of ascentSpeedFrac). */
+export function ascentAltFrac(p: number): number {
+  if (p <= BOOST_FRACTION) return (p * p) / BOOST_FRACTION
+  const q = (p - BOOST_FRACTION) / (1 - BOOST_FRACTION)
+  return BOOST_FRACTION + (1 - BOOST_FRACTION) * (1 - (1 - q) * (1 - q))
+}
+
+/** Debris after a breakup: keeps climbing while air drag bleeds off its speed, then falls. */
+export const DEBRIS_DRAG = 1.6
+export const DEBRIS_GRAVITY_FPS2 = 260
+export const BREAKUP_SECONDS = 4.6
+
+export function debrisRiseFt(climbFps: number, tSec: number): number {
+  const coast = (climbFps * (1 - Math.exp(-DEBRIS_DRAG * tSec))) / DEBRIS_DRAG
+  return coast - 0.5 * DEBRIS_GRAVITY_FPS2 * tSec * tSec
+}
+
+/**
+ * Mass of one internal bay as the simulation sees it: the payload bay carries the chosen payload
+ * motor, and the nose ballast carries the launch team's trim weight.
+ */
+export function rocketBayMassKg(design: RocketObject[], bayId: RocketBayId): number {
+  const base = ROCKET_BAYS[bayId].baseMassKg
+  if (bayId === 'payload-bay') return base + PAYLOAD_MOTORS[getPayloadMotor(design).motorId].massKg
+  if (bayId === 'nose-ballast') return base + getLaunchSetup(design).ballastTrimKg
+  return base
+}
 
 /**
  * Pure calculation of rocket stability, aerodynamics, apogee, and payload descent metrics.
@@ -139,12 +208,7 @@ export function evaluateRocketDesign(
   const hasWindSonde = hasProgram(design, 'windSonde')
 
   // ---- 1. Rocket Mass & CG/CP Stability ----
-  const bayMass = (bayId: RocketBayId): number => {
-    const base = ROCKET_BAYS[bayId].baseMassKg
-    if (bayId === 'payload-bay') return base + motorSpec.massKg
-    if (bayId === 'nose-ballast') return base + launch.ballastTrimKg
-    return base
-  }
+  const bayMass = (bayId: RocketBayId): number => rocketBayMassKg(design, bayId)
 
   let bayMassSum = 0
   let weightedCgSum = 0
@@ -174,9 +238,23 @@ export function evaluateRocketDesign(
   const structuralLimitKpa = matSpec.maxQLimitKpa + (hasCarbonFins ? 25 : 0)
   const flutterLimitKpa = finSpec.flutterLimitKpa + (hasCarbonFins ? 30 : 0)
 
+  // Pressure grows with speed², so every pressure rating is also a speed limit.
+  const peakSpeedMph = speedForPressureMph(peakDynamicPressureKpa)
+  const weakestPart: 'airframe' | 'fins' = flutterLimitKpa < structuralLimitKpa ? 'fins' : 'airframe'
+  const maxSafeSpeedMph = speedForPressureMph(Math.min(structuralLimitKpa, flutterLimitKpa))
+  let breakupSpeedMph = 0
+  let breakupAltFt = 0
+
+  // Altitude the rocket would coast to if it held together.
+  const impulseFactor = impulseSpec.totalImpulseNs / 10_200
+  const massFactor = 37.3 / totalRocketMassKg
+  const dragEfficiency = 0.42 / totalCd
+  // Drag non-linearity (dampens slightly so small variations stay controllable)
+  const aeroMultiplier = Math.pow(dragEfficiency, 0.55)
+
   let rocketOutcome: RocketFlightOutcome = 'nominal-apogee'
   let apogeeFt: number
-  let maxMach: number
+  let maxMach = Number(((peakSpeedMph / MS_TO_MPH) / SPEED_OF_SOUND_MS).toFixed(2))
 
   if (!nozzleAtTail) {
     rocketOutcome = 'pad-stall'
@@ -186,19 +264,17 @@ export function evaluateRocketDesign(
     rocketOutcome = 'unstable-tumble'
     apogeeFt = Math.round(1100 + Math.max(0, stabilityCalibers) * 450)
     maxMach = 0.42
-  } else if (peakDynamicPressureKpa > structuralLimitKpa || peakDynamicPressureKpa > flutterLimitKpa) {
+  } else if (peakSpeedMph > maxSafeSpeedMph) {
+    // Still accelerating when it passes its safe speed: it tears apart right there, mid-burn.
     rocketOutcome = 'structural-shred'
-    apogeeFt = 4350
-    maxMach = 1.18
+    const intactApogeeFt = 10_000 * impulseFactor * massFactor * aeroMultiplier
+    const speedRatio = maxSafeSpeedMph / peakSpeedMph
+    breakupSpeedMph = maxSafeSpeedMph
+    breakupAltFt = Math.max(250, Math.round(intactApogeeFt * ascentAltFrac(BOOST_FRACTION * speedRatio)))
+    apogeeFt = breakupAltFt
+    maxMach = Number(((maxSafeSpeedMph / MS_TO_MPH) / SPEED_OF_SOUND_MS).toFixed(2))
   } else {
-    // Aerodynamically stable & structurally sound flight
-    // Ideal mass/impulse/drag calibration around 10,000 ft
-    const impulseFactor = impulseSpec.totalImpulseNs / 10_200
-    const massFactor = 37.3 / totalRocketMassKg
-    const dragEfficiency = 0.42 / totalCd
-    // Drag non-linearity (dampens slightly so small variations stay controllable)
-    const aeroMultiplier = Math.pow(dragEfficiency, 0.55)
-
+    // Aerodynamically stable & structurally sound flight, calibrated around 10,000 ft
     // Stability penalty if over-stable (> 3.0 calibers weathercocks into wind)
     const overStablePenalty =
       stabilityCalibers > 3.0 ? Math.max(0.72, 1 - (stabilityCalibers - 3.0) * 0.14 * variant.turbulenceFactor) : 1.0
@@ -209,7 +285,6 @@ export function evaluateRocketDesign(
     const railFactor = Math.cos((railErrorDeg * Math.PI) / 180)
 
     apogeeFt = Math.round(10_000 * impulseFactor * massFactor * aeroMultiplier * overStablePenalty * railFactor)
-    maxMach = Number((0.88 * impulseFactor * Math.sqrt(massFactor * dragEfficiency)).toFixed(2))
 
     if (Math.abs(apogeeFt - REQUIRED.targetApogeeFt) > REQUIRED.maxApogeeErrorFt) {
       rocketOutcome = 'altitude-miss'
@@ -320,6 +395,11 @@ export function evaluateRocketDesign(
       peakDynamicPressureKpa,
       structuralLimitKpa,
       maxMach,
+      peakSpeedMph,
+      maxSafeSpeedMph,
+      weakestPart,
+      breakupSpeedMph,
+      breakupAltFt,
       nozzleAtTail,
       gyroCalibrationPct,
       payloadMotorMassKg: motorSpec.massKg,
@@ -361,6 +441,11 @@ export class RocketRun implements SimRun<RocketResult> {
     hudAltitudeFt: 0,
     hudSpeedFps: 0,
     canDeployChute: false,
+    structuralStress: 0,
+    breakupProgress: 0,
+    breakupSeconds: 0,
+    breakupPos: [0, 0, 0],
+    breakupClimbFps: 0,
   }
 
   constructor(design: RocketObject[], variantId: RocketVariantId = 'standard') {
@@ -379,14 +464,15 @@ export class RocketRun implements SimRun<RocketResult> {
   }
 
   /**
-   * If a rocket launch fails, play a quick 3-second animation of the failure;
-   * if it succeeds, let the full animation play out.
+   * Full missions that clear the rocket phase play out over 18 s. Anything that only shows the
+   * climb is shorter: a breakup gets time to show the debris, a pad stall or tumble ends quickly.
    */
   get durationSeconds(): number {
-    if (this.computedResult.mode !== 'payload-only' && !this.computedResult.rocketPassed) {
-      return 3
-    }
-    return 18
+    const r = this.computedResult
+    if (r.mode === 'payload-only' || (r.mode === 'full' && r.rocketPassed)) return 18
+    if (r.rocketOutcome === 'structural-shred') return 8
+    if (r.rocketOutcome === 'pad-stall' || r.rocketOutcome === 'unstable-tumble') return 4
+    return 10
   }
 
   get intensity(): number {
@@ -409,8 +495,8 @@ export class RocketRun implements SimRun<RocketResult> {
 
   clockLabel(): string {
     const p = this.progress
-    const totalSec = this.durationSeconds === 3 ? 3 : 45
-    const tSec = Math.round(p * totalSec)
+    // The animation runs about 2.5× faster than a real flight.
+    const tSec = Math.round(p * this.durationSeconds * 2.5)
     return `T+${String(Math.floor(tSec / 60)).padStart(1, '0')}:${String(tSec % 60).padStart(2, '0')} · ${Math.round(this.frame.hudAltitudeFt).toLocaleString()} ft`
   }
 
@@ -451,6 +537,7 @@ export class RocketRun implements SimRun<RocketResult> {
 
   private updateRocketAscentFrame(ascentP: number): void {
     const r = this.computedResult
+    const t = r.telemetry
     const launch = getLaunchSetup(this.design)
     const tiltRad = ((90 - launch.railAngleDeg) * Math.PI) / 180
 
@@ -458,14 +545,22 @@ export class RocketRun implements SimRun<RocketResult> {
     this.frame.canDeployChute = false
     this.frame.chuteOpen = false
     this.frame.splatterProgress = 0
+    this.frame.breakupProgress = 0
+    this.frame.breakupSeconds = 0
+    this.frame.rocketShredded = false
 
-    // Smooth ease-out curve to apogee
-    const altCurve = 1 - Math.pow(1 - ascentP, 2.1)
-    const altFt = r.apogeeFt * altCurve
+    if (r.rocketOutcome === 'structural-shred') {
+      this.updateBreakupFrame(ascentP, tiltRad)
+      return
+    }
+
+    const altFt = r.apogeeFt * ascentAltFrac(ascentP)
     const crossX = Math.sin(tiltRad) * altFt * 0.18
+    const peakMph = t.maxMach * SPEED_OF_SOUND_MS * MS_TO_MPH
+    const speedMph = peakMph * ascentSpeedFrac(ascentP)
 
-    this.frame.rocketThrusting = ascentP < 0.42 && r.rocketOutcome !== 'pad-stall'
-    this.frame.rocketShredded = r.rocketOutcome === 'structural-shred' && ascentP > 0.52
+    this.frame.rocketThrusting = ascentP < BOOST_FRACTION && r.rocketOutcome !== 'pad-stall'
+    this.frame.structuralStress = speedMph / t.maxSafeSpeedMph
 
     if (r.rocketOutcome === 'unstable-tumble' && ascentP > 0.2) {
       const spin = (ascentP - 0.2) * 28
@@ -478,7 +573,55 @@ export class RocketRun implements SimRun<RocketResult> {
 
     this.frame.payloadPos = [...this.frame.rocketPos]
     this.frame.hudAltitudeFt = altFt
-    this.frame.hudSpeedFps = Math.round((1 - ascentP) * r.telemetry.maxMach * 1116)
+    this.frame.hudSpeedFps = Math.round((speedMph * MS_TO_FPS) / MS_TO_MPH)
+  }
+
+  /**
+   * Too-fast flight: the first 42% of the run climbs (still burning) until the rocket passes its
+   * safe speed; the rest follows the debris as it coasts up, slows and falls.
+   */
+  private updateBreakupFrame(p: number, tiltRad: number): void {
+    const t = this.computedResult.telemetry
+    const climbShare = 0.42
+    const failP = BOOST_FRACTION * (t.maxSafeSpeedMph / t.peakSpeedMph)
+    const altAt = (ap: number) => (t.breakupAltFt * ascentAltFrac(ap)) / ascentAltFrac(failP)
+    const breakupClimbFps = (t.breakupSpeedMph * MS_TO_FPS) / MS_TO_MPH
+
+    if (p < climbShare) {
+      const ascentP = (p / climbShare) * failP
+      const altFt = altAt(ascentP)
+      const speedMph = t.peakSpeedMph * ascentSpeedFrac(ascentP)
+      this.frame.rocketThrusting = true
+      this.frame.structuralStress = speedMph / t.maxSafeSpeedMph
+      this.frame.rocketRot = [0, 0, tiltRad]
+      this.frame.rocketPos = [Math.sin(tiltRad) * altFt * 0.18, altFt, 0]
+      this.frame.payloadPos = [...this.frame.rocketPos]
+      this.frame.hudAltitudeFt = altFt
+      this.frame.hudSpeedFps = Math.round((speedMph * MS_TO_FPS) / MS_TO_MPH)
+      return
+    }
+
+    const bp = (p - climbShare) / (1 - climbShare)
+    const secs = bp * BREAKUP_SECONDS
+    const origin: [number, number, number] = [Math.sin(tiltRad) * t.breakupAltFt * 0.18, t.breakupAltFt, 0]
+    const centerAlt = Math.max(0, t.breakupAltFt + debrisRiseFt(breakupClimbFps, secs))
+
+    this.frame.phase = 'rocket-ascent'
+    this.frame.rocketShredded = true
+    this.frame.rocketThrusting = false
+    this.frame.structuralStress = 1
+    this.frame.breakupProgress = bp
+    this.frame.breakupSeconds = secs
+    this.frame.breakupPos = origin
+    this.frame.breakupClimbFps = breakupClimbFps * Math.cos(tiltRad)
+    this.frame.rocketRot = [0, 0, tiltRad]
+    this.frame.rocketPos = [origin[0], centerAlt, 0]
+    this.frame.payloadPos = [...this.frame.rocketPos]
+    this.frame.hudAltitudeFt = centerAlt
+    this.frame.hudSpeedFps =
+      centerAlt <= 0
+        ? 0
+        : Math.round(Math.abs(breakupClimbFps * Math.exp(-DEBRIS_DRAG * secs) - DEBRIS_GRAVITY_FPS2 * secs))
   }
 
   private updatePayloadDropFrame(dropP: number, startAltFt: number): void {

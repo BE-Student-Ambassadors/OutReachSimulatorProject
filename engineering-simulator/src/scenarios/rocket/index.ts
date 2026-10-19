@@ -131,11 +131,13 @@ function observations(r: RocketResult): string[] {
       )
     } else if (r.rocketOutcome === 'structural-shred') {
       out.push(
-        `The airframe broke apart at ${count(r.apogeeFt)} ft when peak dynamic pressure (${t.peakDynamicPressureKpa} kPa) exceeded the structural limit (${t.structuralLimitKpa} kPa).`,
+        t.weakestPart === 'fins'
+          ? `The fins fluttered and tore off at ${count(t.breakupSpeedMph)} mph, ${count(t.breakupAltFt)} ft up, and the rocket broke apart behind them. The motor was still burning and would have pushed it to ${count(t.peakSpeedMph)} mph.`
+          : `The airframe tore apart at ${count(t.breakupSpeedMph)} mph, ${count(t.breakupAltFt)} ft up. The motor was still burning and would have pushed it to ${count(t.peakSpeedMph)} mph.`,
       )
     } else {
       out.push(
-        `The rocket reached an apogee of ${count(r.apogeeFt)} ft (${count(r.apogeeErrorFt)} ft from the 10,000 ft target) at Mach ${t.maxMach}.`,
+        `The rocket reached an apogee of ${count(r.apogeeFt)} ft (${count(r.apogeeErrorFt)} ft from the 10,000 ft target), topping out at ${count(t.peakSpeedMph)} mph of its ${count(t.maxSafeSpeedMph)} mph safe speed.`,
       )
     }
   }
@@ -255,7 +257,10 @@ export const rocketScenario: Scenario<RocketObject, RocketResult> = {
     { label: 'Rocket apogee', value: `${count(r.apogeeFt)} ft` },
     { label: 'Stability margin', value: `${r.telemetry.stabilityCalibers} cal` },
     { label: 'Peak dynamic pressure', value: `${r.telemetry.peakDynamicPressureKpa} / ${r.telemetry.structuralLimitKpa} kPa` },
-    { label: 'Peak speed', value: `Mach ${r.telemetry.maxMach}` },
+    {
+      label: 'Top / safe speed',
+      value: `${count(r.rocketOutcome === 'structural-shred' ? r.telemetry.breakupSpeedMph : r.telemetry.peakSpeedMph)} / ${count(r.telemetry.maxSafeSpeedMph)} mph`,
+    },
     { label: 'Gyroscope calibration', value: `${r.telemetry.gyroCalibrationPct}%` },
     { label: 'Payload motor', value: `${r.telemetry.payloadMotorMassKg} kg · ${r.telemetry.payloadMotorTorqueNm} N·m` },
     { label: 'Landing speed', value: `${r.telemetry.landingSpeedFps} ft/s` },

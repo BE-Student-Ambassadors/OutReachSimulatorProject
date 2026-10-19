@@ -4,7 +4,7 @@ import { BrandMark } from './BrandMark'
 
 export function StartScreen({ scenarios, onStart, onJoin, onHost }: { scenarios: AnyScenario[]; onStart(s: AnyScenario): void; onJoin?(): void; onHost?(): void }) {
   return (
-    <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-paper px-6">
+    <div className="relative flex flex-col items-center justify-center bg-paper px-6">
       <Contours />
       <div className="relative flex flex-col items-center text-center">
         <BrandMark size={56} />
