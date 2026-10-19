@@ -9,7 +9,6 @@ import {
 import React, { useState } from 'react';
 import { soundEngine } from '../../audio/soundEngine';
 import {
-  CAMPAIGN_THEMES,
   evaluateAdCampaignPrompt,
   INITIAL_PROJECT_LEAD_CONFIG,
   PROJECT_LEAD_SPECS,
@@ -22,17 +21,20 @@ import {
   type TeamRobotProject,
 } from '../../types/robot';
 import { ResetTaskModal } from './ResetTaskModal';
+import { CampaignPoster, type PosterTemplate } from './business/CampaignPoster';
 
 interface ProjectLeadScreenProps {
   project: TeamRobotProject;
   onUpdateProjectLead: (nextLead: ProjectLeadConfiguration) => void;
   onReturnToDashboard: () => void;
+  hideHeader?: boolean;
 }
 
 export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
   project,
   onUpdateProjectLead,
   onReturnToDashboard,
+  hideHeader = false,
 }) => {
   const lead = project.projectLead;
   const summary = computeTeamEngineeringSummary(project);
@@ -41,6 +43,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
   // Starts EMPTY per requirement: No high-scoring starter prompt!
   const [promptText, setPromptText] = useState(lead.adPrompt || '');
   const [showResetModal, setShowResetModal] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<PosterTemplate | undefined>(undefined);
 
   const [evaluation, setEvaluation] = useState<AdCampaignEvaluation | null>(() => {
     if (lead.campaignScore > 0 && lead.sponsorTier !== 'None' && lead.adPrompt) {
@@ -96,7 +99,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
       const result = evaluateAdCampaignPrompt(promptText);
       setEvaluation(result);
       setShowResultModal(true);
-    }, 1000);
+    }, 900);
   };
 
   const handleAcceptSponsorship = () => {
@@ -134,89 +137,149 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full bg-[#080d1a] text-white overflow-y-auto flex flex-col justify-between p-4 md:p-6">
-      {/* Top Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              soundEngine.playClick();
-              onReturnToDashboard();
-            }}
-            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono-num font-semibold text-slate-300 hover:text-white bg-slate-900 border border-slate-700 hover:border-slate-500 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            DASHBOARD
-          </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-purple-400" />
-              <span className="text-[10px] font-mono-num uppercase tracking-wider text-purple-400 font-semibold">
-                DISCIPLINE 04 • PROJECT LEAD
-              </span>
+    <div className="relative w-full h-full bg-slate-50 text-slate-800 overflow-y-auto flex flex-col justify-between p-4 md:p-5 font-sans">
+      {/* Optional Top Sub-Header */}
+      {!hideHeader && (
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                onReturnToDashboard();
+              }}
+              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 transition-colors shadow-xs"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Dashboard</span>
+            </button>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-700 font-bold">
+                  Discipline 04 • Business
+                </span>
+              </div>
+              <h2 className="font-display font-black text-lg text-slate-900 leading-tight">
+                Sponsorship Studio & Budget
+              </h2>
             </div>
-            <h2 className="font-display font-black text-2xl text-white">
-              EARN YOUR SPONSORSHIP
-            </h2>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setActiveTab('create');
+                }}
+                className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                  activeTab === 'create'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Ad Creator
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setActiveTab('procurement');
+                }}
+                className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                  activeTab === 'procurement'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Logistics & Shipping
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowResetModal(true)}
+              title="Reset Business task progress"
+              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-rose-600 bg-white border border-slate-200 hover:border-rose-200 transition-colors shadow-xs"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>↻ Reset Task</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleComplete}
+              disabled={!lead.isCompleted && currentSponsorship === 0}
+              className={`cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-display font-bold transition-all ${
+                !lead.isCompleted && currentSponsorship === 0
+                  ? 'opacity-40 cursor-not-allowed bg-slate-200 text-slate-500'
+                  : lead.isCompleted
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs'
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{lead.isCompleted ? 'Discipline Complete ✓' : 'Accept & Finish'}</span>
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Tab & Completion Controls */}
-        <div className="flex items-center gap-3">
-          <div className="flex rounded-xl bg-slate-900 p-1 border border-slate-800 text-xs font-mono-num">
+      {/* Sub-tab switcher when header is hidden */}
+      {hideHeader && (
+        <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-200">
+          <div className="flex rounded-xl bg-slate-200/70 p-1 text-xs">
             <button
+              type="button"
               onClick={() => {
                 soundEngine.playClick();
                 setActiveTab('create');
               }}
-              className={`px-3 py-1.5 rounded-lg transition-all ${
+              className={`px-3 py-1 rounded-lg font-bold transition-all ${
                 activeTab === 'create'
-                  ? 'bg-purple-500 text-white font-bold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              AD CREATOR
+              Ad Studio
             </button>
             <button
+              type="button"
               onClick={() => {
                 soundEngine.playClick();
                 setActiveTab('procurement');
               }}
-              className={`px-3 py-1.5 rounded-lg transition-all ${
+              className={`px-3 py-1 rounded-lg font-bold transition-all ${
                 activeTab === 'procurement'
-                  ? 'bg-purple-500 text-white font-bold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              BUDGET & SHIPPING
+              Logistics & Shipping
             </button>
           </div>
 
-          <button
-            onClick={() => setShowResetModal(true)}
-            title="Reset Business task progress"
-            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono-num text-slate-400 hover:text-rose-300 bg-slate-900 border border-slate-800 hover:border-rose-900/50 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>↻ Reset Task</span>
-          </button>
-
-          <button
-            onClick={toggleComplete}
-            disabled={!lead.isCompleted && currentSponsorship === 0}
-            className={`cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-display font-bold transition-all ${
-              !lead.isCompleted && currentSponsorship === 0
-                ? 'opacity-40 cursor-not-allowed bg-slate-800 text-slate-500'
-                : lead.isCompleted
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/25'
-                : 'bg-purple-500 text-white hover:bg-purple-400'
-            }`}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            {lead.isCompleted ? 'DISCIPLINE COMPLETE' : 'ACCEPT & FINISH'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleComplete}
+              disabled={!lead.isCompleted && currentSponsorship === 0}
+              className={`cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-display font-bold transition-all ${
+                !lead.isCompleted && currentSponsorship === 0
+                  ? 'opacity-40 cursor-not-allowed bg-slate-200 text-slate-500'
+                  : lead.isCompleted
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs'
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{lead.isCompleted ? 'Sponsorship Active ✓' : 'Accept & Finish'}</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <ResetTaskModal
         isOpen={showResetModal}
@@ -227,37 +290,37 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
       />
 
       {/* Current Funding Overview Bar */}
-      <div className="my-3 p-3 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono-num">
+      <div className="my-2.5 p-3.5 bg-white border border-slate-200 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono shadow-xs">
         <div className="flex items-center gap-4">
           <div>
-            <span className="text-slate-400 block text-[10px]">BASE BUDGET</span>
-            <span className="font-bold text-slate-200">${baseBudget.toLocaleString()}</span>
+            <span className="text-slate-400 block text-[10px] font-sans font-semibold">BASE LAB BUDGET</span>
+            <span className="font-bold text-slate-800">${baseBudget.toLocaleString()}</span>
           </div>
-          <span className="text-slate-600">+</span>
+          <span className="text-slate-300 font-sans">+</span>
           <div>
-            <span className="text-slate-400 block text-[10px]">SPONSORSHIP EARNED</span>
-            <span className="font-bold text-amber-400">
+            <span className="text-slate-400 block text-[10px] font-sans font-semibold">SPONSORSHIP EARNED</span>
+            <span className="font-bold text-emerald-600">
               +${currentSponsorship.toLocaleString()}{' '}
               {lead.sponsorTier !== 'None' ? `(${lead.sponsorTier})` : ''}
             </span>
           </div>
-          <span className="text-slate-600">=</span>
+          <span className="text-slate-300 font-sans">=</span>
           <div>
-            <span className="text-slate-400 block text-[10px]">TOTAL AVAILABLE</span>
-            <span className="font-bold text-purple-300">${totalAvailable.toLocaleString()}</span>
+            <span className="text-slate-400 block text-[10px] font-sans font-semibold">TOTAL AVAILABLE</span>
+            <span className="font-bold text-slate-900">${totalAvailable.toLocaleString()}</span>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div>
-            <span className="text-slate-400 block text-[10px]">ROBOT BOM COST</span>
-            <span className="font-bold text-slate-200">${summary.totalCostUsd.toLocaleString()}</span>
+            <span className="text-slate-400 block text-[10px] font-sans font-semibold">ROBOT PARTS COST</span>
+            <span className="font-bold text-slate-800">${summary.totalCostUsd.toLocaleString()}</span>
           </div>
-          <div className="w-px h-6 bg-slate-800" />
+          <div className="w-px h-6 bg-slate-200" />
           <div>
-            <span className="text-slate-400 block text-[10px]">REMAINING FUNDS</span>
+            <span className="text-slate-400 block text-[10px] font-sans font-semibold">REMAINING MONEY</span>
             <span
-              className={`font-bold text-sm ${remainingBudget < 0 ? 'text-red-400' : 'text-emerald-400'}`}
+              className={`font-bold text-sm ${remainingBudget < 0 ? 'text-rose-600 animate-pulse' : 'text-emerald-600'}`}
             >
               ${remainingBudget.toLocaleString()}
             </span>
@@ -269,156 +332,164 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
         /* ==========================================
            TAB 1: PROMPT-BASED ADVERTISEMENT CREATOR
            ========================================== */
-        <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-[480px]">
-          {/* Left: Prompt Input Form & Goal Guidance */}
-          <div className="w-full lg:w-[460px] bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
-            <div>
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-800 mb-3">
-                <Megaphone className="w-4 h-4 text-purple-400" />
-                <h3 className="font-display font-bold text-sm text-white">
-                  DESCRIBE YOUR ADVERTISEMENT
-                </h3>
-              </div>
-
-              {/* Goal Guidance Panel */}
-              <div className="mb-3 p-3 bg-slate-900/90 border border-purple-900/40 rounded-xl text-xs font-mono-num text-slate-300 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-purple-300 font-bold">
-                  <HelpCircle className="w-3.5 h-3.5" />
-                  <span>CAMPAIGN GOAL QUESTIONS:</span>
+        <div className="flex-1 flex flex-col lg:flex-row gap-5 min-h-[520px]">
+          {/* Left Column (30-33%): Prompt Input Form, Live Rubric Feedback & Controls */}
+          <div className="w-full lg:w-[32%] xl:w-[30%] bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs shrink-0">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-200">
+                <div className="flex items-center gap-2">
+                  <Megaphone className="w-4 h-4 text-emerald-600" />
+                  <h3 className="font-display font-bold text-sm text-slate-900">
+                    Campaign Pitch Editor
+                  </h3>
                 </div>
-                <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-300">
-                  <li>What makes your BattleBot memorable and intimidating?</li>
-                  <li>What engineering strengths does your robot bring to combat?</li>
-                  <li>Why would a company care about sponsoring your team?</li>
-                  <li>How do you ask sponsors to support you today?</li>
-                </ul>
+                {evaluation && (
+                  <span className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    {evaluation.score}/100 pts
+                  </span>
+                )}
               </div>
 
               {/* Natural Language Prompt Field */}
-              <div className="relative">
+              <div>
+                <label className="text-[10px] font-mono uppercase font-bold text-slate-400 block mb-1">
+                  Sponsor Pitch Description:
+                </label>
                 <textarea
-                  rows={6}
+                  rows={5}
                   value={promptText}
                   onChange={(e) => setPromptText(e.target.value)}
-                  placeholder="Describe the advertisement you want to create..."
-                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-400 leading-relaxed resize-none"
+                  placeholder="Describe your robot, strengths, and pitch to prospective sponsors..."
+                  className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 leading-relaxed resize-none"
                 />
               </div>
 
-              {/* Sponsor Tier Reward Reference */}
-              <div className="mt-3 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] font-mono-num space-y-1">
-                <span className="text-slate-400 block font-bold mb-1">SPONSORSHIP TIERS:</span>
-                <div className="flex justify-between text-amber-400">
-                  <span>🥉 BRONZE (40–64 pts)</span>
-                  <strong className="font-bold">+$200</strong>
+              {/* Rubric Criteria Evaluation Card (When Pitch is Evaluated) */}
+              {evaluation ? (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span>Rubric Score Breakdown:</span>
+                    <span className="text-emerald-700 font-mono">
+                      {evaluation.tier.toUpperCase()} TIER (+${evaluation.fundingUsd})
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                    {[
+                      evaluation.criteria.robotIdentity,
+                      evaluation.criteria.engineeringStory,
+                      evaluation.criteria.sponsorValue,
+                      evaluation.criteria.callToAction,
+                      evaluation.criteria.creativeDirection,
+                    ]
+                      .filter(Boolean)
+                      .map((crit, idx) => (
+                        <div
+                          key={idx}
+                          className={`p-2 rounded-xl border text-[11px] ${
+                            crit.passed
+                              ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
+                              : 'bg-amber-50/60 border-amber-200 text-amber-950'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between font-semibold">
+                            <span>{crit.label}</span>
+                            <div className="flex items-center gap-1.5 font-mono">
+                              <span>
+                                {crit.score}/{crit.maxScore}
+                              </span>
+                              <span>{crit.passed ? '✓' : '△'}</span>
+                            </div>
+                          </div>
+                          {crit.hint && !crit.passed && (
+                            <p className="text-[10px] text-amber-800 mt-0.5 leading-snug">
+                              {crit.hint}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+
+                  {/* Sponsor Feedback Quote */}
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 leading-snug italic">
+                    "{evaluation.sponsorFeedback}"
+                  </div>
                 </div>
-                <div className="flex justify-between text-slate-300">
-                  <span>🥈 SILVER (65–84 pts)</span>
-                  <strong className="font-bold">+$400</strong>
+              ) : (
+                /* Goal Guidance & Tier Reference (When not yet evaluated) */
+                <div className="space-y-2.5">
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 space-y-1">
+                    <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-[11px]">
+                      <HelpCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Pitch Scoring Rubric:</span>
+                    </div>
+                    <ul className="list-disc pl-4 space-y-0.5 text-[10px] text-slate-500 font-sans">
+                      <li>Robot identity & combat persona</li>
+                      <li>Engineering strengths & stats</li>
+                      <li>Value proposition for sponsor</li>
+                      <li>Clear direct call-to-action</li>
+                    </ul>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-mono space-y-1">
+                    <span className="text-slate-400 font-sans font-bold block mb-0.5 uppercase tracking-wider text-[9px]">
+                      Sponsorship Rewards:
+                    </span>
+                    <div className="flex justify-between text-amber-700">
+                      <span>🥉 Bronze (40–64 pts)</span>
+                      <strong className="font-bold">+$200</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-700">
+                      <span>🥈 Silver (65–84 pts)</span>
+                      <strong className="font-bold">+$400</strong>
+                    </div>
+                    <div className="flex justify-between text-emerald-700">
+                      <span>🥇 Gold (85–100 pts)</span>
+                      <strong className="font-bold">+$700</strong>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-between text-yellow-400">
-                  <span>🥇 GOLD (85–100 pts)</span>
-                  <strong className="font-bold">+$700</strong>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Action Bar */}
-            <div className="pt-3 border-t border-slate-800 flex justify-between items-center">
-              <span className="text-[11px] font-mono-num text-slate-500">
-                Iterate as many times as needed.
-              </span>
+            <div className="pt-3 border-t border-slate-200 flex flex-col gap-2 mt-3">
               <button
+                type="button"
                 onClick={handleGenerateAd}
                 disabled={isGenerating || !promptText.trim()}
-                className="cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-display font-black text-sm bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/25 transition-all transform hover:-translate-y-0.5"
+                className="cursor-pointer w-full py-2.5 px-4 rounded-xl font-display font-black text-xs uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition-all active:scale-98 flex items-center justify-center gap-2"
               >
                 <Wand2 className="w-4 h-4" />
-                {isGenerating ? 'GENERATING...' : 'GENERATE AD'}
+                <span>{isGenerating ? 'Evaluating Pitch...' : evaluation ? 'Re-Evaluate Pitch' : 'Pitch to Sponsors'}</span>
               </button>
+
+              {evaluation && (
+                <button
+                  type="button"
+                  onClick={handleAcceptSponsorship}
+                  className="cursor-pointer w-full py-2 px-3 rounded-xl font-display font-bold text-xs uppercase bg-slate-900 hover:bg-slate-800 text-white shadow-xs transition-all"
+                >
+                  Accept Offer (+${evaluation.fundingUsd})
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Right: Rendered Advertisement Poster */}
-          <div className="flex-1 bg-slate-950/80 border border-slate-800 rounded-2xl p-6 flex items-center justify-center relative">
-            {evaluation ? (
-              <div className="w-full max-w-md rounded-2xl p-6 border border-slate-700 shadow-2xl relative overflow-hidden bg-gradient-to-br from-slate-900 via-[#0a0f20] to-slate-950">
-                {/* Visual Banner Accent */}
-                <div
-                  className={`h-2.5 -mx-6 -mt-6 mb-5 bg-gradient-to-r ${CAMPAIGN_THEMES[evaluation.theme].bannerColor}`}
-                />
-
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <span className="text-[9px] font-mono-num text-purple-400 uppercase tracking-widest font-bold block">
-                      OFFICIAL TEAM ADVERTISEMENT
-                    </span>
-                    <h3 className="font-display font-black text-2xl text-white tracking-wide">
-                      {project.teamName || 'BATTLEBOT'}
-                    </h3>
-                  </div>
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-mono-num font-bold border ${
-                      evaluation.tier === 'Gold'
-                        ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40'
-                        : evaluation.tier === 'Silver'
-                        ? 'bg-slate-300/20 text-slate-200 border-slate-400'
-                        : 'bg-amber-700/20 text-amber-300 border-amber-600/40'
-                    }`}
-                  >
-                    {evaluation.tier.toUpperCase()} TIER (+${evaluation.fundingUsd})
-                  </span>
-                </div>
-
-                <p className="text-xs text-purple-300 font-bold mb-4 tracking-wide uppercase">
-                  "{evaluation.headline}"
-                </p>
-
-                {/* Robot Silhouette Graphic */}
-                <div className="my-3 py-6 px-4 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-col items-center justify-center">
-                  <span className="text-3xl mb-1">🤖</span>
-                  <span className="font-display font-bold text-sm text-white">
-                    {project.mechanical.chassisId.toUpperCase()} CHASSIS • {project.mechanical.weaponId.toUpperCase()}
-                  </span>
-                  <span className="text-[10px] font-mono-num text-slate-400">
-                    Autonomous 30 lb Class Champion
-                  </span>
-                </div>
-
-                {/* Key Metrics */}
-                <div className="grid grid-cols-3 gap-2 my-3 p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center font-mono-num">
-                  <div>
-                    <span className="text-[9px] text-slate-400 block">KINETIC FORCE</span>
-                    <span className="font-bold text-xs text-amber-400">
-                      {summary.stats.weaponEnergyJ} J
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 block">TOP SPEED</span>
-                    <span className="font-bold text-xs text-cyan-400">
-                      {summary.stats.topSpeedMph.toFixed(1)} mph
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 block">MASS</span>
-                    <span className="font-bold text-xs text-white">
-                      {summary.totalWeightLb} lb
-                    </span>
-                  </div>
-                </div>
-
-                {/* Sponsor Callout Footer */}
-                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono-num text-slate-400">
-                  <span>ENGINEERED BY {project.teamName || 'THE TEAM'}</span>
-                  <span className="text-purple-400 font-bold">READY FOR COMBAT</span>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center p-8 max-w-sm text-slate-500 font-mono-num text-xs">
-                <Megaphone className="w-12 h-12 text-slate-700 mx-auto mb-3" />
-                <p>Type a prompt on the left and click <strong>[GENERATE AD]</strong> to pitch sponsors.</p>
-              </div>
-            )}
+          {/* Right Column (68-70%): Procedural Marketing Poster Canvas */}
+          <div className="flex-1 bg-white border border-slate-200 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center relative shadow-xs overflow-hidden">
+            <CampaignPoster
+              project={project}
+              promptText={promptText}
+              evaluation={evaluation}
+              selectedTemplate={selectedTemplate}
+              onSelectTemplate={(tmpl) => setSelectedTemplate(tmpl)}
+              stats={{
+                weaponEnergyJ: summary.stats.weaponEnergyJ,
+                topSpeedMph: summary.stats.topSpeedMph,
+                totalWeightLb: summary.totalWeightLb,
+                frontArmorScore: summary.stats.frontArmorScore,
+              }}
+            />
           </div>
         </div>
       ) : (
@@ -426,8 +497,8 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
            TAB 2: PROCUREMENT & SHIPPING
            ========================================== */
         <div className="flex-1 my-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
-            <h3 className="font-display font-bold text-sm text-white mb-3">SHIPPING & FREIGHT TIER</h3>
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+            <h3 className="font-display font-bold text-sm text-slate-900 mb-3">Freight & Shipping Tier</h3>
             <div className="space-y-3">
               {(['standard', 'expedited'] as const).map((tierKey) => {
                 const spec = PROJECT_LEAD_SPECS.shippingTiers[tierKey];
@@ -438,24 +509,24 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
                     onClick={() => updateLead({ shippingTier: tierKey })}
                     className={`cursor-pointer p-3 rounded-xl border transition-all ${
                       isSelected
-                        ? 'bg-purple-500/15 border-purple-400 text-white'
-                        : 'bg-slate-900 border-slate-800 text-slate-300'
+                        ? 'bg-emerald-50 border-emerald-500 text-slate-900 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                   >
-                    <div className="flex justify-between text-xs font-mono-num mb-1">
-                      <span className="font-bold">{spec.name}</span>
-                      <span className="text-purple-300 font-bold">${spec.costUsd}</span>
+                    <div className="flex justify-between text-xs font-mono mb-1">
+                      <span className="font-bold font-sans">{spec.name}</span>
+                      <span className="text-emerald-700 font-bold">${spec.costUsd}</span>
                     </div>
-                    <p className="text-xs text-slate-400">{spec.description}</p>
+                    <p className="text-xs text-slate-500">{spec.description}</p>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs">
             <div>
-              <h3 className="font-display font-bold text-sm text-white mb-3">PIT SPARE PARTS KIT</h3>
+              <h3 className="font-display font-bold text-sm text-slate-900 mb-3">Pit Spare Parts Kit</h3>
               <div className="space-y-2">
                 {(['none', 'drive', 'full'] as const).map((kitKey) => {
                   const spec = PROJECT_LEAD_SPECS.spareKits[kitKey];
@@ -466,24 +537,24 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
                       onClick={() => updateLead({ sparePartsKit: kitKey })}
                       className={`cursor-pointer p-2.5 rounded-xl border transition-all ${
                         isSelected
-                          ? 'bg-purple-500/15 border-purple-400 text-white'
-                          : 'bg-slate-900 border-slate-800 text-slate-300'
+                          ? 'bg-emerald-50 border-emerald-500 text-slate-900 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
-                      <div className="flex justify-between text-xs font-mono-num mb-0.5">
-                        <span className="font-bold">{spec.name}</span>
-                        <span className="text-purple-300 font-bold">${spec.costUsd}</span>
+                      <div className="flex justify-between text-xs font-mono mb-0.5">
+                        <span className="font-bold font-sans">{spec.name}</span>
+                        <span className="text-emerald-700 font-bold">${spec.costUsd}</span>
                       </div>
-                      <p className="text-[11px] text-slate-400">{spec.description}</p>
+                      <p className="text-[11px] text-slate-500">{spec.description}</p>
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono-num flex justify-between">
-              <span>LEAD TIME STATUS:</span>
-              <span className={summary.leadTimeConflict ? 'text-red-400 font-bold' : 'text-emerald-400'}>
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono flex justify-between">
+              <span className="font-sans text-slate-500">Lead Time Status:</span>
+              <span className={summary.leadTimeConflict ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}>
                 {summary.maxLeadTimeDays} Days / {PROJECT_LEAD_SPECS.competitionDeadlineDays} Day Deadline
               </span>
             </div>
@@ -493,28 +564,28 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
 
       {/* Sponsorship Result Modal with 5-Category Breakdown & Retry Loop */}
       {showResultModal && evaluation && (
-        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4">
-          <div className="bg-[#0b1020] border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in fade-in zoom-in-95">
-            <div className="flex justify-between items-start mb-3 pb-2 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-6 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex justify-between items-start mb-3 pb-2 border-b border-slate-200">
               <div>
-                <span className="text-[10px] font-mono-num text-purple-400 uppercase tracking-widest font-bold block">
-                  SPONSORSHIP EVALUATION
+                <span className="text-[10px] font-mono text-emerald-700 uppercase tracking-widest font-bold block">
+                  Sponsorship Evaluation
                 </span>
-                <h3 className="font-display font-black text-xl text-white">
+                <h3 className="font-display font-black text-xl text-slate-900">
                   {evaluation.tier === 'Gold'
-                    ? '🥇 GOLD SPONSORSHIP OFFER'
+                    ? '🥇 Gold Sponsorship Offer'
                     : evaluation.tier === 'Silver'
-                    ? '🥈 SILVER SPONSORSHIP OFFER'
-                    : '🥉 BRONZE SPONSORSHIP OFFER'}
+                    ? '🥈 Silver Sponsorship Offer'
+                    : '🥉 Bronze Sponsorship Offer'}
                 </h3>
               </div>
-              <span className="text-sm font-mono-num font-bold text-amber-400">
-                {evaluation.score} / 100 PTS
+              <span className="text-sm font-mono font-bold text-amber-600">
+                {evaluation.score} / 100 pts
               </span>
             </div>
 
             {/* Rubric Category Breakdown */}
-            <div className="my-3 space-y-2">
+            <div className="my-3 space-y-2 font-sans">
               {[
                 evaluation.criteria.robotIdentity,
                 evaluation.criteria.engineeringStory,
@@ -526,51 +597,53 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
                 .map((crit, idx) => (
                   <div
                     key={idx}
-                    className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono-num"
+                    className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-slate-200 font-bold">{crit.label}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-400">{crit.score} / {crit.maxScore} pts</span>
-                        <span className={crit.passed ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-slate-800 font-semibold">{crit.label}</span>
+                      <div className="flex items-center gap-2 font-mono">
+                        <span className="text-slate-500">{crit.score} / {crit.maxScore} pts</span>
+                        <span className={crit.passed ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
                           {crit.passed ? '✓' : '△'}
                         </span>
                       </div>
                     </div>
                     {crit.hint && !crit.passed && (
-                      <p className="text-[10px] text-amber-300/80 mt-0.5">{crit.hint}</p>
+                      <p className="text-[11px] text-amber-700 mt-0.5">{crit.hint}</p>
                     )}
                   </div>
                 ))}
             </div>
 
             {/* Sponsor Feedback Quote */}
-            <div className="p-3.5 rounded-xl bg-purple-950/30 border border-purple-800/40 text-xs font-mono-num text-purple-200 mb-4 leading-relaxed">
-              <strong>SPONSOR EVALUATION:</strong> "{evaluation.sponsorFeedback}"
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 mb-4 leading-relaxed font-sans">
+              <strong className="text-slate-900">Sponsor Feedback:</strong> "{evaluation.sponsorFeedback}"
             </div>
 
             {/* Funding Offer Callout */}
-            <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-800/40 flex items-center justify-between text-xs font-mono-num mb-5">
-              <span className="text-slate-300">CONFIRMED TEAM FUNDING:</span>
-              <strong className="text-emerald-400 font-bold text-base">
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between text-xs mb-5 font-sans">
+              <span className="text-slate-700">Confirmed Team Funding:</span>
+              <strong className="text-emerald-700 font-bold text-base font-mono">
                 +${evaluation.fundingUsd}
               </strong>
             </div>
 
             {/* Action Buttons: Accept or Iterate */}
-            <div className="flex justify-between gap-3 pt-2 border-t border-slate-800">
+            <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
               <button
+                type="button"
                 onClick={handleImproveCampaign}
-                className="cursor-pointer px-4 py-2.5 rounded-xl text-xs font-mono-num text-slate-300 hover:text-white bg-slate-900 border border-slate-700 hover:border-slate-600 transition-colors"
+                className="cursor-pointer px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors"
               >
-                ← EDIT & TRY AGAIN
+                ← Edit & Try Again
               </button>
 
               <button
+                type="button"
                 onClick={handleAcceptSponsorship}
-                className="cursor-pointer px-5 py-2.5 rounded-xl text-xs font-display font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/25 transition-all transform hover:-translate-y-0.5"
+                className="cursor-pointer px-5 py-2.5 rounded-xl text-xs font-display font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition-all"
               >
-                ACCEPT SPONSORSHIP (+${evaluation.fundingUsd})
+                Accept Sponsorship (+${evaluation.fundingUsd})
               </button>
             </div>
           </div>

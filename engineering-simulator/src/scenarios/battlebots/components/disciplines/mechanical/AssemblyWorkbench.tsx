@@ -10,7 +10,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { soundEngine } from '../../../audio/soundEngine';
 import {
   type ComponentCategory,
@@ -20,6 +20,7 @@ import {
 } from '../../../types/robot';
 import { Robot3D } from '../../three/Robot3D';
 import { BlueprintModal } from './BlueprintModal';
+import { PartArt } from './PartArt';
 
 interface AssemblyWorkbenchProps {
   project: TeamRobotProject;
@@ -46,8 +47,27 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
   const [hintsUsed, setHintsUsed] = useState(0);
   const [activeHint, setActiveHint] = useState<{ title: string; text: string } | null>(null);
   const [draggedCategory, setDraggedCategory] = useState<ComponentCategory | null>(null);
+  const [isDragHovering, setIsDragHovering] = useState(false);
 
   const mech = project.mechanical;
+
+  // Sequence of 6 categories: 1. Chassis, 2. Drive, 3. Wheels, 4. Armor, 5. Weapon, 6. Utility
+  const activeGhostCategory = useMemo<ComponentCategory | null>(() => {
+    if (draggedCategory && !assembledCategories.includes(draggedCategory)) {
+      return draggedCategory;
+    }
+    const sequence: ComponentCategory[] = ['chassis', 'drive', 'wheels', 'armor', 'weapon', 'utility'];
+    for (const cat of sequence) {
+      if (!assembledCategories.includes(cat)) {
+        if (cat === 'utility') {
+          const hasUtil = purchasedParts.some((p) => p.category === 'utility');
+          if (!hasUtil) continue;
+        }
+        return cat;
+      }
+    }
+    return null;
+  }, [assembledCategories, draggedCategory, purchasedParts]);
 
   // Mount sequence validator
   const canMountCategory = (cat: ComponentCategory): { allowed: boolean; reason?: string } => {
@@ -57,14 +77,14 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
     if (!assembledCategories.includes('chassis')) {
       return {
         allowed: false,
-        reason: '⚠ MOUNTING POINT NOT AVAILABLE: Central chassis frame must be anchored before installing internal systems.',
+        reason: '⚠ Mounting Point Not Ready: Central chassis frame must be anchored before installing internal systems.',
       };
     }
     if (cat === 'wheels' || cat === 'armor' || cat === 'weapon') {
       if (!assembledCategories.includes('drive')) {
         return {
           allowed: false,
-          reason: '⚠ MOUNTING POINT NOT AVAILABLE: Internal drive motor package must be secured inside chassis prior to wheel/armor installation.',
+          reason: '⚠ Mounting Point Not Ready: Internal drive motor package must be secured inside chassis prior to wheel/armor installation.',
         };
       }
     }
@@ -98,55 +118,36 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
               text: 'Every combat robot begins with the chassis tub. It provides attachment hardpoints for all other systems.',
             }
           : {
-              title: 'HINT 2 — BLUEPRINT CLUE',
-              text: 'Mount your chassis frame into the center of the turntable workspace first.',
+              title: 'HINT 2 — ASSEMBLY SEQUENCE',
+              text: 'Click or drag your purchased Chassis onto the turntable to establish the main structural frame.',
             }
       );
       return;
     }
 
     if (!assembledCategories.includes('drive')) {
-      setActiveHint(
-        hintsUsed % 2 === 0
-          ? {
-              title: 'HINT 1 — INTERNAL PROPULSION',
-              text: 'Internal motor pods mount into the central bay of the chassis before outer wheels and armor are bolted on.',
-            }
-          : {
-              title: 'HINT 2 — BLUEPRINT CLUE',
-              text: 'Inspect [2] INTERNAL DRIVE MOTORS on your blueprint and secure the motor drivetrain package.',
-            }
-      );
-      return;
-    }
-
-    if (!assembledCategories.includes('wheels')) {
       setActiveHint({
-        title: 'HINT — MOBILITY ATTACHMENT',
-        text: 'Attach your purchased wheels or tracks to the outer axle shafts on the sides of the chassis.',
+        title: 'HINT — POWERTRAIN FIRST',
+        text: 'The drive motor system sits deep within the chassis channels. Mount the drive before putting on outer wheels and armor plates.',
       });
       return;
     }
 
-    if (!assembledCategories.includes('armor')) {
+    const remainingUnmounted = ['wheels', 'armor', 'weapon'].filter(
+      (c) => !assembledCategories.includes(c)
+    );
+    if (remainingUnmounted.length > 0) {
+      const nextTarget = remainingUnmounted[0].toUpperCase();
       setActiveHint({
-        title: 'HINT — PERIMETER PROTECTION',
-        text: 'Fasten your armor plates onto the perimeter structural rails to enclose the internal electronics.',
-      });
-      return;
-    }
-
-    if (!assembledCategories.includes('weapon')) {
-      setActiveHint({
-        title: 'HINT — OFFENSIVE HARDPOINT',
-        text: 'Bolt your front weapon assembly onto the forward bulkhead hardpoint indicated by the [▲ FRONT] arrow on your blueprint.',
+        title: 'HINT — EXTERIOR HARDWARE',
+        text: `The drive train is locked in. Now install your ${nextTarget} onto the outer hardpoints.`,
       });
       return;
     }
 
     setActiveHint({
-      title: 'ASSEMBLY COMPLETE',
-      text: 'All purchased systems are installed! Click [RUN MECHANICAL INSPECTION] to verify mass and clearances.',
+      title: 'HINT — ASSEMBLY COMPLETE',
+      text: 'All primary hardware is secured! Click "Run Mechanical Inspection" below to verify weight limits and structural clearance.',
     });
   };
 
@@ -169,60 +170,72 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
   const allRequiredMounted = requiredCategories.every((cat) => assembledCategories.includes(cat));
 
   return (
-    <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 md:p-6 overflow-hidden min-h-0 text-white font-mono-num relative">
+    <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 md:p-5 overflow-hidden min-h-0 text-slate-800 font-sans relative">
       {/* Center / Left: 3D Turntable Workspace */}
-      <div className="flex-1 bg-slate-950/90 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden shadow-2xl">
+      <div className="flex-1 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden shadow-xs">
         {/* Top Workspace Toolbar */}
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 z-10 text-xs flex-wrap gap-2">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200 z-10 text-xs flex-wrap gap-2">
           <div className="flex items-center gap-3">
-            <span className="text-slate-400">
-              MOUNTED HARDWARE: <strong className="text-cyan-400">{assembledCategories.length} / 5</strong>
+            <span className="text-slate-500">
+              Hardware Installed: <strong className="text-cyan-700 font-mono">{assembledCategories.length} / 5</strong>
             </span>
-            <span className="text-slate-600">•</span>
-            <span className="text-slate-400 flex items-center gap-1.5">
-              <Lightbulb className="w-3.5 h-3.5 text-amber-400/80" />
-              HINTS USED: <strong className={hintsUsed > 0 ? 'text-amber-300' : 'text-slate-400'}>{hintsUsed}</strong>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-500 flex items-center gap-1.5">
+              <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+              Hints used: <strong className={hintsUsed > 0 ? 'text-amber-700 font-mono' : 'text-slate-400'}>{hintsUsed}</strong>
             </span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={() => {
                 soundEngine.playClick();
-                setShowBlueprint(true);
+                setShowBlueprint((prev) => !prev);
               }}
-              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors"
+              className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                showBlueprint
+                  ? 'bg-cyan-600 text-white border-cyan-600 shadow-xs ring-2 ring-cyan-500/20'
+                  : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-200'
+              }`}
+              title="Toggle full robot blueprint silhouette"
             >
               <Compass className="w-3.5 h-3.5" />
-              <span>📐 VIEW BLUEPRINT</span>
+              <span>{showBlueprint ? 'Blueprint Active ✓' : 'Blueprint'}</span>
             </button>
 
             <button
+              type="button"
               onClick={handleGetHint}
-              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 transition-colors"
+              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors"
             >
-              <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
-              <span>GET HINT</span>
+              <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
+              <span>Hint</span>
             </button>
 
             <button
+              type="button"
               onClick={onReturnToMarketplace}
-              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>SWAP IN BOTBAY</span>
+              <span>BotBay Catalog</span>
             </button>
           </div>
         </div>
 
         {/* Warning / Error Banner */}
         {errorMessage && (
-          <div className="mt-2 p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-300 flex items-start justify-between gap-3 z-10 animate-in fade-in">
+          <div className="mt-2 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-start justify-between gap-3 z-10 animate-in fade-in">
             <div className="flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               <p className="leading-relaxed">{errorMessage}</p>
             </div>
-            <button onClick={() => setErrorMessage(null)} className="text-slate-400 hover:text-white">
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              className="text-slate-400 hover:text-slate-600"
+            >
               ✕
             </button>
           </div>
@@ -230,19 +243,20 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
 
         {/* Hint Banner */}
         {activeHint && (
-          <div className="mt-2 p-3 rounded-xl bg-amber-950/60 border border-amber-500/40 flex items-start justify-between gap-3 text-xs z-10 animate-in fade-in">
+          <div className="mt-2 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start justify-between gap-3 text-xs z-10 animate-in fade-in">
             <div className="flex items-start gap-2.5">
-              <Lightbulb className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <Lightbulb className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold text-amber-300 block text-[11px] tracking-wide uppercase">
+                <span className="font-bold text-amber-900 block text-[11px] tracking-wide uppercase">
                   {activeHint.title}
                 </span>
-                <p className="text-slate-200 mt-0.5 leading-relaxed">{activeHint.text}</p>
+                <p className="text-amber-950 mt-0.5 leading-relaxed">{activeHint.text}</p>
               </div>
             </div>
             <button
+              type="button"
               onClick={() => setActiveHint(null)}
-              className="cursor-pointer text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800"
+              className="cursor-pointer text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-amber-100/50"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -251,10 +265,19 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
 
         {/* 3D Canvas Area */}
         <div
-          className="relative flex-1 w-full min-h-[380px] my-2 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing border border-slate-900"
-          onDragOver={(e) => e.preventDefault()}
+          className={`relative flex-1 w-full min-h-[360px] my-2 rounded-2xl overflow-hidden cursor-grab active:cursor-grabbing border transition-all ${
+            isDragHovering
+              ? 'border-cyan-400 ring-4 ring-cyan-400/20 bg-gradient-to-b from-cyan-50/40 to-slate-200'
+              : 'border-slate-200 bg-gradient-to-b from-slate-100 to-slate-200'
+          }`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!isDragHovering) setIsDragHovering(true);
+          }}
+          onDragLeave={() => setIsDragHovering(false)}
           onDrop={(e) => {
             e.preventDefault();
+            setIsDragHovering(false);
             if (draggedCategory) {
               handleAttemptMount(draggedCategory);
               setDraggedCategory(null);
@@ -262,8 +285,8 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
           }}
         >
           <Canvas shadows camera={{ position: [2.6, 2.0, 3.0], fov: 42 }}>
-            <color attach="background" args={['#060a14']} />
-            <fog attach="fog" args={['#060a14', 6, 15]} />
+            <color attach="background" args={['#e2e8f0']} />
+            <fog attach="fog" args={['#e2e8f0', 7, 16]} />
             <OrbitControls
               enablePan={false}
               minDistance={1.8}
@@ -271,28 +294,46 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
               minPolarAngle={0.25}
               maxPolarAngle={Math.PI / 2 - 0.05}
             />
-            <ambientLight intensity={0.9} color="#f8fafc" />
-            <directionalLight castShadow position={[4.5, 7, 5]} intensity={2.2} color="#ffffff" />
-            <directionalLight position={[-4, 4.5, -3.5]} intensity={1.1} color="#94a3b8" />
-            <pointLight position={[-3, 2.5, -2.5]} intensity={2.0} color="#22d3ee" />
+            <ambientLight intensity={1.1} color="#ffffff" />
+            <directionalLight castShadow position={[5, 8, 6]} intensity={2.0} color="#ffffff" />
+            <directionalLight position={[-4, 4.5, -3.5]} intensity={0.9} color="#94a3b8" />
+            <pointLight position={[-3, 2.5, -2.5]} intensity={1.5} color="#38bdf8" />
 
-            {/* Turntable Floor */}
+            {/* Turntable Floor with Target Reticle */}
             <group position={[0, -0.02, 0]}>
               <mesh receiveShadow position={[0, -0.03, 0]}>
                 <cylinderGeometry args={[2.0, 2.15, 0.08, 48]} />
-                <meshStandardMaterial color="#172033" metalness={0.5} roughness={0.5} />
+                <meshStandardMaterial color="#cbd5e1" metalness={0.3} roughness={0.6} />
               </mesh>
+              {/* Outer Cyan Ring */}
               <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}>
                 <ringGeometry args={[1.82, 1.9, 48]} />
-                <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={1.0} />
+                <meshStandardMaterial color="#0284c7" emissive="#0284c7" emissiveIntensity={0.6} />
               </mesh>
+              {/* Magnetic Snap Reticle (Pulsing when hovering or target active) */}
+              {activeGhostCategory && (
+                <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, 0]}>
+                  <ringGeometry args={[1.4, 1.48, 48]} />
+                  <meshStandardMaterial
+                    color="#00f0ff"
+                    emissive="#00f0ff"
+                    emissiveIntensity={isDragHovering ? 2.5 : 1.0}
+                    transparent
+                    opacity={isDragHovering ? 0.95 : 0.6}
+                  />
+                </mesh>
+              )}
             </group>
 
-            {/* 3D Robot Assembly Model */}
+            {/* 3D Robot Assembly Model with Visual Placement Ghosts */}
             <group position={[0, 0, 0]}>
               <Robot3D
                 config={previewConfig}
                 assembledCategories={assembledCategories}
+                ghostMode={true}
+                activeGhostCategory={activeGhostCategory}
+                isTargetHovered={isDragHovering}
+                showFullBlueprint={showBlueprint}
                 wheelSpeedRad={0}
                 motorTempC={42}
               />
@@ -302,15 +343,16 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
           {/* Interactive Mount Hotspot Overlay Bar (Touch/Click Friendly) */}
           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-center gap-2 pointer-events-auto">
             {selectedTrayCategory && (
-              <div className="px-4 py-2 rounded-xl bg-cyan-950/90 border border-cyan-400 text-xs text-white shadow-xl flex items-center gap-3 animate-pulse">
+              <div className="px-4 py-2 rounded-xl bg-white border border-cyan-400 text-xs text-slate-800 shadow-xl flex items-center gap-3">
                 <span>
-                  Selected: <strong className="text-cyan-300 uppercase">{selectedTrayCategory}</strong>
+                  Selected: <strong className="text-cyan-800 uppercase">{selectedTrayCategory}</strong>
                 </span>
                 <button
+                  type="button"
                   onClick={() => handleAttemptMount(selectedTrayCategory)}
-                  className="cursor-pointer px-3 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold uppercase"
+                  className="cursor-pointer px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold uppercase"
                 >
-                  MOUNT ONTO ROBOT
+                  Mount onto Robot
                 </button>
               </div>
             )}
@@ -318,37 +360,37 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
         </div>
 
         {/* Bottom Status / Instructions */}
-        <div className="pt-2 border-t border-slate-800 flex items-center justify-between z-10 text-xs text-slate-400">
+        <div className="pt-2 border-t border-slate-200 flex items-center justify-between z-10 text-xs text-slate-500">
           <span>
             Drag parts from tray onto turntable or click a part to select & mount. Follow blueprint sequence.
           </span>
 
           {allRequiredMounted && (
             <button
+              type="button"
               onClick={() => {
                 soundEngine.playClick();
                 onRunInspection();
               }}
-              className="cursor-pointer inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-display font-black text-sm bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/25 transition-all transform hover:-translate-y-0.5 active:scale-95"
+              className="cursor-pointer inline-flex items-center gap-2 px-5 py-2 rounded-xl font-display font-black text-xs uppercase bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-600/20 transition-all active:scale-98"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>RUN MECHANICAL INSPECTION</span>
+              <span>Run Mechanical Inspection</span>
             </button>
           )}
         </div>
       </div>
 
       {/* Right Column: Parts Tray & Assembly Checklist */}
-      <div className="w-full lg:w-80 flex flex-col gap-3">
-        {/* Parts Tray */}
-        <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-xl text-xs font-mono-num flex-1">
+      <div className="w-full lg:w-80 flex flex-col gap-3 shrink-0">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs text-xs font-sans flex-1">
           <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-              <span className="font-bold text-white flex items-center gap-2">
-                <Package className="w-4 h-4 text-cyan-400" />
-                PARTS TRAY
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-3">
+              <span className="font-display font-bold text-sm text-slate-900 flex items-center gap-2">
+                <Package className="w-4 h-4 text-cyan-600" />
+                Workshop Parts Tray
               </span>
-              <span className="text-[10px] text-slate-400 uppercase">PURCHASED HARDWARE</span>
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Ready to Mount</span>
             </div>
 
             {/* List of Purchased Parts in Tray */}
@@ -368,47 +410,56 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
                         setSelectedTrayCategory(part.category);
                       }
                     }}
-                    className={`p-3 rounded-xl border text-xs transition-all ${
+                    className={`p-2.5 rounded-xl border text-xs transition-all ${
                       isMounted
-                        ? 'bg-slate-900/40 border-slate-800/80 text-slate-500 opacity-75'
+                        ? 'bg-slate-50 border-slate-200 text-slate-400 opacity-75'
                         : isSelected
-                        ? 'bg-cyan-950/50 border-cyan-400 text-white shadow-md cursor-pointer'
-                        : 'bg-slate-900/80 border-slate-700/80 hover:border-slate-500 text-slate-200 cursor-pointer'
+                        ? 'bg-cyan-50 border-cyan-400 text-cyan-900 shadow-xs ring-1 ring-cyan-400/30 cursor-pointer'
+                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700 cursor-pointer shadow-xs'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-cyan-400 uppercase font-bold">
-                        {part.category}
-                      </span>
-                      {isMounted ? (
-                        <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> MOUNTED
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-amber-300 font-bold">IN TRAY</span>
-                      )}
-                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <div className="size-10 rounded-lg bg-slate-100 border border-slate-200 grid place-items-center shrink-0 p-1">
+                        <PartArt category={part.category} partId={part.partId} className="w-full h-full" />
+                      </div>
 
-                    <div className="font-bold text-[11px] truncate text-slate-100 mb-1">
-                      {part.name}
-                    </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-[10px] text-cyan-700 uppercase font-bold">
+                            {part.category}
+                          </span>
+                          {isMounted ? (
+                            <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Mounted
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-amber-700 font-medium">In tray</span>
+                          )}
+                        </div>
 
-                    <div className="flex items-center justify-between text-[10px] text-slate-400">
-                      <span>{part.condition.toUpperCase()} • {part.weightLb} lb</span>
-                      {isMounted ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            soundEngine.playClick();
-                            onUnmountPart(part.category);
-                          }}
-                          className="text-rose-400 hover:text-rose-300 underline cursor-pointer"
-                        >
-                          Unmount
-                        </button>
-                      ) : (
-                        <span className="text-cyan-400 font-bold">CLICK OR DRAG</span>
-                      )}
+                        <div className="font-semibold text-xs truncate text-slate-900 leading-tight">
+                          {part.name}
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1 font-mono">
+                          <span>{part.condition.toUpperCase()} • {part.weightLb} lb</span>
+                          {isMounted ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                soundEngine.playClick();
+                                onUnmountPart(part.category);
+                              }}
+                              className="text-rose-600 hover:text-rose-700 font-sans font-semibold underline cursor-pointer"
+                            >
+                              Unmount
+                            </button>
+                          ) : (
+                            <span className="text-cyan-700 font-sans font-semibold">Click / Drag</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -417,9 +468,9 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
           </div>
 
           {/* Assembly Checklist */}
-          <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1.5">
-            <span className="text-[10px] text-cyan-400 font-bold uppercase block mb-1">
-              ROBOT ASSEMBLY STATUS
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+            <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">
+              Assembly Progress
             </span>
             {[
               { id: 'chassis', label: 'Chassis frame anchored' },
@@ -430,13 +481,13 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
             ].map((step) => {
               const isChecked = assembledCategories.includes(step.id);
               return (
-                <div key={step.id} className="flex items-center gap-2 text-xs text-slate-300">
+                <div key={step.id} className="flex items-center gap-2 text-xs">
                   {isChecked ? (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   ) : (
-                    <div className="w-3.5 h-3.5 rounded-full border border-slate-600 shrink-0" />
+                    <div className="w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0" />
                   )}
-                  <span className={isChecked ? 'text-slate-200 line-through opacity-80' : 'text-slate-400'}>
+                  <span className={isChecked ? 'text-slate-400 line-through' : 'text-slate-600'}>
                     {step.label}
                   </span>
                 </div>

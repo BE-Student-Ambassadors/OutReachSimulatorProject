@@ -32,7 +32,44 @@ export interface Robot3DProps {
     rightDrivePct: number;
     weaponPct: number;
   };
+
+  // Visual ghost blueprint placement outlines (Assembly Workbench)
+  ghostMode?: boolean;
+  activeGhostCategory?: ComponentCategory | null;
+  isTargetHovered?: boolean;
+  showFullBlueprint?: boolean;
 }
+
+// Blueprint ghost wireframe material with animated heartbeat cyan pulse
+const GhostMaterial: React.FC<{
+  isActive: boolean;
+  isHovered?: boolean;
+}> = ({ isActive, isHovered }) => {
+  const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  useFrame(({ clock }) => {
+    if (matRef.current) {
+      if (isActive) {
+        const pulse = Math.sin(clock.getElapsedTime() * 4.5) * 0.35 + 0.9;
+        matRef.current.emissiveIntensity = isHovered ? 2.5 : pulse * 1.4;
+        matRef.current.opacity = isHovered ? 0.95 : 0.75;
+      }
+    }
+  });
+
+  return (
+    <meshStandardMaterial
+      ref={matRef}
+      color={isActive ? '#00e5ff' : '#0284c7'}
+      emissive={isActive ? '#00e5ff' : '#0369a1'}
+      emissiveIntensity={isActive ? 1.2 : 0.18}
+      wireframe
+      transparent
+      opacity={isActive ? 0.75 : 0.18}
+      roughness={0.2}
+      metalness={0.8}
+    />
+  );
+};
 
 // Procedural 3D primitive builder for AI Inventor Lab components
 const ProceduralCustomComponent3D: React.FC<{
@@ -218,6 +255,10 @@ export const Robot3D: React.FC<Robot3DProps> = ({
   isFlipped = false,
   motorTempC = 45,
   damageState,
+  ghostMode = false,
+  activeGhostCategory = null,
+  isTargetHovered = false,
+  showFullBlueprint = false,
 }) => {
   const rootRef = useRef<THREE.Group>(null);
   const vertSpinnerRef = useRef<THREE.Group>(null);
@@ -1101,6 +1142,128 @@ export const Robot3D: React.FC<Robot3DProps> = ({
               </mesh>
             </group>
           ) : null}
+        </group>
+      )}
+
+      {/* ============================================================
+          7. GHOST BLUEPRINT WIREFRAME OVERLAYS (For Assembly Workbench)
+         ============================================================ */}
+      {ghostMode && (
+        <group>
+          {/* Chassis Ghost Outline */}
+          {!isAssembled('chassis') && (showFullBlueprint || activeGhostCategory === 'chassis') && (
+            <group>
+              <mesh>
+                <boxGeometry args={[cW * 1.01, cH * 1.01, cL * 1.01]} />
+                <GhostMaterial isActive={activeGhostCategory === 'chassis'} isHovered={isTargetHovered && activeGhostCategory === 'chassis'} />
+              </mesh>
+              <mesh position={[0, cH * 0.1, 0]}>
+                <boxGeometry args={[cW * 0.6, cH * 0.5, cL * 0.5]} />
+                <GhostMaterial isActive={activeGhostCategory === 'chassis'} isHovered={isTargetHovered && activeGhostCategory === 'chassis'} />
+              </mesh>
+            </group>
+          )}
+
+          {/* Drive Ghost Outline */}
+          {!isAssembled('drive') && (showFullBlueprint || activeGhostCategory === 'drive') && (
+            <group>
+              {[-1, 1].map((side) => (
+                <group key={side} position={[side * (cW * 0.24), cH * 0.42, -cL * 0.14]}>
+                  <mesh rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.12, 0.12, 0.3, 16]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'drive'} isHovered={isTargetHovered && activeGhostCategory === 'drive'} />
+                  </mesh>
+                  <mesh position={[0, 0, 0.18]}>
+                    <boxGeometry args={[0.15, 0.15, 0.15]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'drive'} isHovered={isTargetHovered && activeGhostCategory === 'drive'} />
+                  </mesh>
+                </group>
+              ))}
+            </group>
+          )}
+
+          {/* Wheels Ghost Outline */}
+          {!isAssembled('wheels') && (showFullBlueprint || activeGhostCategory === 'wheels') && (
+            <group>
+              {[-1, 1].map((side) =>
+                [-cL * 0.25, cL * 0.25].map((zPos, i) => (
+                  <mesh
+                    key={`${side}-${i}`}
+                    position={[side * (cW * 0.5 + 0.1), cH * 0.1, zPos]}
+                    rotation={[0, 0, Math.PI / 2]}
+                  >
+                    <cylinderGeometry args={[wheelRadius * 1.02, wheelRadius * 1.02, 0.16, 24]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'wheels'} isHovered={isTargetHovered && activeGhostCategory === 'wheels'} />
+                  </mesh>
+                ))
+              )}
+            </group>
+          )}
+
+          {/* Armor Ghost Outline */}
+          {!isAssembled('armor') && (showFullBlueprint || activeGhostCategory === 'armor') && (
+            <group>
+              {/* Front Armor Ghost */}
+              <mesh position={[0, cH * 0.5, cL * 0.5 + plateThickness * 0.6]}>
+                <boxGeometry args={[cW * 1.04, cH * 0.96, plateThickness * 1.1]} />
+                <GhostMaterial isActive={activeGhostCategory === 'armor'} isHovered={isTargetHovered && activeGhostCategory === 'armor'} />
+              </mesh>
+              {/* Side Armor Ghosts */}
+              {[-1, 1].map((side) => (
+                <mesh key={side} position={[side * (cW * 0.5 + plateThickness * 0.6), cH * 0.5, 0]}>
+                  <boxGeometry args={[plateThickness * 1.1, cH * 0.94, cL * 0.98]} />
+                  <GhostMaterial isActive={activeGhostCategory === 'armor'} isHovered={isTargetHovered && activeGhostCategory === 'armor'} />
+                </mesh>
+              ))}
+              {/* Top Deck Lid */}
+              <mesh position={[0, cH + plateThickness * 0.6, 0]}>
+                <boxGeometry args={[cW * 0.96, plateThickness * 1.1, cL * 0.9]} />
+                <GhostMaterial isActive={activeGhostCategory === 'armor'} isHovered={isTargetHovered && activeGhostCategory === 'armor'} />
+              </mesh>
+            </group>
+          )}
+
+          {/* Weapon Ghost Outline */}
+          {!isAssembled('weapon') && (showFullBlueprint || activeGhostCategory === 'weapon') && (
+            <group>
+              {config.weaponId.includes('horizontal') ? (
+                <group position={[0, cH * 0.8, cL * 0.38]}>
+                  <mesh>
+                    <cylinderGeometry args={[0.34, 0.34, 0.08, 24]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                  </mesh>
+                  <mesh>
+                    <boxGeometry args={[cW * 1.3, 0.08, 0.18]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                  </mesh>
+                </group>
+              ) : config.weaponId.includes('flipper') || config.weaponId.includes('wedge') ? (
+                <mesh position={[0, cH * 0.45, cL * 0.55]} rotation={[-0.35, 0, 0]}>
+                  <boxGeometry args={[cW * 0.85, 0.08, cL * 0.7]} />
+                  <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                </mesh>
+              ) : (
+                <group position={[0, cH * 0.6, cL * 0.48]}>
+                  <mesh rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.34, 0.34, 0.14, 24]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                  </mesh>
+                  <mesh position={[0, -0.15, -0.05]}>
+                    <boxGeometry args={[cW * 0.45, 0.22, 0.12]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                  </mesh>
+                </group>
+              )}
+            </group>
+          )}
+
+          {/* Utility Ghost Outline */}
+          {!isAssembled('utility') && (showFullBlueprint || activeGhostCategory === 'utility') && (
+            <mesh position={[0, cH + 0.22, 0]}>
+              <boxGeometry args={[cW * 0.75, 0.05, 0.05]} />
+              <GhostMaterial isActive={activeGhostCategory === 'utility'} isHovered={isTargetHovered && activeGhostCategory === 'utility'} />
+            </mesh>
+          )}
         </group>
       )}
     </group>

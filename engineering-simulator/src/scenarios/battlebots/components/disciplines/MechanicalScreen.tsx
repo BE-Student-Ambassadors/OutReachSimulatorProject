@@ -24,19 +24,20 @@ import { ResetTaskModal } from './ResetTaskModal';
 import { AssemblyWorkbench } from './mechanical/AssemblyWorkbench';
 import { BotBayMarketplace } from './mechanical/BotBayMarketplace';
 import { DeliveryAnimationModal } from './mechanical/DeliveryAnimationModal';
-import { MechanicalChecklistBar } from './mechanical/MechanicalChecklistBar';
 import { MechanicalInspectionModal } from './mechanical/MechanicalInspectionModal';
 
 interface MechanicalScreenProps {
   project: TeamRobotProject;
   onUpdateMechanical: (nextMechanical: MechanicalConfiguration) => void;
   onReturnToDashboard: () => void;
+  hideHeader?: boolean;
 }
 
 export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
   project,
   onUpdateMechanical,
   onReturnToDashboard,
+  hideHeader = false,
 }) => {
   const mech = project.mechanical;
   const summary = computeTeamEngineeringSummary(project);
@@ -44,7 +45,6 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
   const [showResetModal, setShowResetModal] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [showInspectionModal, setShowInspectionModal] = useState(false);
-  const [inspectionAttempted, setInspectionAttempted] = useState(false);
   const [pendingOrderedParts, setPendingOrderedParts] = useState<PurchasedMechanicalPart[]>([]);
 
   // Default stage resolution
@@ -61,10 +61,6 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
   const purchasedPartsList = Object.values(purchasedPartsMap);
   const assembledCategories = mech.assembledParts || (mech.isCompleted ? ['chassis', 'drive', 'wheels', 'armor', 'weapon'] : []);
 
-  const requiredFulfilledCount = ['chassis', 'drive', 'wheels', 'armor', 'weapon'].filter(
-    (c) => Boolean(purchasedPartsMap[c])
-  ).length;
-
   const handleResetMechanical = () => {
     soundEngine.playInstall();
     onUpdateMechanical({
@@ -77,7 +73,6 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
       isCompleted: false,
     });
     setShowResetModal(false);
-    setInspectionAttempted(false);
   };
 
   const handleOrderParts = (parts: PurchasedMechanicalPart[]) => {
@@ -147,7 +142,6 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
   };
 
   const handleRunInspection = () => {
-    setInspectionAttempted(true);
     setShowInspectionModal(true);
   };
 
@@ -182,81 +176,59 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full bg-[#070b16] text-white overflow-hidden flex flex-col justify-between select-none">
-      {/* Top Header */}
-      <div className="relative z-20 p-4 md:px-6 flex items-center justify-between pointer-events-auto bg-gradient-to-b from-[#070b16] via-[#070b16]/95 to-slate-950/80 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              soundEngine.playClick();
-              onReturnToDashboard();
-            }}
-            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono-num font-semibold text-slate-300 hover:text-white bg-slate-900/90 border border-slate-700 hover:border-slate-500 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            DASHBOARD
-          </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-              <span className="text-[10px] font-mono-num uppercase tracking-wider text-cyan-400 font-semibold">
-                DISCIPLINE 01 • MECHANICAL ENGINEER
-              </span>
-            </div>
-            <h2 className="font-display font-black text-xl text-white">PHYSICAL ARCHITECTURE</h2>
-          </div>
-        </div>
-
-        {/* Live Badges & Actions */}
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-3 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono-num">
+    <div className="relative w-full h-full bg-slate-50 text-slate-800 overflow-hidden flex flex-col justify-between select-none">
+      {/* Optional Top Sub-Header (Only shown if hideHeader is false) */}
+      {!hideHeader && (
+        <div className="relative z-20 p-3.5 md:px-5 flex items-center justify-between pointer-events-auto bg-white border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                onReturnToDashboard();
+              }}
+              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Dashboard</span>
+            </button>
             <div>
-              <span className="text-slate-400 block text-[9px]">TOTAL WEIGHT</span>
-              <span className={`font-bold ${summary.isOverweight ? 'text-red-400' : 'text-slate-100'}`}>
-                {summary.totalWeightLb.toFixed(1)} / 30.0 LB
-              </span>
-            </div>
-            <div className="w-px h-5 bg-slate-800" />
-            <div>
-              <span className="text-slate-400 block text-[9px]">AVAILABLE BUDGET</span>
-              <span className="font-bold text-cyan-300">${summary.effectiveBudgetUsd}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-cyan-600 animate-pulse" />
+                <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-700 font-bold">
+                  Discipline 01 • Mechanical
+                </span>
+              </div>
+              <h2 className="font-display font-black text-lg text-slate-900 leading-tight">Robot Structure & Marketplace</h2>
             </div>
           </div>
 
-          <button
-            onClick={() => setShowResetModal(true)}
-            title="Reset Mechanical challenge"
-            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono-num text-slate-400 hover:text-rose-300 bg-slate-900/80 border border-slate-800 hover:border-rose-900/50 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>↻ Reset Task</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowResetModal(true)}
+              title="Reset Mechanical task"
+              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-rose-600 bg-slate-100 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>↻ Reset Task</span>
+            </button>
 
-          <button
-            onClick={toggleComplete}
-            className={`cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-display font-bold transition-all ${
-              mech.isCompleted
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/25'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-            }`}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            {mech.isCompleted ? 'DISCIPLINE COMPLETE ✓' : 'MARK COMPLETE'}
-          </button>
+            <button
+              type="button"
+              onClick={toggleComplete}
+              className={`cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-display font-bold transition-all ${
+                mech.isCompleted
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-900 hover:bg-slate-800 text-white shadow-xs'
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{mech.isCompleted ? 'Discipline Complete ✓' : 'Mark Complete'}</span>
+            </button>
+          </div>
         </div>
-      </div>
-
-      {/* Persistent Top Workflow Checklist Bar */}
-      <MechanicalChecklistBar
-        currentStage={stage}
-        purchasedCount={requiredFulfilledCount}
-        totalRequired={5}
-        partsDelivered={Boolean(mech.partsDelivered || mech.isCompleted)}
-        assembledCount={assembledCategories.filter((c) => ['chassis', 'drive', 'wheels', 'armor', 'weapon'].includes(c)).length}
-        inspectionPassed={Boolean(mech.inspectionPassed || mech.isCompleted)}
-        inspectionAttempted={inspectionAttempted}
-        onNavigateStage={handleNavigateStage}
-      />
+      )}
 
       {/* Main Stage View */}
       {stage === 'marketplace' && (
@@ -264,6 +236,7 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
           project={project}
           currentPurchases={purchasedPartsMap}
           onOrderParts={handleOrderParts}
+          onGoToWorkbench={() => handleNavigateStage('workbench')}
         />
       )}
 

@@ -7,7 +7,6 @@ import {
   Shield,
   Swords,
   Wrench,
-  Star,
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
@@ -29,17 +28,20 @@ import {
   type PurchasedMechanicalPart,
   type TeamRobotProject,
 } from '../../../types/robot';
+import { PartArt } from './PartArt';
 
 interface BotBayMarketplaceProps {
   project: TeamRobotProject;
   currentPurchases: Record<string, PurchasedMechanicalPart>;
   onOrderParts: (parts: PurchasedMechanicalPart[]) => void;
+  onGoToWorkbench?: () => void;
 }
 
 export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
   project,
   currentPurchases,
   onOrderParts,
+  onGoToWorkbench,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<ComponentCategory | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -76,7 +78,6 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
 
   // Estimated weight from cart
   const cartEstimatedWeight = useMemo(() => {
-    // Base weight from cart components + estimated 2.2 lb for internal wiring/radio/receiver
     const partsWeight = Object.values(cart).reduce((acc, entry) => acc + entry.item.weightLb, 0);
     const batteryWeight = project.electrical.batteryId === 'large' ? 4.2 : project.electrical.batteryId === 'small' ? 2.1 : 3.0;
     return Number((partsWeight + batteryWeight + 1.2).toFixed(1));
@@ -98,7 +99,7 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
           item.title.toLowerCase().includes(q) ||
           item.tagline.toLowerCase().includes(q) ||
           item.category.toLowerCase().includes(q) ||
-          item.seller.toLowerCase().includes(q)
+          item.engineeringNotes.toLowerCase().includes(q)
         );
       }
       return true;
@@ -108,6 +109,15 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
   const handleSelectCondition = (itemId: string, condition: PartCondition) => {
     soundEngine.playClick();
     setConditionSelections((prev) => ({ ...prev, [itemId]: condition }));
+
+    // If item already in cart, update its condition
+    const targetItem = BOTBAY_ITEMS.find((i) => i.id === itemId);
+    if (targetItem && cart[targetItem.category]?.item.id === itemId) {
+      setCart((prev) => ({
+        ...prev,
+        [targetItem.category]: { item: targetItem, condition },
+      }));
+    }
   };
 
   const handleAddToCart = (item: MarketplaceItem) => {
@@ -122,16 +132,16 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
   const handleRemoveFromCart = (category: string) => {
     soundEngine.playClick();
     setCart((prev) => {
-      const next = { ...prev };
-      delete next[category];
-      return next;
+      const copy = { ...prev };
+      delete copy[category];
+      return copy;
     });
   };
 
   const handleOpenCompare = (item: MarketplaceItem) => {
     soundEngine.playClick();
-    // Find an alternative item in the same category
-    const alternative = BOTBAY_ITEMS.find((i) => i.category === item.category && i.id !== item.id) || null;
+    const sameCategoryItems = BOTBAY_ITEMS.filter((i) => i.category === item.category && i.id !== item.id);
+    const alternative = sameCategoryItems[0] || null;
     setCompareItems([item, alternative]);
     setShowCompareModal(true);
   };
@@ -175,41 +185,41 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 md:p-6 overflow-hidden min-h-0 text-white font-mono-num">
+    <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 md:p-5 overflow-hidden min-h-0 text-slate-800 font-sans">
       {/* Left / Center: Marketplace Storefront */}
-      <div className="flex-1 flex flex-col bg-slate-950/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+      <div className="flex-1 flex flex-col bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
         {/* Marketplace Banner & Live Team Budget Bar */}
-        <div className="p-4 border-b border-slate-800 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950/40">
+        <div className="p-4 border-b border-slate-200 bg-slate-50/80">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
             <div>
               <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-bold text-[10px] border border-cyan-500/40">
-                  OFFICIAL PARTS SURPLUS
+                <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-700 font-bold text-[10px] border border-cyan-200">
+                  BOTBAY SURPLUS
                 </span>
-                <span className="text-[10px] text-slate-400">FICTIONAL ROBOTICS EXCHANGE</span>
+                <span className="text-[11px] text-slate-500">Official Component Exchange</span>
               </div>
-              <h2 className="font-display font-black text-2xl tracking-wide flex items-center gap-2 text-white">
-                BOTBAY INDUSTRIAL SURPLUS
+              <h2 className="font-display font-black text-xl tracking-tight text-slate-900 mt-0.5">
+                Marketplace Parts Catalog
               </h2>
             </div>
 
             {/* Shared Team Budget Box */}
-            <div className="flex items-center gap-3 bg-slate-900/90 border border-cyan-500/30 px-3.5 py-2 rounded-xl text-xs">
+            <div className="flex items-center gap-3 bg-white border border-slate-200 px-3.5 py-1.5 rounded-xl text-xs shadow-xs">
               <div>
-                <span className="text-[9px] text-slate-400 block uppercase">BASE + SPONSOR:</span>
-                <span className="font-bold text-slate-200">
-                  ${baseBudgetUsd} {sponsorshipUsd > 0 && <span className="text-emerald-400">+${sponsorshipUsd} ({sponsorTier})</span>}
+                <span className="text-[9px] text-slate-400 block font-semibold uppercase">SPONSOR FUND:</span>
+                <span className="font-bold text-slate-700">
+                  ${baseBudgetUsd} {sponsorshipUsd > 0 && <span className="text-emerald-600 font-extrabold">+${sponsorshipUsd} ({sponsorTier})</span>}
                 </span>
               </div>
-              <div className="w-px h-6 bg-slate-800" />
+              <div className="w-px h-6 bg-slate-200" />
               <div>
-                <span className="text-[9px] text-slate-400 block uppercase">AVAILABLE FUNDING:</span>
-                <span className="font-bold text-cyan-300 text-sm">${totalAvailableFunding}</span>
+                <span className="text-[9px] text-slate-400 block font-semibold uppercase">TOTAL:</span>
+                <span className="font-bold text-cyan-700 text-sm">${totalAvailableFunding}</span>
               </div>
-              <div className="w-px h-6 bg-slate-800" />
+              <div className="w-px h-6 bg-slate-200" />
               <div>
-                <span className="text-[9px] text-slate-400 block uppercase">MONEY LEFT:</span>
-                <span className={`font-bold text-sm ${isOverBudget ? 'text-rose-400 animate-pulse' : 'text-emerald-400'}`}>
+                <span className="text-[9px] text-slate-400 block font-semibold uppercase">REMAINING:</span>
+                <span className={`font-bold text-sm ${isOverBudget ? 'text-rose-600 font-black animate-pulse' : 'text-emerald-600'}`}>
                   ${moneyRemaining}
                 </span>
               </div>
@@ -225,7 +235,7 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
                 placeholder="Search components by name, power, mass, or keyword..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 shadow-xs"
               />
             </div>
 
@@ -236,13 +246,13 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
                   soundEngine.playClick();
                   setSelectedCategory('all');
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-colors shrink-0 ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase transition-all shrink-0 ${
                   selectedCategory === 'all'
-                    ? 'bg-cyan-500 text-slate-950 font-bold'
-                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                 }`}
               >
-                ALL
+                All
               </button>
               {(['chassis', 'drive', 'wheels', 'armor', 'weapon', 'utility'] as ComponentCategory[]).map((cat) => (
                 <button
@@ -251,14 +261,14 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
                     soundEngine.playClick();
                     setSelectedCategory(cat);
                   }}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase flex items-center gap-1.5 transition-colors shrink-0 ${
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold uppercase flex items-center gap-1.5 transition-all shrink-0 ${
                     selectedCategory === cat
-                      ? 'bg-cyan-500 text-slate-950'
-                      : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
                   {getCategoryIcon(cat)}
-                  <span>{cat}</span>
+                  <span className="capitalize">{cat}</span>
                 </button>
               ))}
             </div>
@@ -266,7 +276,7 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
         </div>
 
         {/* Product Cards Grid */}
-        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-4">
+        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5 bg-slate-50/50">
           {filteredItems.map((item) => {
             const currentCond = conditionSelections[item.id] || 'new';
             const condOption: ItemConditionOption = item.conditions[currentCond];
@@ -276,123 +286,121 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
             return (
               <div
                 key={item.id}
-                className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+                className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between ${
                   isInCart
-                    ? 'bg-cyan-950/30 border-cyan-400 shadow-md shadow-cyan-950/40'
-                    : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                    ? 'bg-cyan-50/70 border-cyan-400 shadow-xs ring-1 ring-cyan-400/40'
+                    : 'bg-white border-slate-200 hover:border-slate-300 shadow-xs'
                 }`}
               >
                 <div>
-                  {/* Card Header: Seller, Rating, Category Badge */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-2">
-                    <span className="flex items-center gap-1">
-                      {getCategoryIcon(item.category)}
-                      <strong className="text-slate-300 uppercase">{item.category}</strong> • {item.seller}
-                    </span>
-                    <span className="flex items-center gap-1 text-amber-400">
-                      <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                      {item.rating} ({item.reviewCount})
+                  {/* 1. Large Part Visual (30-40% of card) */}
+                  <div className="w-full h-32 rounded-xl bg-gradient-to-b from-slate-50 to-slate-100 border border-slate-200/80 grid place-items-center relative overflow-hidden mb-2.5">
+                    {/* Subtle blueprint grid watermark */}
+                    <div
+                      className="absolute inset-0 opacity-20 pointer-events-none"
+                      style={{
+                        backgroundImage: 'radial-gradient(#94a3b8 1px, transparent 1px)',
+                        backgroundSize: '12px 12px',
+                      }}
+                    />
+                    <PartArt category={item.category} partId={item.partId} className="w-24 h-24 relative z-10" />
+                  </div>
+
+                  {/* 2. Title & Weight Badge */}
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <h3 className="font-display font-black text-sm text-slate-900 leading-tight truncate" title={item.title}>
+                      {item.title}
+                    </h3>
+                    <span className="shrink-0 text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 font-bold">
+                      ⚖ {item.weightLb} lb
                     </span>
                   </div>
 
-                  {/* Title & Tagline */}
-                  <h3 className="font-display font-black text-base text-white mb-1">
-                    {item.title}
-                  </h3>
-                  <p className="text-xs text-slate-300 mb-3 line-clamp-2">
-                    {item.tagline}
-                  </p>
-
-                  {/* Condition Selector: NEW / REFURBISHED / USED */}
-                  <div className="mb-3">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">
-                      SELECT CONDITION & PRICE:
-                    </span>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(['new', 'refurbished', 'used'] as PartCondition[]).map((cond) => {
-                        const opt = item.conditions[cond];
-                        const isSelected = currentCond === cond;
-
-                        return (
-                          <button
-                            key={cond}
-                            onClick={() => handleSelectCondition(item.id, cond)}
-                            className={`cursor-pointer p-1.5 rounded-lg border text-left transition-all ${
-                              isSelected
-                                ? 'bg-cyan-500/20 border-cyan-400 text-white'
-                                : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
-                            }`}
-                          >
-                            <span className="text-[10px] font-bold block uppercase">{cond}</span>
-                            <span className="text-xs font-bold text-cyan-300">${opt.priceUsd}</span>
-                          </button>
-                        );
-                      })}
+                  {/* 3. Exactly TWO short engineering traits */}
+                  <div className="space-y-1 mb-2.5 text-[11px] font-sans">
+                    <div className="flex items-start gap-1.5 text-emerald-700 font-medium leading-snug">
+                      <span className="font-bold shrink-0">✓</span>
+                      <span className="truncate">{item.pros[0]}</span>
                     </div>
-                    {/* Condition Clue Note */}
-                    <div className="mt-1.5 p-2 rounded-lg bg-slate-950/80 border border-slate-800/80 text-[10px] text-slate-300">
-                      <span className="text-cyan-400 font-bold uppercase">{currentCond}: </span>
-                      {condOption.note} • <span className="text-amber-300">{condOption.risk}</span>
+                    <div className="flex items-start gap-1.5 text-slate-600 font-medium leading-snug">
+                      <span className="font-bold shrink-0 text-amber-600">↓</span>
+                      <span className="truncate">{item.tradeoffs[0]}</span>
                     </div>
                   </div>
 
-                  {/* Key Engineering Specs Badges */}
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {item.keySpecs.map((spec, i) => (
-                      <span
-                        key={i}
-                        className={`text-[10px] px-2 py-0.5 rounded-md border ${
-                          spec.highlight
-                            ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200 font-bold'
-                            : 'bg-slate-800/80 border-slate-700/80 text-slate-300'
-                        }`}
-                      >
-                        {spec.label}: <strong>{spec.value}</strong>
-                      </span>
-                    ))}
+                  {/* 4. Compact Condition Selector Pills */}
+                  <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+                    {(['new', 'refurbished', 'used'] as PartCondition[]).map((cond) => {
+                      const opt = item.conditions[cond];
+                      const isSelected = currentCond === cond;
+
+                      return (
+                        <button
+                          key={cond}
+                          type="button"
+                          onClick={() => handleSelectCondition(item.id, cond)}
+                          className={`cursor-pointer px-2 py-1.5 rounded-lg border text-center transition-all ${
+                            isSelected
+                              ? 'bg-cyan-50 border-cyan-500 text-cyan-950 font-bold ring-1 ring-cyan-500/20 shadow-xs'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span className="text-[9px] uppercase tracking-wider block text-slate-400 font-bold">
+                            {cond === 'refurbished' ? 'Refurb' : cond}
+                          </span>
+                          <span className="text-xs font-mono font-bold">${opt.priceUsd}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* One short consequence line revealed when selected */}
+                  <div className="text-[10px] text-slate-500 leading-tight mb-2 truncate">
+                    <span className="font-bold text-slate-700 capitalize">{currentCond}: </span>
+                    <span>{condOption.note}</span>
                   </div>
                 </div>
 
-                {/* Footer Controls: Flyer Preview, Compare, Add / In Cart */}
-                <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2 mt-2">
+                {/* 5. Footer: Details & Add to Build */}
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2 mt-1">
                   <div className="flex items-center gap-1.5">
                     <button
+                      type="button"
                       onClick={() => {
                         soundEngine.playClick();
                         setDetailItem(item);
                       }}
-                      className="cursor-pointer text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                      title="View rich technical flyer"
+                      className="cursor-pointer text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                      title="View full specs & seller details"
                     >
-                      FLYER
+                      Details
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleOpenCompare(item)}
-                      className="cursor-pointer text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors flex items-center gap-1"
-                      title="Compare with alternative"
+                      className="cursor-pointer text-[11px] font-semibold px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors flex items-center gap-1"
+                      title="Compare with another part"
                     >
                       <ArrowLeftRight className="w-3 h-3" />
-                      COMPARE
                     </button>
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => handleAddToCart(item)}
-                    className={`cursor-pointer px-4 py-1.5 rounded-xl font-display font-bold text-xs uppercase flex items-center gap-1.5 transition-all ${
+                    className={`cursor-pointer flex-1 py-1.5 px-3 rounded-xl font-display font-bold text-xs uppercase flex items-center justify-center gap-1.5 transition-all ${
                       isInCart
-                        ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/30'
-                        : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm'
+                        ? 'bg-cyan-600 text-white shadow-xs'
+                        : 'bg-slate-900 hover:bg-slate-800 text-white shadow-xs'
                     }`}
                   >
                     {isInCart ? (
                       <>
                         <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
-                        <span>IN BUILD ({cartCondition})</span>
+                        <span>In Build{cartCondition ? ` (${cartCondition})` : ''}</span>
                       </>
                     ) : (
-                      <>
-                        <span>ADD TO BUILD • ${condOption.priceUsd}</span>
-                      </>
+                      <span>Add to Build</span>
                     )}
                   </button>
                 </div>
@@ -403,17 +411,16 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
       </div>
 
       {/* Right Column: Build Cart & Checkout Drawer */}
-      <div className="w-full lg:w-80 flex flex-col gap-3">
-        {/* Your Build Summary Card */}
-        <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-xl text-xs font-mono-num">
+      <div className="w-full lg:w-80 flex flex-col gap-3 shrink-0">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs text-xs font-sans">
           <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-              <span className="font-bold text-white flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4 text-cyan-400" />
-                YOUR BUILD
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-3">
+              <span className="font-display font-black text-sm text-slate-900 flex items-center gap-2">
+                <ShoppingCart className="w-4 h-4 text-cyan-600" />
+                Robot Assembly Cart
               </span>
-              <span className="text-[10px] text-cyan-400 font-bold px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40">
-                {requiredFulfilledCount} / 5 REQUIRED
+              <span className="text-[10px] font-mono text-cyan-700 font-bold px-2 py-0.5 rounded-md bg-cyan-50 border border-cyan-200">
+                {requiredFulfilledCount} / 5 Required
               </span>
             </div>
 
@@ -427,8 +434,8 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
                     key={reqCat.id}
                     className={`p-2 rounded-xl border flex items-center justify-between transition-colors ${
                       entry
-                        ? 'bg-slate-900/80 border-slate-700/80 text-white'
-                        : 'bg-slate-950/50 border-slate-800/60 text-slate-500 border-dashed'
+                        ? 'bg-slate-50 border-slate-200 text-slate-800'
+                        : 'bg-slate-50/50 border-slate-200 text-slate-400 border-dashed'
                     }`}
                   >
                     <div className="flex items-center gap-2 truncate pr-2">
@@ -436,30 +443,31 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
                         {reqCat.id}:
                       </span>
                       {entry ? (
-                        <span className="font-bold truncate text-[11px] text-cyan-200">
+                        <span className="font-semibold truncate text-[11px] text-slate-900">
                           {entry.item.title}
                         </span>
                       ) : (
-                        <span className="italic text-[10px] text-slate-500">Unselected</span>
+                        <span className="italic text-[10px] text-slate-400">Unselected</span>
                       )}
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
                       {entry ? (
                         <>
-                          <span className="font-bold text-slate-200">
+                          <span className="font-mono font-bold text-slate-900">
                             ${entry.item.conditions[entry.condition].priceUsd}
                           </span>
                           <button
+                            type="button"
                             onClick={() => handleRemoveFromCart(reqCat.id)}
-                            className="cursor-pointer text-slate-500 hover:text-rose-400 p-0.5"
+                            className="cursor-pointer text-slate-400 hover:text-rose-600 p-0.5"
                             title="Remove from build"
                           >
                             ✕
                           </button>
                         </>
                       ) : (
-                        <span className="text-[10px] text-amber-400/80 font-bold">REQUIRED</span>
+                        <span className="text-[10px] font-mono text-amber-600 font-bold">REQUIRED</span>
                       )}
                     </div>
                   </div>
@@ -468,22 +476,23 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
 
               {/* Optional Utility */}
               {cart.utility && (
-                <div className="p-2 rounded-xl border bg-slate-900/80 border-slate-700/80 text-white flex items-center justify-between">
+                <div className="p-2 rounded-xl border bg-slate-50 border-slate-200 text-slate-800 flex items-center justify-between">
                   <div className="flex items-center gap-2 truncate pr-2">
                     <span className="text-[10px] text-slate-400 uppercase font-bold shrink-0">
                       UTILITY:
                     </span>
-                    <span className="font-bold truncate text-[11px] text-cyan-200">
+                    <span className="font-semibold truncate text-[11px] text-slate-900">
                       {cart.utility.item.title}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="font-bold text-slate-200">
+                    <span className="font-mono font-bold text-slate-900">
                       ${cart.utility.item.conditions[cart.utility.condition].priceUsd}
                     </span>
                     <button
+                      type="button"
                       onClick={() => handleRemoveFromCart('utility')}
-                      className="cursor-pointer text-slate-500 hover:text-rose-400 p-0.5"
+                      className="cursor-pointer text-slate-400 hover:text-rose-600 p-0.5"
                     >
                       ✕
                     </button>
@@ -493,48 +502,48 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
             </div>
 
             {/* Total & Weight Estimator */}
-            <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2 mb-4">
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 mb-4 font-mono">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400">TOTAL SPENT:</span>
-                <strong className="text-white text-sm">${cartTotalCost}</strong>
+                <span className="text-slate-500 font-sans">Total Spent:</span>
+                <strong className="text-slate-900 text-sm font-bold">${cartTotalCost}</strong>
               </div>
 
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400">TEAM MONEY LEFT:</span>
-                <strong className={isOverBudget ? 'text-rose-400 animate-pulse' : 'text-emerald-400'}>
+                <span className="text-slate-500 font-sans">Money Remaining:</span>
+                <strong className={isOverBudget ? 'text-rose-600 font-black animate-pulse' : 'text-emerald-700 font-bold'}>
                   ${moneyRemaining}
                 </strong>
               </div>
 
-              <div className="w-full h-px bg-slate-800 my-1" />
+              <div className="w-full h-px bg-slate-200 my-1" />
 
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 flex items-center gap-1">
+                <span className="text-slate-500 font-sans flex items-center gap-1">
                   <Scale className="w-3.5 h-3.5" />
-                  WEIGHT ESTIMATE:
+                  Estimated Mass:
                 </span>
-                <strong className={isOverweight ? 'text-rose-400 font-bold' : 'text-slate-200'}>
-                  {cartEstimatedWeight} / 30.0 LB
+                <strong className={isOverweight ? 'text-rose-600 font-bold' : 'text-slate-700'}>
+                  {cartEstimatedWeight} / 30.0 lb
                 </strong>
               </div>
             </div>
 
             {/* Over-Budget / Overweight Warning Badges */}
             {isOverBudget && (
-              <div className="mb-3 p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-[11px] text-rose-300 flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+              <div className="mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-700 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
                 <div>
-                  <strong className="block text-rose-200 font-bold">INSUFFICIENT FUNDS</strong>
-                  Need ${Math.abs(moneyRemaining)} more. Ask your <strong>Business / Project Lead</strong> student to upgrade team sponsorship!
+                  <strong className="block text-rose-800 font-bold">INSUFFICIENT FUNDS</strong>
+                  Need ${Math.abs(moneyRemaining)} more. Ask your <strong>Business Lead</strong> student to negotiate higher sponsorship!
                 </div>
               </div>
             )}
 
             {isOverweight && (
-              <div className="mb-3 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-[11px] text-amber-300 flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+              <div className="mb-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
                 <div>
-                  <strong className="block text-amber-200 font-bold">MASS BUDGET WARNING</strong>
+                  <strong className="block text-amber-900 font-bold">MASS BUDGET WARNING</strong>
                   Build estimated at {cartEstimatedWeight} lb exceeds 30.0 lb limit. Consider lighter armor, chassis, or used parts!
                 </div>
               </div>
@@ -543,93 +552,108 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
 
           {/* Checkout Order Button */}
           <button
+            type="button"
             onClick={handleFinalizeOrder}
             disabled={!isCartReadyToOrder}
-            className={`w-full py-3 rounded-xl font-display font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2 transition-all ${
+            className={`w-full py-3 rounded-xl font-display font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
               isCartReadyToOrder
-                ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/25 cursor-pointer transform hover:-translate-y-0.5 active:scale-95'
-                : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/60'
+                ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-600/20 cursor-pointer active:scale-98'
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
             }`}
           >
-            <span>ORDER PARTS</span>
+            <span>Order Robot Parts</span>
             <ArrowRight className="w-4 h-4" />
           </button>
+
+          {project.mechanical.partsDelivered && onGoToWorkbench && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                onGoToWorkbench();
+              }}
+              className="mt-2 w-full py-2.5 rounded-xl font-display font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer border border-slate-200"
+            >
+              <span>Assembly Workbench →</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Technical Flyer Modal */}
       {detailItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="relative w-full max-w-xl bg-slate-950 border border-cyan-500/40 rounded-2xl p-6 shadow-2xl text-white font-mono-num max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-xl bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl text-slate-800 max-h-[90vh] overflow-y-auto">
             <button
+              type="button"
               onClick={() => setDetailItem(null)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider block mb-1">
-              TECHNICAL FLYER SPEC SHEET • {detailItem.category.toUpperCase()}
+            <span className="text-[10px] text-cyan-700 font-bold uppercase tracking-wider block mb-1">
+              Technical Flyer • {detailItem.category.toUpperCase()}
             </span>
-            <h3 className="font-display font-black text-2xl mb-2 text-white">
+            <h3 className="font-display font-black text-2xl mb-1 text-slate-900">
               {detailItem.title}
             </h3>
-            <p className="text-xs text-slate-300 mb-4">{detailItem.tagline}</p>
+            <p className="text-xs text-slate-500 mb-4">{detailItem.tagline}</p>
 
             {/* Spec Matrix */}
-            <div className="grid grid-cols-2 gap-2 mb-4 bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <div className="text-xs">
-                <span className="text-slate-400 block text-[10px]">MASS:</span>
-                <strong className="text-white">{detailItem.weightLb} lb</strong>
+            <div className="grid grid-cols-2 gap-2 mb-4 bg-slate-50 p-3 rounded-2xl border border-slate-200 font-mono text-xs">
+              <div>
+                <span className="text-slate-400 block text-[10px] font-sans">MASS:</span>
+                <strong className="text-slate-900">{detailItem.weightLb} lb</strong>
               </div>
-              <div className="text-xs">
-                <span className="text-slate-400 block text-[10px]">SUPPLIER:</span>
-                <span className="text-slate-200">{detailItem.seller}</span>
+              <div>
+                <span className="text-slate-400 block text-[10px] font-sans">SUPPLIER:</span>
+                <span className="text-slate-700 font-sans">{detailItem.seller}</span>
               </div>
-              <div className="text-xs">
-                <span className="text-slate-400 block text-[10px]">BASE PRICE:</span>
-                <strong className="text-cyan-300">${detailItem.baseCostUsd}</strong>
+              <div>
+                <span className="text-slate-400 block text-[10px] font-sans">BASE PRICE:</span>
+                <strong className="text-cyan-700">${detailItem.baseCostUsd}</strong>
               </div>
-              <div className="text-xs">
-                <span className="text-slate-400 block text-[10px]">RATING:</span>
-                <span className="text-amber-400 font-bold">★ {detailItem.rating} / 5.0</span>
+              <div>
+                <span className="text-slate-400 block text-[10px] font-sans">RATING:</span>
+                <span className="text-amber-600 font-bold">★ {detailItem.rating} / 5.0</span>
               </div>
             </div>
 
             {/* Engineering Notes */}
-            <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 mb-4">
-              <span className="font-bold text-cyan-300 text-xs block mb-1 flex items-center gap-1.5">
-                <Info className="w-4 h-4 text-cyan-400" />
-                ENGINEERING NOTES
+            <div className="p-3.5 rounded-2xl bg-cyan-50/70 border border-cyan-200 mb-4">
+              <span className="font-bold text-cyan-900 text-xs block mb-1 flex items-center gap-1.5">
+                <Info className="w-4 h-4 text-cyan-700" />
+                Engineering Notes
               </span>
-              <p className="text-xs text-slate-200 leading-relaxed italic">
+              <p className="text-xs text-cyan-950 leading-relaxed italic">
                 "{detailItem.engineeringNotes}"
               </p>
             </div>
 
             {/* Pros & Tradeoffs */}
             <div className="grid grid-cols-2 gap-3 mb-5 text-xs">
-              <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30">
-                <span className="font-bold text-emerald-400 text-[11px] block mb-1.5 uppercase">
-                  ADVANTAGES
+              <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200">
+                <span className="font-bold text-emerald-800 text-[11px] block mb-1.5 uppercase">
+                  Advantages
                 </span>
-                <ul className="space-y-1 text-slate-300 text-[11px]">
+                <ul className="space-y-1 text-emerald-900 text-[11px]">
                   {detailItem.pros.map((p, i) => (
                     <li key={i} className="flex items-start gap-1.5">
-                      <span className="text-emerald-400">✓</span> {p}
+                      <span className="text-emerald-600 font-bold">✓</span> {p}
                     </li>
                   ))}
                 </ul>
               </div>
 
-              <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/30">
-                <span className="font-bold text-amber-400 text-[11px] block mb-1.5 uppercase">
-                  TRADEOFFS
+              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200">
+                <span className="font-bold text-amber-800 text-[11px] block mb-1.5 uppercase">
+                  Tradeoffs
                 </span>
-                <ul className="space-y-1 text-slate-300 text-[11px]">
+                <ul className="space-y-1 text-amber-900 text-[11px]">
                   {detailItem.tradeoffs.map((t, i) => (
                     <li key={i} className="flex items-start gap-1.5">
-                      <span className="text-amber-400">•</span> {t}
+                      <span className="text-amber-600">•</span> {t}
                     </li>
                   ))}
                 </ul>
@@ -638,13 +662,14 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
 
             {/* Add to Build Action */}
             <button
+              type="button"
               onClick={() => {
                 handleAddToCart(detailItem);
                 setDetailItem(null);
               }}
-              className="cursor-pointer w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-display font-black text-xs uppercase transition-all shadow-md"
+              className="cursor-pointer w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-display font-black text-xs uppercase transition-all shadow-xs"
             >
-              ADD TO BUILD • ${detailItem.conditions[conditionSelections[detailItem.id] || 'new'].priceUsd}
+              Add to Build • ${detailItem.conditions[conditionSelections[detailItem.id] || 'new'].priceUsd}
             </button>
           </div>
         </div>
@@ -652,68 +677,70 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
 
       {/* Side-by-Side Comparison Modal */}
       {showCompareModal && compareItems[0] && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
-          <div className="relative w-full max-w-2xl bg-slate-950 border border-cyan-500/40 rounded-2xl p-6 shadow-2xl text-white font-mono-num max-h-[92vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-2xl bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl text-slate-800 max-h-[92vh] overflow-y-auto">
             <button
+              type="button"
               onClick={() => setShowCompareModal(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider block mb-1">
-              ENGINEERING SPECIFICATION TRADEOFF COMPARISON
+            <span className="text-[10px] text-cyan-700 font-bold uppercase tracking-wider block mb-1">
+              Engineering Specification Tradeoffs
             </span>
-            <h3 className="font-display font-black text-xl mb-4">
-              SIDE-BY-SIDE COMPONENT ANALYSIS
+            <h3 className="font-display font-black text-xl mb-4 text-slate-900">
+              Side-by-Side Component Analysis
             </h3>
 
             <div className="grid grid-cols-2 gap-4 mb-4">
               {[0, 1].map((idx) => {
                 const item = compareItems[idx];
-                if (!item) return <div key={idx} className="p-4 bg-slate-900 rounded-xl">No comparison item</div>;
+                if (!item) return <div key={idx} className="p-4 bg-slate-50 rounded-2xl">No comparison item</div>;
 
                 return (
-                  <div key={item.id} className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between">
+                  <div key={item.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] text-cyan-400 uppercase font-bold block mb-1">
-                        OPTION {idx + 1}
+                      <span className="text-[10px] text-cyan-700 uppercase font-bold block mb-1">
+                        Option {idx + 1}
                       </span>
-                      <h4 className="font-display font-bold text-base text-white mb-1">
+                      <h4 className="font-display font-bold text-base text-slate-900 mb-1">
                         {item.title}
                       </h4>
-                      <div className="text-sm font-bold text-cyan-300 mb-3">
+                      <div className="text-sm font-mono font-bold text-cyan-700 mb-3">
                         ${item.baseCostUsd} (Base)
                       </div>
 
-                      <div className="space-y-1.5 text-xs text-slate-300 mb-3">
-                        <div className="flex justify-between py-1 border-b border-slate-800">
+                      <div className="space-y-1.5 text-xs text-slate-600 mb-3 font-mono">
+                        <div className="flex justify-between py-1 border-b border-slate-200 font-sans">
                           <span className="text-slate-400">Mass:</span>
-                          <strong className="text-white">{item.weightLb} lb</strong>
+                          <strong className="text-slate-900 font-mono">{item.weightLb} lb</strong>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-slate-800">
+                        <div className="flex justify-between py-1 border-b border-slate-200 font-sans">
                           <span className="text-slate-400">Rating:</span>
-                          <span className="text-amber-400">★ {item.rating}</span>
+                          <span className="text-amber-600 font-mono">★ {item.rating}</span>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-slate-800">
+                        <div className="flex justify-between py-1 border-b border-slate-200 font-sans">
                           <span className="text-slate-400">Seller:</span>
-                          <span className="text-slate-300">{item.seller}</span>
+                          <span className="text-slate-700">{item.seller}</span>
                         </div>
                       </div>
 
-                      <p className="text-[11px] text-slate-400 italic mb-3">
+                      <p className="text-[11px] text-slate-500 italic mb-3 font-sans">
                         "{item.engineeringNotes}"
                       </p>
                     </div>
 
                     <button
+                      type="button"
                       onClick={() => {
                         handleAddToCart(item);
                         setShowCompareModal(false);
                       }}
                       className="cursor-pointer w-full py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs uppercase"
                     >
-                      SELECT THIS OPTION
+                      Select This Option
                     </button>
                   </div>
                 );
