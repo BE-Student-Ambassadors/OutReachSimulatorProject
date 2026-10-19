@@ -180,8 +180,8 @@ const WorkshopSceneContent: React.FC<WorkshopSceneContentProps> = ({
 
   return (
     <>
-      <color attach="background" args={['#070a10']} />
-      <fog attach="fog" args={['#070a10', 5.5, 15]} />
+      <color attach="background" args={['#0f172a']} />
+      <fog attach="fog" args={['#0f172a', 6.5, 17]} />
 
       <CameraController
         mode={mode}
@@ -189,73 +189,79 @@ const WorkshopSceneContent: React.FC<WorkshopSceneContentProps> = ({
         activeTest={activeTest}
       />
 
-      {/* Dramatic Workshop & Test Stand Lighting */}
-      <ambientLight intensity={0.55} />
+      {/* Lit Industrial Robotics Workshop Lighting */}
+      <ambientLight intensity={0.92} color="#f1f5f9" />
       <directionalLight
         castShadow
-        position={[4, 7, 5]}
-        intensity={1.65}
-        color="#f8fafc"
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
+        position={[4.5, 7.5, 5.5]}
+        intensity={2.3}
+        color="#ffffff"
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-bias={-0.0001}
       />
-      <pointLight position={[-3.5, 3, -2.5]} intensity={1.1} color="#38bdf8" />
-      <pointLight position={[3.2, 2.2, -3]} intensity={0.85} color="#f59e0b" />
+      {/* Front-left cool fill light to illuminate dark mechanical crevices */}
+      <directionalLight position={[-4, 4.5, 3.5]} intensity={1.15} color="#cbd5e1" />
+      {/* High-contrast cool rim light behind robot for silhouette separation */}
+      <pointLight position={[-3.2, 3.2, -3.0]} intensity={2.6} color="#38bdf8" />
+      {/* High-contrast warm rim light behind robot */}
+      <pointLight position={[3.2, 2.8, -3.0]} intensity={2.1} color="#f59e0b" />
+      {/* Overhead high-CRI task spotlight */}
       <spotLight
-        position={[0, 5.5, 0]}
-        angle={0.55}
-        penumbra={0.65}
-        intensity={1.5}
-        color={platformGlowColor}
+        position={[0, 6.0, 0]}
+        angle={0.68}
+        penumbra={0.7}
+        intensity={1.9}
+        color="#f8fafc"
       />
 
       {/* Industrial Garage Background Pillars & Girders */}
       <group position={[0, 0, -4.5]}>
         {[-3.6, -1.8, 1.8, 3.6].map((xCol, idx) => (
           <mesh key={idx} position={[xCol, 2.2, 0]}>
-            <boxGeometry args={[0.24, 4.8, 0.24]} />
-            <meshStandardMaterial color="#0f172a" metalness={0.8} roughness={0.4} />
+            <boxGeometry args={[0.26, 4.8, 0.26]} />
+            <meshStandardMaterial color="#1e293b" metalness={0.7} roughness={0.35} />
           </mesh>
         ))}
         <mesh position={[0, 3.9, 0]}>
           <boxGeometry args={[9.5, 0.28, 0.32]} />
-          <meshStandardMaterial color="#1e293b" metalness={0.75} roughness={0.35} />
+          <meshStandardMaterial color="#334155" metalness={0.75} roughness={0.3} />
         </mesh>
       </group>
 
       {/* Illuminated Circular Workshop Turntable & Test Platform */}
       <group position={[0, -0.02, 0]}>
-        {/* Outer bay floor */}
+        {/* Outer bay floor — visible dark-gray concrete floor */}
         <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]}>
-          <planeGeometry args={[24, 24]} />
-          <meshStandardMaterial color="#090d16" metalness={0.65} roughness={0.55} />
+          <planeGeometry args={[26, 26]} />
+          <meshStandardMaterial color="#1e2638" metalness={0.35} roughness={0.65} />
         </mesh>
 
-        {/* Main elevated circular turntable */}
+        {/* Main elevated circular turntable — contrasting metallic gray pedestal */}
         <mesh receiveShadow position={[0, -0.03, 0]}>
-          <cylinderGeometry args={[2.05, 2.22, 0.08, 48]} />
-          <meshStandardMaterial color="#111827" metalness={0.78} roughness={0.34} />
+          <cylinderGeometry args={[2.08, 2.25, 0.08, 48]} />
+          <meshStandardMaterial color="#2c384e" metalness={0.55} roughness={0.38} />
         </mesh>
 
         {/* Glowing outer calibration ring */}
         <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}>
-          <ringGeometry args={[1.88, 1.98, 48]} />
+          <ringGeometry args={[1.90, 1.98, 48]} />
           <meshStandardMaterial
             color={platformGlowColor}
             emissive={platformGlowColor}
-            emissiveIntensity={1.2}
+            emissiveIntensity={1.35}
           />
         </mesh>
 
         {/* Inner reticle ring */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.014, 0]}>
-          <ringGeometry args={[1.15, 1.18, 36]} />
+          <ringGeometry args={[1.14, 1.18, 36]} />
           <meshStandardMaterial
             color={platformGlowColor}
             emissive={platformGlowColor}
-            emissiveIntensity={0.45}
+            emissiveIntensity={0.65}
             transparent
-            opacity={0.6}
+            opacity={0.75}
           />
         </mesh>
 
