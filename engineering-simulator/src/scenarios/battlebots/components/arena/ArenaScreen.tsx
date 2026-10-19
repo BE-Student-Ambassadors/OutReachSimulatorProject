@@ -19,7 +19,7 @@ import {
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { soundEngine } from '../../audio/soundEngine';
-import { THE_BULL_CONFIG } from '../../data/components';
+import { getBossById } from '../../data/bosses';
 import {
   ARENA_HALF_SIZE,
   createBattleSimulation,
@@ -27,13 +27,27 @@ import {
   type LiveBattleSimulation,
   stepBattleSimulation,
 } from '../../simulation/battleEngine';
-import { type AutonomousStrategy, type BattleAnalysisReport, type BattleEventLog, type CombatantTelemetry, type EngineeringStats, type RobotConfiguration, type SparkBurst } from '../../types/robot';
+import {
+  type AutonomousStrategy,
+  type BattleAnalysisReport,
+  type BattleEventLog,
+  type BossId,
+  type CombatantTelemetry,
+  type EngineeringStats,
+  type RobotConfiguration,
+  type SparkBurst,
+  type TeamRobotProject,
+} from '../../types/robot';
 import { Robot3D } from '../three/Robot3D';
 
 interface ArenaScreenProps {
   playerConfig: RobotConfiguration;
   playerStats: EngineeringStats;
+  bossId?: BossId;
+  teamProject?: TeamRobotProject;
   onReturnToWorkshop: (resetToStarter?: boolean) => void;
+  onReturnToDashboard?: () => void;
+  onDefeatBoss?: (bossId: BossId) => void;
 }
 
 type SpectatorCamMode = 'director' | 'wide' | 'chase';
@@ -72,12 +86,85 @@ const STRATEGIES: {
   },
 ];
 
+// 3D Developer Debug Orientation & Vectors (Green Forward, Red Weapon/Front, Blue Velocity)
+const OrientationDebugArrows: React.FC<{
+  position: [number, number, number];
+  headingRad: number;
+  velocity: [number, number];
+  weaponCenter: [number, number];
+}> = ({ position, headingRad, velocity, weaponCenter }) => {
+  const [x, y, z] = position;
+  const speed = Math.hypot(velocity[0], velocity[1]);
+  const velAngle = Math.atan2(velocity[0], velocity[1]);
+  const velLen = THREE.MathUtils.clamp(speed * 0.45, 0.35, 1.6);
+
+  const dWeaponX = weaponCenter[0] - x;
+  const dWeaponZ = weaponCenter[1] - z;
+  const weaponDist = Math.max(0.01, Math.hypot(dWeaponX, dWeaponZ));
+  const weaponAngle = Math.atan2(dWeaponX, dWeaponZ);
+
+  return (
+    <group position={[x, y, z]}>
+      {/* 1. GREEN ARROW: Canonical Simulation FORWARD Vector */}
+      <group rotation={[0, headingRad, 0]}>
+        {/* Shaft along local +Z */}
+        <mesh position={[0, 0.45, 0.55]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.025, 0.025, 1.1, 12]} />
+          <meshBasicMaterial color="#22c55e" />
+        </mesh>
+        {/* Arrowhead cone pointing forward */}
+        <mesh position={[0, 0.45, 1.15]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.075, 0.22, 12]} />
+          <meshBasicMaterial color="#22c55e" />
+        </mesh>
+      </group>
+
+      {/* 2. RED ARROW & MARKER: Primary Weapon / Front */}
+      <group rotation={[0, weaponAngle, 0]}>
+        {/* Shaft pointing to primary weapon */}
+        <mesh position={[0, 0.5, weaponDist * 0.5]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.025, 0.025, weaponDist, 12]} />
+          <meshBasicMaterial color="#ef4444" />
+        </mesh>
+        {/* Arrowhead at weapon center */}
+        <mesh position={[0, 0.5, weaponDist]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.085, 0.22, 12]} />
+          <meshBasicMaterial color="#ef4444" />
+        </mesh>
+      </group>
+      {/* Red glowing beacon sphere directly on weapon contact center */}
+      <mesh position={[dWeaponX, 0.5, dWeaponZ]}>
+        <sphereGeometry args={[0.075, 12, 12]} />
+        <meshBasicMaterial color="#ff2222" />
+      </mesh>
+
+      {/* 3. BLUE ARROW: Current Velocity Vector (when robot is moving) */}
+      {speed > 0.15 && (
+        <group rotation={[0, velAngle, 0]}>
+          {/* Shaft along velocity direction */}
+          <mesh position={[0, 0.4, (velLen - 0.18) * 0.5]} rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[0.02, 0.02, Math.max(0.01, velLen - 0.18), 12]} />
+            <meshBasicMaterial color="#3b82f6" />
+          </mesh>
+          {/* Arrowhead */}
+          <mesh position={[0, 0.4, velLen - 0.09]} rotation={[Math.PI / 2, 0, 0]}>
+            <coneGeometry args={[0.065, 0.18, 12]} />
+            <meshBasicMaterial color="#3b82f6" />
+          </mesh>
+        </group>
+      )}
+    </group>
+  );
+};
+
 // 3D Arena Scene & Automatic Spectator Camera Controller
 const Arena3DScene: React.FC<{
   simRef: React.MutableRefObject<LiveBattleSimulation | null>;
   battlePhase: 'intro-strategy' | 'fighting' | 'finished';
   camMode: SpectatorCamMode;
   playerConfig: RobotConfiguration;
+  bossId: BossId;
+  showHitboxes?: boolean;
   onSyncHud: (
     player: CombatantTelemetry,
     bull: CombatantTelemetry,
@@ -85,7 +172,7 @@ const Arena3DScene: React.FC<{
     events: BattleEventLog[],
     report: BattleAnalysisReport | null
   ) => void;
-}> = ({ simRef, battlePhase, camMode, playerConfig, onSyncHud }) => {
+}> = ({ simRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, onSyncHud }) => {
   const { camera } = useThree();
   const playerGroupRef = useRef<THREE.Group>(null);
   const bullGroupRef = useRef<THREE.Group>(null);
@@ -96,6 +183,7 @@ const Arena3DScene: React.FC<{
     player: CombatantTelemetry | null;
     bull: CombatantTelemetry | null;
     sparks: SparkBurst[];
+    debugHitboxes?: LiveBattleSimulation['debugHitboxes'];
   }>({
     player: null,
     bull: null,
@@ -165,7 +253,7 @@ const Arena3DScene: React.FC<{
       camera.lookAt(0, 0, 0);
     } else if (camMode === 'chase') {
       const behindX = sim.player.x - Math.sin(sim.player.headingRad) * 3.4 + shakeX;
-      const behindZ = sim.player.z + Math.cos(sim.player.headingRad) * 3.4;
+      const behindZ = sim.player.z - Math.cos(sim.player.headingRad) * 3.4;
       camera.position.lerp(new THREE.Vector3(behindX, 2.3 + shakeY, behindZ), delta * 6);
       camera.lookAt(midX, 0.35, midZ);
     } else {
@@ -190,6 +278,7 @@ const Arena3DScene: React.FC<{
         player: { ...sim.player },
         bull: { ...sim.bull },
         sparks: [...sim.sparks],
+        debugHitboxes: sim.debugHitboxes ? { ...sim.debugHitboxes } : undefined,
       });
       if (battlePhase === 'fighting' && !sim.isFinished) {
         onSyncHud({ ...sim.player }, { ...sim.bull }, sim.timeSec, [...sim.events], null);
@@ -199,49 +288,52 @@ const Arena3DScene: React.FC<{
 
   const pState = renderState.player;
   const bState = renderState.bull;
+  const bossDossier = getBossById(bossId);
 
   return (
     <>
-      <color attach="background" args={['#05080f']} />
-      <fog attach="fog" args={['#05080f', 9, 22]} />
+      <color attach="background" args={['#0f172a']} />
+      <fog attach="fog" args={['#0f172a', 12, 28]} />
 
-      {/* Dramatic BattleBox Arena Lighting */}
-      <ambientLight intensity={0.5} />
+      {/* Lit Industrial BattleBox Arena Lighting */}
+      <ambientLight intensity={0.92} color="#f8fafc" />
       <directionalLight
         castShadow
         position={[5, 9, 5]}
-        intensity={1.75}
-        color="#f8fafc"
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
+        intensity={2.3}
+        color="#ffffff"
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-bias={-0.0001}
       />
-      <pointLight position={[-4.5, 4, -4.5]} intensity={1.4} color="#f59e0b" />
-      <pointLight position={[4.5, 4, 4.5]} intensity={1.4} color="#22d3ee" />
+      <directionalLight position={[-5, 7, -5]} intensity={1.25} color="#94a3b8" />
+      <pointLight position={[-4.5, 4, -4.5]} intensity={2.2} color="#f59e0b" />
+      <pointLight position={[4.5, 4, 4.5]} intensity={2.2} color="#22d3ee" />
 
       {/* Enclosed Combat Arena Floor & Hazard Perimeter Walls */}
       <group>
-        {/* Main steel battle floor */}
+        {/* Main steel battle floor — lit dark-gray steel arena floor */}
         <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
           <planeGeometry args={[ARENA_HALF_SIZE * 2 + 1.2, ARENA_HALF_SIZE * 2 + 1.2]} />
-          <meshStandardMaterial color="#0d1322" metalness={0.72} roughness={0.42} />
+          <meshStandardMaterial color="#222e42" metalness={0.55} roughness={0.45} />
         </mesh>
 
         {/* Center combat ring & starting box markings */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
           <ringGeometry args={[1.65, 1.75, 48]} />
-          <meshStandardMaterial color="#334155" emissive="#1e293b" emissiveIntensity={0.5} />
+          <meshStandardMaterial color="#475569" emissive="#334155" emissiveIntensity={0.6} />
         </mesh>
 
         {/* Player Starting Box (South - Cyan) */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, 2.35]}>
           <ringGeometry args={[0.95, 1.05, 4]} />
-          <meshStandardMaterial color="#22d3ee" emissive="#22d3ee" emissiveIntensity={0.9} />
+          <meshStandardMaterial color="#22d3ee" emissive="#22d3ee" emissiveIntensity={1.0} />
         </mesh>
 
-        {/* The Bull Starting Box (North - Amber) */}
+        {/* Boss Starting Box (North) */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, -2.35]}>
           <ringGeometry args={[0.95, 1.05, 4]} />
-          <meshStandardMaterial color="#f59e0b" emissive="#f59e0b" emissiveIntensity={0.9} />
+          <meshStandardMaterial color={bossDossier.config.accentColor} emissive={bossDossier.config.accentColor} emissiveIntensity={1.0} />
         </mesh>
 
         {/* 4 Enclosed Hazard Perimeter Bumpers */}
@@ -332,18 +424,191 @@ const Arena3DScene: React.FC<{
         />
       </group>
 
-      {/* THE BULL Boss Robot */}
+      {/* Active Boss Robot */}
       <group ref={bullGroupRef} position={[0, 0, -2.35]} rotation={[0, 0, 0]}>
         <Robot3D
-          config={THE_BULL_CONFIG}
-          isBullBoss={true}
+          config={bossDossier.config}
+          bossId={bossId}
           wheelSpeedRad={bState ? Math.hypot(bState.vx, bState.vz) * 6 : 0}
+          weaponActive={battlePhase === 'fighting'}
+          weaponSpinPct={bState?.weaponSpinPct ?? 80}
+          weaponActuationPhase={bState?.weaponActuationPhase ?? 0}
           chassisPitchRad={bState?.pitchRad ?? 0}
           chassisRollRad={bState?.rollRad ?? 0}
           isFlipped={bState?.isFlipped ?? false}
-          motorTempC={bState?.motorTempC ?? 45}
+          motorTempC={bState?.motorTempC ?? bossDossier.stats.expectedMotorTempC}
         />
       </group>
+
+      {/* DEVELOPER DEBUG HITBOXES OVERLAY */}
+      {showHitboxes && renderState.debugHitboxes && (
+        <group>
+          {/* Player Chassis Collider (Cyan Wireframe Box) */}
+          <mesh
+            position={[
+              renderState.debugHitboxes.playerChassis.center[0],
+              0.22,
+              renderState.debugHitboxes.playerChassis.center[1],
+            ]}
+            rotation={[0, renderState.debugHitboxes.playerChassis.rotationRad, 0]}
+          >
+            <boxGeometry
+              args={[
+                renderState.debugHitboxes.playerChassis.halfExtents[0] * 2,
+                0.44,
+                renderState.debugHitboxes.playerChassis.halfExtents[1] * 2,
+              ]}
+            />
+            <meshBasicMaterial color="#06b6d4" wireframe transparent opacity={0.85} />
+          </mesh>
+
+          {/* Player Weapon Contact Zone (Green Wireframe Box or Cylinder) */}
+          {renderState.debugHitboxes.playerWeapon.is360Perimeter ? (
+            <mesh
+              position={[
+                renderState.debugHitboxes.playerWeapon.center[0],
+                0.22,
+                renderState.debugHitboxes.playerWeapon.center[1],
+              ]}
+            >
+              <cylinderGeometry
+                args={[
+                  renderState.debugHitboxes.playerWeapon.perimeterRadius ?? 1.25,
+                  renderState.debugHitboxes.playerWeapon.perimeterRadius ?? 1.25,
+                  0.25,
+                  32,
+                ]}
+              />
+              <meshBasicMaterial color="#22c55e" wireframe transparent opacity={0.8} />
+            </mesh>
+          ) : (
+            <mesh
+              position={[
+                renderState.debugHitboxes.playerWeapon.center[0],
+                0.22,
+                renderState.debugHitboxes.playerWeapon.center[1],
+              ]}
+              rotation={[0, renderState.debugHitboxes.playerWeapon.rotationRad, 0]}
+            >
+              <boxGeometry
+                args={[
+                  renderState.debugHitboxes.playerWeapon.halfExtents[0] * 2,
+                  0.36,
+                  renderState.debugHitboxes.playerWeapon.halfExtents[1] * 2,
+                ]}
+              />
+              <meshBasicMaterial color="#22c55e" wireframe transparent opacity={0.8} />
+            </mesh>
+          )}
+
+          {/* Boss Chassis Collider (Amber Wireframe Box) */}
+          <mesh
+            position={[
+              renderState.debugHitboxes.bossChassis.center[0],
+              0.22,
+              renderState.debugHitboxes.bossChassis.center[1],
+            ]}
+            rotation={[0, renderState.debugHitboxes.bossChassis.rotationRad, 0]}
+          >
+            <boxGeometry
+              args={[
+                renderState.debugHitboxes.bossChassis.halfExtents[0] * 2,
+                0.46,
+                renderState.debugHitboxes.bossChassis.halfExtents[1] * 2,
+              ]}
+            />
+            <meshBasicMaterial color="#f59e0b" wireframe transparent opacity={0.85} />
+          </mesh>
+
+          {/* Boss Weapon Contact Zone (Red Wireframe Box or Ring) */}
+          {renderState.debugHitboxes.bossWeapon.is360Perimeter ? (
+            <mesh
+              position={[
+                renderState.debugHitboxes.bossWeapon.center[0],
+                0.22,
+                renderState.debugHitboxes.bossWeapon.center[1],
+              ]}
+            >
+              <cylinderGeometry
+                args={[
+                  renderState.debugHitboxes.bossWeapon.perimeterRadius ?? 1.35,
+                  renderState.debugHitboxes.bossWeapon.perimeterRadius ?? 1.35,
+                  0.26,
+                  32,
+                ]}
+              />
+              <meshBasicMaterial color="#ef4444" wireframe transparent opacity={0.8} />
+            </mesh>
+          ) : (
+            <mesh
+              position={[
+                renderState.debugHitboxes.bossWeapon.center[0],
+                0.22,
+                renderState.debugHitboxes.bossWeapon.center[1],
+              ]}
+              rotation={[0, renderState.debugHitboxes.bossWeapon.rotationRad, 0]}
+            >
+              <boxGeometry
+                args={[
+                  renderState.debugHitboxes.bossWeapon.halfExtents[0] * 2,
+                  0.4,
+                  renderState.debugHitboxes.bossWeapon.halfExtents[1] * 2,
+                ]}
+              />
+              <meshBasicMaterial color="#ef4444" wireframe transparent opacity={0.8} />
+            </mesh>
+          )}
+
+          {/* Contact Point & Collision Normal Vector when in contact */}
+          {renderState.debugHitboxes.hasContact && renderState.debugHitboxes.contactPoint && (
+            <group position={[renderState.debugHitboxes.contactPoint[0], 0.3, renderState.debugHitboxes.contactPoint[1]]}>
+              <mesh>
+                <sphereGeometry args={[0.09, 12, 12]} />
+                <meshBasicMaterial color="#ffffff" />
+              </mesh>
+              {renderState.debugHitboxes.contactNormal && (
+                <mesh
+                  position={[
+                    renderState.debugHitboxes.contactNormal[0] * 0.35,
+                    0,
+                    renderState.debugHitboxes.contactNormal[1] * 0.35,
+                  ]}
+                  rotation={[
+                    0,
+                    Math.atan2(
+                      renderState.debugHitboxes.contactNormal[0],
+                      renderState.debugHitboxes.contactNormal[1]
+                    ),
+                    0,
+                  ]}
+                >
+                  <boxGeometry args={[0.04, 0.04, 0.7]} />
+                  <meshBasicMaterial color="#f43f5e" />
+                </mesh>
+              )}
+            </group>
+          )}
+
+          {/* Orientation Debug Arrows (GREEN: Forward, RED: Weapon/Front, BLUE: Velocity) */}
+          {pState && renderState.debugHitboxes && (
+            <OrientationDebugArrows
+              position={[pState.x, 0, pState.z]}
+              headingRad={pState.headingRad}
+              velocity={[pState.vx, pState.vz]}
+              weaponCenter={renderState.debugHitboxes.playerWeapon.center}
+            />
+          )}
+
+          {bState && renderState.debugHitboxes && (
+            <OrientationDebugArrows
+              position={[bState.x, 0, bState.z]}
+              headingRad={bState.headingRad}
+              velocity={[bState.vx, bState.vz]}
+              weaponCenter={renderState.debugHitboxes.bossWeapon.center}
+            />
+          )}
+        </group>
+      )}
     </>
   );
 };
@@ -351,15 +616,38 @@ const Arena3DScene: React.FC<{
 export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   playerConfig,
   playerStats,
+  bossId = 'bull',
+  teamProject,
   onReturnToWorkshop,
+  onReturnToDashboard,
+  onDefeatBoss,
 }) => {
+  const bossDossier = getBossById('bull'); // ONE BOSS ONLY: THE BULL
+
   const [selectedStrategy, setSelectedStrategy] = useState<AutonomousStrategy>('control');
   const [battlePhase, setBattlePhase] = useState<'intro-strategy' | 'fighting' | 'finished'>(
     'intro-strategy'
   );
   const [camMode, setCamMode] = useState<SpectatorCamMode>('director');
+  const [showHitboxes, setShowHitboxes] = useState(false);
 
-  const [initialSim] = useState(() => createBattleSimulation(playerConfig, selectedStrategy));
+  const coolingDrop =
+    teamProject?.electrical.coolingSystem === 'fan'
+      ? 15
+      : teamProject?.electrical.coolingSystem === 'copper'
+      ? 24
+      : 0;
+
+  const [initialSim] = useState(() =>
+    createBattleSimulation(
+      playerConfig,
+      selectedStrategy,
+      'bull',
+      teamProject?.software.rules,
+      teamProject?.electrical.currentLimiterA,
+      coolingDrop
+    )
+  );
   const simRef = useRef<LiveBattleSimulation | null>(initialSim);
 
   const [hudPlayer, setHudPlayer] = useState<CombatantTelemetry>(() => initialSim.player);
@@ -369,19 +657,30 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   const [analysisReport, setAnalysisReport] = useState<BattleAnalysisReport | null>(null);
 
   // Ensure keyboard inputs do NOTHING during battle (100% autonomous spectator guarantee)
+  // Pressing 'H' toggles developer collision hitboxes
   useEffect(() => {
-    const blockManualKeys = (e: KeyboardEvent) => {
+    const handleKeys = (e: KeyboardEvent) => {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(e.code)) {
         e.preventDefault();
       }
+      if (e.key === 'h' || e.key === 'H') {
+        setShowHitboxes((prev) => !prev);
+      }
     };
-    window.addEventListener('keydown', blockManualKeys);
-    return () => window.removeEventListener('keydown', blockManualKeys);
+    window.addEventListener('keydown', handleKeys);
+    return () => window.removeEventListener('keydown', handleKeys);
   }, []);
 
   const handleStartBattle = () => {
     soundEngine.playArenaHorn();
-    simRef.current = createBattleSimulation(playerConfig, selectedStrategy);
+    simRef.current = createBattleSimulation(
+      playerConfig,
+      selectedStrategy,
+      'bull',
+      teamProject?.software.rules,
+      teamProject?.electrical.currentLimiterA,
+      coolingDrop
+    );
     setHudPlayer(simRef.current.player);
     setHudBull(simRef.current.bull);
     setHudTimeSec(0);
@@ -399,7 +698,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   );
 
   return (
-    <div className="relative w-full h-full bg-[#05080f] overflow-hidden flex flex-col justify-between">
+    <div className="relative w-full h-full bg-[#0a0f1d] overflow-hidden flex flex-col justify-between">
       {/* 3D Combat Arena Canvas */}
       <div className="absolute inset-0 z-0">
         <Canvas shadows camera={{ position: [0, 4.2, 6.4], fov: 44 }}>
@@ -408,6 +707,8 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             battlePhase={battlePhase}
             camMode={camMode}
             playerConfig={playerConfig}
+            bossId={bossId}
+            showHitboxes={showHitboxes}
             onSyncHud={(p, b, t, evs, rep) => {
               setHudPlayer(p);
               setHudBull(b);
@@ -416,6 +717,9 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
               if (rep) {
                 setAnalysisReport(rep);
                 setBattlePhase('finished');
+                if (rep.winner === 'player') {
+                  onDefeatBoss?.(bossId);
+                }
               }
             }}
           />
@@ -549,11 +853,11 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
           <div className="holo-panel holo-glow-amber rounded-2xl border border-amber-500/40 p-3.5">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/30 text-amber-300">
-                CHAMPION BOSS
+                TIER 0{bossDossier.tier} BOSS
               </span>
               <div className="flex items-center gap-2">
                 <span className="font-display font-extrabold text-sm text-white tracking-wide">
-                  THE BULL (29.8 LB)
+                  {bossDossier.icon} {bossDossier.name} ({bossDossier.weightLb.toFixed(1)} LB)
                 </span>
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
               </div>
@@ -749,6 +1053,22 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
                 {c.label}
               </button>
             ))}
+
+            {/* Developer Hitbox Debug Toggle */}
+            <button
+              onClick={() => {
+                soundEngine.playClick();
+                setShowHitboxes((prev) => !prev);
+              }}
+              className={`cursor-pointer px-3 py-1.5 rounded-lg text-xs font-mono-num font-bold transition-all border ${
+                showHitboxes
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/60 shadow-sm shadow-rose-500/30'
+                  : 'bg-slate-900 text-slate-400 border-slate-700/60 hover:text-slate-200'
+              }`}
+              title="Toggle Collision Hitboxes [H]"
+            >
+              DEBUG HITBOXES {showHitboxes ? 'ON' : 'OFF'}
+            </button>
           </div>
         </div>
       )}
@@ -891,33 +1211,32 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
                   <button
                     onClick={() => {
                       soundEngine.playInstall();
-                      onReturnToWorkshop(false);
+                      if (onReturnToDashboard) {
+                        onReturnToDashboard();
+                      } else {
+                        onReturnToWorkshop(false);
+                      }
                     }}
-                    className="cursor-pointer inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-cyan-500/40 text-xs sm:text-sm font-display font-bold text-cyan-300"
+                    className="cursor-pointer inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 text-sm font-display font-extrabold shadow-lg shadow-emerald-500/25 transform hover:scale-[1.02]"
                   >
                     <Wrench className="w-4 h-4" />
-                    OPTIMIZE DESIGN
-                  </button>
-                  <button
-                    onClick={() => {
-                      soundEngine.playInstall();
-                      onReturnToWorkshop(true);
-                    }}
-                    className="cursor-pointer inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-400 to-sky-400 hover:from-cyan-300 hover:to-sky-300 text-slate-950 text-xs sm:text-sm font-display font-extrabold shadow-lg shadow-cyan-500/20"
-                  >
-                    BUILD SOMETHING DIFFERENT →
+                    RETURN TO TEAM DASHBOARD →
                   </button>
                 </div>
               ) : (
                 <button
                   onClick={() => {
                     soundEngine.playInstall();
-                    onReturnToWorkshop(false);
+                    if (onReturnToDashboard) {
+                      onReturnToDashboard();
+                    } else {
+                      onReturnToWorkshop(false);
+                    }
                   }}
                   className="cursor-pointer inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-gradient-to-r from-cyan-400 to-sky-400 hover:from-cyan-300 hover:to-sky-300 text-slate-950 text-sm font-display font-extrabold shadow-lg shadow-cyan-500/25"
                 >
                   <Wrench className="w-4 h-4" />
-                  RETURN TO WORKSHOP
+                  RETURN TO ENGINEERING & ITERATE
                 </button>
               )}
             </div>

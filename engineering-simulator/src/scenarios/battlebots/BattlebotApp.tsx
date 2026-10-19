@@ -5,7 +5,6 @@ import {
   CircleDot,
   Compass,
   Cpu,
-  Eye,
   FlaskConical,
   Gauge,
   Shield,
@@ -19,15 +18,44 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { soundEngine } from './audio/soundEngine';
 import { ArenaScreen } from './components/arena/ArenaScreen';
-import { BossIntroScreen } from './components/boss/BossIntroScreen';
 import { InventorLabModal } from './components/inventor/InventorLabModal';
 import { TestLabOverlay } from './components/testlab/TestLabOverlay';
 import { type ActiveTestVisualState, WorkshopStage3D } from './components/three/WorkshopStage3D';
 import { CompareModal } from './components/workshop/CompareModal';
 import { EngineeringDetailsDrawer } from './components/workshop/EngineeringDetailsDrawer';
+import { TeamMissionScreen } from './components/team/TeamMissionScreen';
+import { TeamDashboardScreen } from './components/team/TeamDashboardScreen';
+import { MechanicalScreen } from './components/disciplines/MechanicalScreen';
+import { ElectricalScreen } from './components/disciplines/ElectricalScreen';
+import { SoftwareScreen } from './components/disciplines/SoftwareScreen';
+import { ProjectLeadScreen } from './components/disciplines/ProjectLeadScreen';
+import { createInitialTeamProject } from './data/teamData';
 import { ARMOR_CATALOG, ARMOR_THICKNESS_OPTIONS, BATTERY_CATALOG, CHASSIS_CATALOG, DRIVE_CATALOG, INITIAL_ROBOT_CONFIG, UTILITY_CATALOG, WEAPON_CATALOG, WHEELS_CATALOG } from './data/components';
+import { BOSS_LADDER, getBossById } from './data/bosses';
 import { calculateEngineeringStats, computeInstallConsequences } from './simulation/engineering';
-import { type AppScreen, type ArmorId, type ArmorThickness, type BatteryId, type ChassisId, type ComponentCardSpec, type ComponentCategory, type CustomComponentSpec, type DriveId, type InstallConsequenceToast, type RobotConfiguration, type TestLabType, type UtilityId, type WeaponId, type WheelsId } from './types/robot';
+import {
+  type AppScreen,
+  type ArmorId,
+  type ArmorThickness,
+  type BatteryId,
+  type BossId,
+  type ChassisId,
+  type ComponentCardSpec,
+  type ComponentCategory,
+  type CustomComponentSpec,
+  type DriveId,
+  type ElectricalConfiguration,
+  type InstallConsequenceToast,
+  type MechanicalConfiguration,
+  type ProjectLeadConfiguration,
+  type RobotConfiguration,
+  type SoftwareConfiguration,
+  type TeamRobotProject,
+  type TestLabType,
+  type UtilityId,
+  type WeaponId,
+  type WheelsId,
+} from './types/robot';
 
 const CATEGORY_TABS: {
   id: ComponentCategory;
@@ -46,8 +74,103 @@ const CATEGORY_TABS: {
 const ACCENT_SWATCHES = ['#22d3ee', '#f59e0b', '#10b981', '#ec4899', '#a855f7'];
 
 export function BattlebotApp() {
-  const [screen, setScreen] = useState<AppScreen>('welcome');
-  const [config, setConfig] = useState<RobotConfiguration>(INITIAL_ROBOT_CONFIG);
+  const [screen, setScreen] = useState<AppScreen>('mission');
+  const [project, setProject] = useState<TeamRobotProject>(() => {
+    try {
+      const saved = localStorage.getItem('besa_team_battlebot_project');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (
+          parsed &&
+          parsed.mechanical &&
+          parsed.electrical &&
+          parsed.software &&
+          parsed.projectLead
+        ) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return createInitialTeamProject();
+  });
+
+  const [config, setConfig] = useState<RobotConfiguration>(() => ({
+    ...INITIAL_ROBOT_CONFIG,
+    chassisId: project.mechanical.chassisId,
+    driveId: project.mechanical.driveId,
+    wheelsId: project.mechanical.wheelsId,
+    armorId: project.mechanical.armorId,
+    armorThickness: project.mechanical.armorThickness,
+    weaponId: project.mechanical.weaponId,
+    utilityId: project.mechanical.utilityId,
+    batteryId: project.electrical.batteryId,
+    accentColor: project.mechanical.accentColor,
+  }));
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('besa_team_battlebot_project', JSON.stringify(project));
+    } catch {
+      // ignore
+    }
+  }, [project]);
+
+  const handleUpdateMechanical = (nextMech: MechanicalConfiguration) => {
+    setProject((prev) => ({ ...prev, mechanical: nextMech }));
+    setConfig((prev) => ({
+      ...prev,
+      chassisId: nextMech.chassisId,
+      driveId: nextMech.driveId,
+      wheelsId: nextMech.wheelsId,
+      armorId: nextMech.armorId,
+      armorThickness: nextMech.armorThickness,
+      weaponId: nextMech.weaponId,
+      utilityId: nextMech.utilityId,
+      accentColor: nextMech.accentColor,
+    }));
+  };
+
+  const handleUpdateElectrical = (nextElec: ElectricalConfiguration) => {
+    setProject((prev) => ({ ...prev, electrical: nextElec }));
+    setConfig((prev) => ({
+      ...prev,
+      batteryId: nextElec.batteryId,
+    }));
+  };
+
+  const handleUpdateSoftware = (nextSoft: SoftwareConfiguration) => {
+    setProject((prev) => ({ ...prev, software: nextSoft }));
+  };
+
+  const handleUpdateProjectLead = (nextLead: ProjectLeadConfiguration) => {
+    setProject((prev) => ({ ...prev, projectLead: nextLead }));
+  };
+
+  const handleResetProject = () => {
+    const fresh = createInitialTeamProject();
+    setProject(fresh);
+    setConfig({
+      ...INITIAL_ROBOT_CONFIG,
+      chassisId: fresh.mechanical.chassisId,
+      driveId: fresh.mechanical.driveId,
+      wheelsId: fresh.mechanical.wheelsId,
+      armorId: fresh.mechanical.armorId,
+      armorThickness: fresh.mechanical.armorThickness,
+      weaponId: fresh.mechanical.weaponId,
+      utilityId: fresh.mechanical.utilityId,
+      batteryId: fresh.electrical.batteryId,
+    });
+    try {
+      localStorage.removeItem('besa_team_battlebot_project');
+    } catch {
+      // ignore
+    }
+    setScreen('mission');
+    soundEngine.playInstall();
+  };
+
   const [selectedCategory, setSelectedCategory] = useState<ComponentCategory>('weapon');
   const [installingCategory, setInstallingCategory] = useState<ComponentCategory | null>(null);
   const [consequenceToast, setConsequenceToast] = useState<InstallConsequenceToast | null>(null);
@@ -57,6 +180,30 @@ export function BattlebotApp() {
   const [muted, setMuted] = useState(false);
   const [cameraResetTrigger, setCameraResetTrigger] = useState(0);
   const [arenaTransitioning, setArenaTransitioning] = useState(false);
+
+  // Boss Ladder Progression State
+  const [unlockedBossIndex, setUnlockedBossIndex] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('besa_battlebots_unlocked_index');
+      return saved !== null ? parseInt(saved, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const selectedBossId: BossId = 'bull';
+
+  const handleDefeatBoss = (defeatedBossId: BossId) => {
+    const currentIndex = BOSS_LADDER.findIndex((b) => b.id === defeatedBossId);
+    if (currentIndex !== -1 && currentIndex + 1 > unlockedBossIndex) {
+      const nextIndex = Math.min(BOSS_LADDER.length - 1, currentIndex + 1);
+      setUnlockedBossIndex(nextIndex);
+      try {
+        localStorage.setItem('besa_battlebots_unlocked_index', nextIndex.toString());
+      } catch {
+        // ignore
+      }
+    }
+  };
 
   // Test Lab states
   const [activeTest, setActiveTest] = useState<ActiveTestVisualState>({
@@ -330,32 +477,82 @@ export function BattlebotApp() {
     }
   }, [selectedCategory, config]);
 
-  // 1. WELCOME OR BOSS INTRO SCREEN
-  if (screen === 'welcome' || screen === 'boss-intro') {
+  // 1. TEAM MISSION SCREEN
+  if (screen === 'welcome' || screen === 'mission') {
     return (
-      <BossIntroScreen
-        initialStep={screen}
-        onEnterWorkshop={() => setScreen('workshop')}
+      <TeamMissionScreen
+        onBeginProject={() => setScreen('team-dashboard')}
       />
     );
   }
 
-  // 2. AUTONOMOUS ARENA SCREEN
+  // 2. TEAM DASHBOARD SCREEN
+  if (screen === 'team-dashboard') {
+    return (
+      <TeamDashboardScreen
+        project={project}
+        onSelectRole={(role) => setScreen(role)}
+        onEnterArena={() => setScreen('arena')}
+        onResetProject={handleResetProject}
+      />
+    );
+  }
+
+  // 3. MECHANICAL SCREEN
+  if (screen === 'mechanical') {
+    return (
+      <MechanicalScreen
+        project={project}
+        onUpdateMechanical={handleUpdateMechanical}
+        onReturnToDashboard={() => setScreen('team-dashboard')}
+      />
+    );
+  }
+
+  // 4. ELECTRICAL SCREEN
+  if (screen === 'electrical') {
+    return (
+      <ElectricalScreen
+        project={project}
+        onUpdateElectrical={handleUpdateElectrical}
+        onReturnToDashboard={() => setScreen('team-dashboard')}
+      />
+    );
+  }
+
+  // 5. SOFTWARE SCREEN
+  if (screen === 'software') {
+    return (
+      <SoftwareScreen
+        project={project}
+        onUpdateSoftware={handleUpdateSoftware}
+        onReturnToDashboard={() => setScreen('team-dashboard')}
+      />
+    );
+  }
+
+  // 6. PROJECT LEAD SCREEN
+  if (screen === 'project-lead') {
+    return (
+      <ProjectLeadScreen
+        project={project}
+        onUpdateProjectLead={handleUpdateProjectLead}
+        onReturnToDashboard={() => setScreen('team-dashboard')}
+      />
+    );
+  }
+
+  // 7. AUTONOMOUS ARENA SCREEN (VS THE BULL ONLY)
   if (screen === 'arena') {
     return (
       <ArenaScreen
         playerConfig={config}
         playerStats={stats}
-        onReturnToWorkshop={(resetToStarter) => {
-          if (resetToStarter) {
-            setConfig({
-              ...INITIAL_ROBOT_CONFIG,
-              accentColor:
-                ACCENT_SWATCHES[Math.floor(Math.random() * ACCENT_SWATCHES.length)],
-            });
-          }
-          setScreen('workshop');
-        }}
+        bossId="bull"
+        teamProject={project}
+        onDefeatBoss={handleDefeatBoss}
+        onReturnToWorkshop={() => setScreen('team-dashboard')}
+        onReturnToDashboard={() => setScreen('team-dashboard')}
       />
     );
   }
@@ -448,16 +645,21 @@ export function BattlebotApp() {
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  setScreen('boss-intro');
-                }}
-                className="cursor-pointer holo-panel rounded-xl border border-amber-500/35 hover:border-amber-400 px-3 py-2 text-xs font-display font-bold text-amber-300 flex items-center gap-1.5"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                SCOUT THE BULL
-              </button>
+              {(() => {
+                const currentBoss = getBossById(selectedBossId);
+                return (
+                  <button
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setScreen('boss-intro');
+                    }}
+                    className="cursor-pointer holo-panel rounded-xl border border-amber-500/35 hover:border-amber-400 px-3 py-2 text-xs font-display font-bold text-amber-300 flex items-center gap-1.5 transition-colors"
+                  >
+                    <span>{currentBoss.icon}</span>
+                    <span>LADDER: {currentBoss.name.toUpperCase()}</span>
+                  </button>
+                );
+              })()}
 
               <button
                 onClick={() => {
