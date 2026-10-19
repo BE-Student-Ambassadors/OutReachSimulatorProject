@@ -645,11 +645,11 @@ export function validateSimplifiedElectrical(wires: WireConnection[]): Simplifie
       w.toPort === 'esc_drive_mot_l'
   );
 
-  let mainPower = false;
-  let driveSystem = false;
-  let weaponSystem = false;
-  let robotComputer = false;
-  let sensorNetwork = false;
+  let mainPower: boolean;
+  let driveSystem: boolean;
+  let weaponSystem: boolean;
+  let robotComputer: boolean;
+  let sensorNetwork: boolean;
 
   if (has14WirePorts) {
     mainPower =
@@ -1086,10 +1086,7 @@ export interface AdCampaignEvaluation {
   sponsorFeedback: string;
 }
 
-export function evaluateAdCampaignPrompt(
-  rawPrompt: string,
-  _project?: TeamRobotProject
-): AdCampaignEvaluation {
+export function evaluateAdCampaignPrompt(rawPrompt: string): AdCampaignEvaluation {
   const prompt = (rawPrompt || '').trim();
   const lower = prompt.toLowerCase();
   const words = prompt.split(/\s+/).filter(Boolean);
@@ -1772,7 +1769,7 @@ export function createInitialTeamProject(teamName = 'TEAM TITAN'): TeamRobotProj
       ...INITIAL_PROJECT_LEAD_CONFIG,
       activeSponsors: [],
     },
-    derivedStats: {} as any,
+    derivedStats: {} as TeamRobotProject['derivedStats'],
     integration: {
       overallPassed: false,
       mechanicalPassed: false,

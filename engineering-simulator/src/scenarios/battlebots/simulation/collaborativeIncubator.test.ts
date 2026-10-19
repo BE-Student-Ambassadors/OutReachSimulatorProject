@@ -415,8 +415,7 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
 
   describe('Business Prompt-Based Ad & Sponsorship Suite', () => {
     it('evaluates minimal prompt and grants Bronze sponsorship', () => {
-      const project = createInitialTeamProject();
-      const evalResult = evaluateAdCampaignPrompt('A battlebot for the arena', project);
+      const evalResult = evaluateAdCampaignPrompt('A battlebot for the arena');
       expect(evalResult.score).toBeGreaterThanOrEqual(40);
       expect(evalResult.score).toBeLessThan(70);
       expect(evalResult.tier).toBe('Bronze');
@@ -425,10 +424,9 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
     });
 
     it('evaluates descriptive prompt and grants Silver or Gold sponsorship', () => {
-      const project = createInitialTeamProject();
       const goldPrompt =
         'Create a futuristic, high-tech advertisement for our combat robot NIGHTFALL. Highlight our deadly vertical spinner weapon and advanced autonomous AI sensor technology. Sponsor our team as we dominate the arena and become champion!';
-      const evalResult = evaluateAdCampaignPrompt(goldPrompt, project);
+      const evalResult = evaluateAdCampaignPrompt(goldPrompt);
       expect(evalResult.score).toBeGreaterThanOrEqual(85);
       expect(evalResult.tier).toBe('Gold');
       expect(evalResult.fundingUsd).toBe(700);
@@ -444,7 +442,7 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
       expect(project.projectLead.sponsorshipUsd).toBe(0);
 
       // First evaluation: Bronze (+$200)
-      const bronzeEval = evaluateAdCampaignPrompt('BattleBot robot show', project);
+      const bronzeEval = evaluateAdCampaignPrompt('BattleBot robot show');
       project.projectLead.sponsorshipUsd = bronzeEval.fundingUsd;
       project.projectLead.sponsorTier = bronzeEval.tier;
       project.projectLead.budgetCapUsd = project.projectLead.baseBudgetUsd + project.projectLead.sponsorshipUsd;
@@ -452,9 +450,7 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
 
       // Improving prompt replaces offer with Gold (+$700), does NOT stack to 200 + 700 = 900
       const goldEval = evaluateAdCampaignPrompt(
-        'NIGHTFALL our autonomous vertical spinner robot. High-tech AI battlebot. Invest in our team today to win the championship!',
-        project
-      );
+        'NIGHTFALL our autonomous vertical spinner robot. High-tech AI battlebot. Invest in our team today to win the championship!');
       project.projectLead.sponsorshipUsd = goldEval.fundingUsd;
       project.projectLead.sponsorTier = goldEval.tier;
       project.projectLead.budgetCapUsd = project.projectLead.baseBudgetUsd + project.projectLead.sponsorshipUsd;
@@ -462,8 +458,7 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
     });
 
     it('returns score 0 and None tier when ad prompt is empty', () => {
-      const project = createInitialTeamProject();
-      const evalResult = evaluateAdCampaignPrompt('', project);
+      const evalResult = evaluateAdCampaignPrompt('');
       expect(evalResult.score).toBe(0);
       expect(evalResult.tier).toBe('None');
       expect(evalResult.fundingUsd).toBe(0);

@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { uid } from '../../../../core/format';
 import { soundEngine } from '../../audio/soundEngine';
 import {
   BATTERY_OPTIONS,
@@ -69,7 +70,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
     setShowResetModal(false);
   };
 
-  const wires = elec.wires || [];
+  const wires = useMemo(() => elec.wires || [], [elec.wires]);
 
   const updateWires = (nextWires: WireConnection[], verified = false) => {
     onUpdateElectrical({
@@ -119,7 +120,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
 
     soundEngine.playInstall();
     const newWire: WireConnection = {
-      id: `w-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: uid('w'),
       fromPort: p1,
       toPort: p2,
     };

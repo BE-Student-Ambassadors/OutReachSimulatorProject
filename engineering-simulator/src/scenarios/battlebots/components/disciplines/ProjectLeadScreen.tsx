@@ -44,7 +44,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
 
   const [evaluation, setEvaluation] = useState<AdCampaignEvaluation | null>(() => {
     if (lead.campaignScore > 0 && lead.sponsorTier !== 'None' && lead.adPrompt) {
-      return evaluateAdCampaignPrompt(lead.adPrompt, project);
+      return evaluateAdCampaignPrompt(lead.adPrompt);
     }
     return null;
   });
@@ -93,7 +93,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
     window.setTimeout(() => {
       setIsGenerating(false);
       soundEngine.playInstall();
-      const result = evaluateAdCampaignPrompt(promptText, project);
+      const result = evaluateAdCampaignPrompt(promptText);
       setEvaluation(result);
       setShowResultModal(true);
     }, 1000);

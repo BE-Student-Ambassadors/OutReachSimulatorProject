@@ -120,10 +120,10 @@ export function getRobotCollisionModel(
   ];
 
   // Weapon Contact Geometry
-  let wCenterOffset = 0;
-  let wHalfWidth = 0.45;
-  let wHalfDepth = 0.25;
-  let isFrontal = true;
+  let wCenterOffset: number;
+  let wHalfWidth: number;
+  let wHalfDepth: number;
+  const isFrontal = true;
   let is360 = false;
   let perimeterRadius = 0;
 
