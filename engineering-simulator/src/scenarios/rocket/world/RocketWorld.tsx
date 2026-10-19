@@ -96,9 +96,12 @@ export function RocketWorld({
         focusMode={currentStep.focusMode}
       />
 
-      {/* Minimalist Top Step-by-Step Progress Bar */}
+      {/* Step bar + step card share one column so the card always fits below the bar,
+          however many lines the bar wraps to, and scrolls when the window is short. */}
       {!rocketRun && (
-        <div className="absolute inset-x-4 top-4 z-10 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/95 px-3 py-2 shadow-md ring-1 ring-line backdrop-blur">
+        <div className="pointer-events-none absolute inset-3 z-10 flex flex-col gap-2.5 sm:inset-4">
+        {/* Minimalist Top Step-by-Step Progress Bar */}
+        <div className="pointer-events-auto flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/95 px-3 py-2 shadow-md ring-1 ring-line backdrop-blur">
           <div className="flex flex-wrap items-center gap-1">
             {STEPS.map((s) => {
               const active = s.id === activeStepId
@@ -141,12 +144,10 @@ export function RocketWorld({
               : 'Team Roles'}
           </button>
         </div>
-      )}
 
-      {/* Single Minimalist Step Card on the Left */}
-      {!rocketRun && (
-        <div className="absolute bottom-4 left-4 top-19 z-10 flex w-full max-w-[390px] flex-col justify-between">
-          <div className="overflow-y-auto pr-1">
+        {/* Single Minimalist Step Card on the Left */}
+        <div className="pointer-events-auto flex min-h-0 w-full max-w-[420px] flex-1 flex-col justify-between">
+          <div className="min-h-0 overflow-y-auto overscroll-contain rounded-3xl bg-white/95 p-4 shadow-xl ring-1 ring-line backdrop-blur">
             {activeStepId === 'payload-gyro' && (
               <GyroStation
                 design={design}
@@ -192,7 +193,7 @@ export function RocketWorld({
               />
             )}
             {activeStepId === 'range' && (
-              <div className="rounded-3xl bg-white/95 p-6 shadow-xl ring-1 ring-line backdrop-blur">
+              <div>
                 <div className="mb-1 font-mono text-[11px] font-bold uppercase tracking-widest text-forest">
                   Step 7 of 7 · Final Check
                 </div>
@@ -258,41 +259,42 @@ export function RocketWorld({
                 )}
               </div>
             )}
+          </div>
 
-            {/* Step-by-Step Back / Next Navigation Footer */}
-            <div className="mt-2.5 flex items-center justify-between rounded-2xl bg-white/95 px-3.5 py-2.5 shadow-md ring-1 ring-line backdrop-blur">
+          {/* Step-by-Step Back / Next Navigation Footer */}
+          <div className="mt-2.5 flex shrink-0 items-center justify-between rounded-2xl bg-white/95 px-3.5 py-2.5 shadow-md ring-1 ring-line backdrop-blur">
+            <button
+              type="button"
+              disabled={activeStepIndex <= 0}
+              onClick={() => goToStep(STEPS[Math.max(0, activeStepIndex - 1)].id)}
+              className="flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-1.5 font-display text-xs font-bold text-ink/75 transition hover:bg-paper disabled:pointer-events-none disabled:opacity-30"
+            >
+              <ArrowLeft className="size-3.5" /> Back
+            </button>
+
+            <span className="font-mono text-[11px] font-semibold text-ink/50">
+              Step {currentStep.stepNum} of {STEPS.length}
+            </span>
+
+            {activeStepIndex < STEPS.length - 1 ? (
               <button
                 type="button"
-                disabled={activeStepIndex <= 0}
-                onClick={() => goToStep(STEPS[Math.max(0, activeStepIndex - 1)].id)}
-                className="flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-1.5 font-display text-xs font-bold text-ink/75 transition hover:bg-paper disabled:pointer-events-none disabled:opacity-30"
+                onClick={() => goToStep(STEPS[activeStepIndex + 1].id)}
+                className="btn-press flex cursor-pointer items-center gap-1.5 rounded-xl bg-ink px-3.5 py-1.5 font-display text-xs font-bold text-white shadow-xs transition hover:bg-ink/85"
               >
-                <ArrowLeft className="size-3.5" /> Back
+                Next Step <ArrowRight className="size-3.5" />
               </button>
-
-              <span className="font-mono text-[11px] font-semibold text-ink/50">
-                Step {currentStep.stepNum} of {STEPS.length}
-              </span>
-
-              {activeStepIndex < STEPS.length - 1 ? (
-                <button
-                  type="button"
-                  onClick={() => goToStep(STEPS[activeStepIndex + 1].id)}
-                  className="btn-press flex cursor-pointer items-center gap-1.5 rounded-xl bg-ink px-3.5 py-1.5 font-display text-xs font-bold text-white shadow-xs transition hover:bg-ink/85"
-                >
-                  Next Step <ArrowRight className="size-3.5" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={locked || !onStartRun}
-                  onClick={() => onStartRun?.('standard')}
-                  className="btn-press flex cursor-pointer items-center gap-1.5 rounded-xl bg-forest px-3.5 py-1.5 font-display text-xs font-bold text-white shadow-xs transition hover:bg-forest-deep disabled:opacity-40"
-                >
-                  Launch <Rocket className="size-3.5" />
-                </button>
-              )}
-            </div>
+            ) : (
+              <button
+                type="button"
+                disabled={locked || !onStartRun}
+                onClick={() => onStartRun?.('standard')}
+                className="btn-press flex cursor-pointer items-center gap-1.5 rounded-xl bg-forest px-3.5 py-1.5 font-display text-xs font-bold text-white shadow-xs transition hover:bg-forest-deep disabled:opacity-40"
+              >
+                Launch <Rocket className="size-3.5" />
+              </button>
+            )}
+          </div>
           </div>
         </div>
       )}
@@ -344,6 +346,12 @@ function LiveFlightHud({ run }: { run: RocketRun }) {
   const splattered = f.phase === 'impact' && r.payloadOutcome === 'splatter'
   const landedBullseye = f.phase === 'impact' && r.payloadOutcome === 'target-landed'
 
+  // Rocket phases read speed in mph against the airframe's safe speed.
+  const speedMph = Math.round(f.hudSpeedFps / 1.467)
+  const safeMph = r.telemetry.maxSafeSpeedMph
+  const stressPct = Math.min(100, (speedMph / safeMph) * 100)
+  const brokeUp = !isPayloadPhase && f.rocketShredded
+
   return (
     <div className="pointer-events-none absolute inset-x-4 top-4 z-20 flex flex-col items-center gap-3">
       {/* Minimalist Top Flight Telemetry Banner */}
@@ -351,7 +359,9 @@ function LiveFlightHud({ run }: { run: RocketRun }) {
         <div>
           <div className="font-mono text-[10px] uppercase tracking-wider text-white/60">Phase</div>
           <div className="font-display text-sm font-bold text-mint">
-            {f.phase === 'rocket-ascent'
+            {brokeUp
+              ? 'Breakup'
+              : f.phase === 'rocket-ascent'
               ? 'Rocket Ascent'
               : f.phase === 'apogee-sep'
                 ? 'Apogee Separation'
@@ -368,12 +378,33 @@ function LiveFlightHud({ run }: { run: RocketRun }) {
             {count(Math.round(f.hudAltitudeFt))} <span className="text-xs font-normal">ft</span>
           </div>
         </div>
-        <div>
-          <div className="font-mono text-[10px] uppercase tracking-wider text-white/60">Speed</div>
-          <div className="font-mono text-xl font-semibold tabular">
-            {f.hudSpeedFps} <span className="text-xs font-normal">ft/s</span>
+        {isPayloadPhase ? (
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-wider text-white/60">Speed</div>
+            <div className="font-mono text-xl font-semibold tabular">
+              {f.hudSpeedFps} <span className="text-xs font-normal">ft/s</span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="w-44">
+            <div className="flex items-baseline justify-between font-mono text-[10px] uppercase tracking-wider text-white/60">
+              <span>{brokeUp ? 'At breakup' : 'Speed'}</span>
+              <span>safe {count(safeMph)}</span>
+            </div>
+            <div className="font-mono text-xl font-semibold tabular">
+              {count(brokeUp ? r.telemetry.breakupSpeedMph : speedMph)}{' '}
+              <span className="text-xs font-normal">mph</span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/15">
+              <div
+                className={`h-full rounded-full transition-[width] duration-75 ${
+                  brokeUp || stressPct >= 100 ? 'bg-rust' : stressPct > 85 ? 'bg-sun' : 'bg-leaf'
+                }`}
+                style={{ width: `${brokeUp ? 100 : stressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
         <div>
           <div className="font-mono text-[10px] uppercase tracking-wider text-white/60">Parachute</div>
           <div className={`font-mono text-sm font-bold ${f.chuteOpen ? 'text-leaf' : 'text-sun'}`}>
@@ -428,10 +459,17 @@ function LiveFlightHud({ run }: { run: RocketRun }) {
         </div>
       )}
 
-      {!isPayloadPhase && f.rocketShredded && (
-        <div className="flex items-center gap-2 rounded-xl bg-rust px-4 py-2 font-display text-sm font-bold text-white shadow-lg">
-          <AlertTriangle className="size-4" />
-          AIRFRAME SHREDDED AT MAX-Q!
+      {brokeUp && (
+        <div className="animate-pop flex items-center gap-2 rounded-2xl bg-rust px-6 py-3 font-display text-base font-extrabold text-white shadow-2xl ring-4 ring-white">
+          <AlertTriangle className="size-5" />
+          {r.telemetry.weakestPart === 'fins' ? 'FINS RIPPED OFF' : 'AIRFRAME TORE APART'} AT{' '}
+          {count(r.telemetry.breakupSpeedMph)} MPH · {count(r.telemetry.breakupAltFt)} FT
+        </div>
+      )}
+      {!isPayloadPhase && !brokeUp && f.structuralStress > 0.9 && f.rocketThrusting && (
+        <div className="flex items-center gap-2 rounded-xl bg-sun px-4 py-1.5 font-mono text-xs font-bold text-ink shadow-lg">
+          <AlertTriangle className="size-3.5" />
+          {count(speedMph)} of {count(safeMph)} mph safe speed
         </div>
       )}
     </div>

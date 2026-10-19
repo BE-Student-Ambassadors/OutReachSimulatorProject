@@ -73,6 +73,46 @@ describe('Rocket Team (IREC) Simulation Engine & Balancing', () => {
     expect(run.result().telemetry.chuteDeployAltFt).toBe(deployedAt)
   })
 
+  test('Flying faster than the airframe can take tears it apart at its safe speed, mid-burn', () => {
+    const overloaded = strategyA.map((o) => (o.kind === 'launchSetup' ? { ...o, impulseId: 'o-class' as const } : o))
+    const r = evaluateRocketDesign(overloaded, 'rocket-launch')
+    expect(r.rocketOutcome).toBe('structural-shred')
+    expect(r.telemetry.peakSpeedMph).toBeGreaterThan(r.telemetry.maxSafeSpeedMph)
+    expect(r.telemetry.breakupSpeedMph).toBe(r.telemetry.maxSafeSpeedMph)
+    expect(r.apogeeFt).toBe(r.telemetry.breakupAltFt)
+
+    const run = new RocketRun(overloaded, 'rocket-launch')
+    let fastestIntactFps = 0
+    let lastBreakupProgress = -1
+    while (!run.done) {
+      run.step()
+      if (!run.frame.rocketShredded) fastestIntactFps = Math.max(fastestIntactFps, run.frame.hudSpeedFps)
+      else {
+        expect(run.frame.breakupProgress).toBeGreaterThanOrEqual(lastBreakupProgress)
+        lastBreakupProgress = run.frame.breakupProgress
+      }
+    }
+    const safeFps = (r.telemetry.maxSafeSpeedMph * 3.281) / 2.237
+    expect(fastestIntactFps).toBeLessThanOrEqual(safeFps * 1.01)
+    expect(fastestIntactFps).toBeGreaterThan(safeFps * 0.95)
+    expect(lastBreakupProgress).toBeGreaterThan(0.95)
+  })
+
+  test('A passing rocket speeds up through the burn, then coasts and never passes its safe speed', () => {
+    const run = new RocketRun(strategyA, 'rocket-launch')
+    const speeds: number[] = []
+    while (!run.done) {
+      run.step()
+      expect(run.frame.rocketShredded).toBe(false)
+      expect(run.frame.structuralStress).toBeLessThan(1)
+      speeds.push(run.frame.hudSpeedFps)
+    }
+    const peakAt = speeds.indexOf(Math.max(...speeds))
+    expect(speeds[0]).toBeLessThan(speeds[peakAt])
+    expect(peakAt).toBeGreaterThan(0)
+    expect(speeds[speeds.length - 1]).toBeLessThan(speeds[peakAt] * 0.1)
+  })
+
   test('Over-budget design passes technically but exceeds $120,000 budget', () => {
     expect(designCost(overBudgetDesign)).toBeGreaterThan(BUDGET)
   })
