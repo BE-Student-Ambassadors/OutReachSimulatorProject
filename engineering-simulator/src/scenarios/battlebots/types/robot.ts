@@ -241,13 +241,38 @@ export interface SparkBurst {
   age: number;
 }
 
+export type BossId = 'bull' | 'scorpion' | 'cyclone' | 'spider' | 'titan';
+
+export interface BossDossier {
+  id: BossId;
+  name: string;
+  subtitle: string;
+  icon: string;
+  tier: number;
+  tagline: string;
+  weightLb: number;
+  config: RobotConfiguration;
+  stats: EngineeringStats;
+  strengths: string[];
+  vulnerabilities: string[];
+  engineeringLesson: string;
+  lore: string;
+}
+
+export interface BossProgressionState {
+  unlockedIndex: number;
+  currentBossId: BossId;
+  bossVictories: Partial<Record<BossId, boolean>>;
+}
+
 export interface BattleAnalysisReport {
-  winner: 'player' | 'bull';
+  winner: 'player' | 'bull' | 'boss';
   winReason: string;
   durationSec: number;
   strategyUsed: AutonomousStrategy;
   playerFinal: CombatantTelemetry;
   bullFinal: CombatantTelemetry;
+  bossDossier?: BossDossier;
   playerStats: EngineeringStats;
   headlineSummary: string;
   engineeringEvidence: string[];
@@ -258,3 +283,4 @@ export interface BattleAnalysisReport {
   flipsInflicted: number;
   pushDominanceRatio: number;
 }
+

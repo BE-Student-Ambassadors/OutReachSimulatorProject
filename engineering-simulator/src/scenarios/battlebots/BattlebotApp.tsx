@@ -5,7 +5,6 @@ import {
   CircleDot,
   Compass,
   Cpu,
-  Eye,
   FlaskConical,
   Gauge,
   Shield,
@@ -26,8 +25,9 @@ import { type ActiveTestVisualState, WorkshopStage3D } from './components/three/
 import { CompareModal } from './components/workshop/CompareModal';
 import { EngineeringDetailsDrawer } from './components/workshop/EngineeringDetailsDrawer';
 import { ARMOR_CATALOG, ARMOR_THICKNESS_OPTIONS, BATTERY_CATALOG, CHASSIS_CATALOG, DRIVE_CATALOG, INITIAL_ROBOT_CONFIG, UTILITY_CATALOG, WEAPON_CATALOG, WHEELS_CATALOG } from './data/components';
+import { BOSS_LADDER, getBossById } from './data/bosses';
 import { calculateEngineeringStats, computeInstallConsequences } from './simulation/engineering';
-import { type AppScreen, type ArmorId, type ArmorThickness, type BatteryId, type ChassisId, type ComponentCardSpec, type ComponentCategory, type CustomComponentSpec, type DriveId, type InstallConsequenceToast, type RobotConfiguration, type TestLabType, type UtilityId, type WeaponId, type WheelsId } from './types/robot';
+import { type AppScreen, type ArmorId, type ArmorThickness, type BatteryId, type BossId, type ChassisId, type ComponentCardSpec, type ComponentCategory, type CustomComponentSpec, type DriveId, type InstallConsequenceToast, type RobotConfiguration, type TestLabType, type UtilityId, type WeaponId, type WheelsId } from './types/robot';
 
 const CATEGORY_TABS: {
   id: ComponentCategory;
@@ -57,6 +57,38 @@ export function BattlebotApp() {
   const [muted, setMuted] = useState(false);
   const [cameraResetTrigger, setCameraResetTrigger] = useState(0);
   const [arenaTransitioning, setArenaTransitioning] = useState(false);
+
+  // Boss Ladder Progression State
+  const [unlockedBossIndex, setUnlockedBossIndex] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('besa_battlebots_unlocked_index');
+      return saved !== null ? parseInt(saved, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [selectedBossId, setSelectedBossId] = useState<BossId>('bull');
+
+  const handleDefeatBoss = (defeatedBossId: BossId) => {
+    const currentIndex = BOSS_LADDER.findIndex((b) => b.id === defeatedBossId);
+    if (currentIndex !== -1 && currentIndex + 1 > unlockedBossIndex) {
+      const nextIndex = Math.min(BOSS_LADDER.length - 1, currentIndex + 1);
+      setUnlockedBossIndex(nextIndex);
+      try {
+        localStorage.setItem('besa_battlebots_unlocked_index', nextIndex.toString());
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleNextBoss = () => {
+    const currentIndex = BOSS_LADDER.findIndex((b) => b.id === selectedBossId);
+    const nextBoss = BOSS_LADDER[currentIndex + 1];
+    if (nextBoss) {
+      setSelectedBossId(nextBoss.id);
+    }
+  };
 
   // Test Lab states
   const [activeTest, setActiveTest] = useState<ActiveTestVisualState>({
@@ -335,6 +367,9 @@ export function BattlebotApp() {
     return (
       <BossIntroScreen
         initialStep={screen}
+        unlockedIndex={unlockedBossIndex}
+        selectedBossId={selectedBossId}
+        onSelectBoss={(bossId) => setSelectedBossId(bossId)}
         onEnterWorkshop={() => setScreen('workshop')}
       />
     );
@@ -346,6 +381,9 @@ export function BattlebotApp() {
       <ArenaScreen
         playerConfig={config}
         playerStats={stats}
+        bossId={selectedBossId}
+        onDefeatBoss={handleDefeatBoss}
+        onNextBoss={handleNextBoss}
         onReturnToWorkshop={(resetToStarter) => {
           if (resetToStarter) {
             setConfig({
@@ -448,16 +486,21 @@ export function BattlebotApp() {
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  setScreen('boss-intro');
-                }}
-                className="cursor-pointer holo-panel rounded-xl border border-amber-500/35 hover:border-amber-400 px-3 py-2 text-xs font-display font-bold text-amber-300 flex items-center gap-1.5"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                SCOUT THE BULL
-              </button>
+              {(() => {
+                const currentBoss = getBossById(selectedBossId);
+                return (
+                  <button
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setScreen('boss-intro');
+                    }}
+                    className="cursor-pointer holo-panel rounded-xl border border-amber-500/35 hover:border-amber-400 px-3 py-2 text-xs font-display font-bold text-amber-300 flex items-center gap-1.5 transition-colors"
+                  >
+                    <span>{currentBoss.icon}</span>
+                    <span>LADDER: {currentBoss.name.toUpperCase()}</span>
+                  </button>
+                );
+              })()}
 
               <button
                 onClick={() => {

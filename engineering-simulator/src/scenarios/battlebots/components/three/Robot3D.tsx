@@ -2,10 +2,11 @@ import { useFrame } from '@react-three/fiber';
 import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { ARMOR_CATALOG, ARMOR_THICKNESS_OPTIONS, CHASSIS_CATALOG } from '../../data/components';
-import { type ComponentCategory, type CustomComponentSpec, type RobotConfiguration } from '../../types/robot';
+import { type BossId, type ComponentCategory, type CustomComponentSpec, type RobotConfiguration } from '../../types/robot';
 
 export interface Robot3DProps {
   config: RobotConfiguration;
+  bossId?: BossId | null;
   isBullBoss?: boolean;
   installingCategory?: ComponentCategory | null;
   installProgress?: number; // 0 to 1
@@ -200,6 +201,7 @@ const ProceduralCustomComponent3D: React.FC<{
 
 export const Robot3D: React.FC<Robot3DProps> = ({
   config,
+  bossId = null,
   isBullBoss = false,
   installingCategory = null,
   selectedCategory,
@@ -219,9 +221,13 @@ export const Robot3D: React.FC<Robot3DProps> = ({
   const vertSpinnerRef = useRef<THREE.Group>(null);
   const horizSpinnerRef = useRef<THREE.Group>(null);
   const customSpinnerRef = useRef<THREE.Group>(null);
+  const bossSpinnerRef = useRef<THREE.Group>(null);
   const wheelRefs = useRef<(THREE.Group | null)[]>([]);
   const coolingFanRef = useRef<THREE.Group>(null);
   const installAnimRef = useRef<number>(0);
+
+  const effectiveBossId: BossId | null = bossId ?? (isBullBoss ? 'bull' : null);
+
 
   useEffect(() => {
     if (installingCategory) {
@@ -295,6 +301,10 @@ export const Robot3D: React.FC<Robot3DProps> = ({
       }
     }
 
+    if (bossSpinnerRef.current) {
+      bossSpinnerRef.current.rotation.y += dt * 32;
+    }
+
     // Rotate cooling fans continuously
     if (coolingFanRef.current) {
       coolingFanRef.current.rotation.y += dt * 18;
@@ -356,9 +366,9 @@ export const Robot3D: React.FC<Robot3DProps> = ({
         <mesh castShadow receiveShadow>
           <boxGeometry args={[cW, cH, cL]} />
           <meshStandardMaterial
-            color={isBullBoss ? '#1c1917' : '#1e293b'}
-            metalness={0.78}
-            roughness={0.32}
+            color={effectiveBossId ? '#2a2624' : '#273444'}
+            metalness={0.65}
+            roughness={0.35}
           />
         </mesh>
 
@@ -373,8 +383,8 @@ export const Robot3D: React.FC<Robot3DProps> = ({
             <meshStandardMaterial
               color={config.accentColor}
               emissive={config.accentColor}
-              emissiveIntensity={selectedCategory === 'chassis' ? 0.85 : 0.35}
-              metalness={0.6}
+              emissiveIntensity={selectedCategory === 'chassis' ? 0.9 : 0.4}
+              metalness={0.65}
               roughness={0.2}
             />
           </mesh>
@@ -384,9 +394,9 @@ export const Robot3D: React.FC<Robot3DProps> = ({
         <mesh position={[0, cH * 0.51, -0.08]}>
           <boxGeometry args={[cW * 0.52, 0.02, cL * 0.48]} />
           <meshStandardMaterial
-            color="#090d16"
-            metalness={0.9}
-            roughness={0.15}
+            color="#162030"
+            metalness={0.7}
+            roughness={0.25}
           />
         </mesh>
       </group>
@@ -695,8 +705,8 @@ export const Robot3D: React.FC<Robot3DProps> = ({
         ]}
         onClick={(e) => handlePartClick('weapon', e)}
       >
-        {isBullBoss ? (
-          // THE BULL'S SIGNATURE HEAVY BRONZE & STEEL BULL-PLOW + HORNS
+        {effectiveBossId === 'bull' ? (
+          // 01 THE BULL'S SIGNATURE HEAVY BRONZE & STEEL BULL-PLOW + HORNS
           <group position={[0, -0.04, 0.18]}>
             {/* Massive sloped front dozer blade */}
             <mesh castShadow receiveShadow rotation={[0.42, 0, 0]} position={[0, 0.02, 0.12]}>
@@ -729,6 +739,90 @@ export const Robot3D: React.FC<Robot3DProps> = ({
                 emissive="#ef4444"
                 emissiveIntensity={1.6}
               />
+            </mesh>
+          </group>
+        ) : effectiveBossId === 'scorpion' ? (
+          // 02 THE SCORPION: Dual forward serrated clamping pincers + overhead articulated stinger tail
+          <group position={[0, -0.02, 0.14]}>
+            {/* Left & Right articulated pincers */}
+            {[-1, 1].map((side) => (
+              <group key={side} position={[side * 0.38, -0.02, 0.18]} rotation={[0, side * (0.24 + grabberAngle * 0.4), 0]}>
+                <mesh castShadow position={[0, 0, 0.22]}>
+                  <boxGeometry args={[0.13, 0.14, 0.52]} />
+                  <meshStandardMaterial color="#10b981" metalness={0.8} roughness={0.25} />
+                </mesh>
+                <mesh castShadow position={[side * -0.07, 0, 0.48]} rotation={[0, side * -0.55, 0]}>
+                  <boxGeometry args={[0.09, 0.12, 0.34]} />
+                  <meshStandardMaterial color="#f8fafc" metalness={0.92} roughness={0.18} />
+                </mesh>
+              </group>
+            ))}
+            {/* Arched Overhead Stinger Tail rooted in rear deck */}
+            <group position={[0, cH * 0.48, -cL * 0.3]}>
+              <mesh castShadow position={[0, 0.38, 0.06]} rotation={[-0.45, 0, 0]}>
+                <cylinderGeometry args={[0.08, 0.11, 0.75, 12]} />
+                <meshStandardMaterial color="#0f172a" metalness={0.85} roughness={0.25} />
+              </mesh>
+              <mesh castShadow position={[0, 0.78, 0.42]} rotation={[0.55 + lifterAngle * 0.45, 0, 0]}>
+                <cylinderGeometry args={[0.07, 0.08, 0.68, 12]} />
+                <meshStandardMaterial color="#10b981" metalness={0.8} roughness={0.25} />
+              </mesh>
+              <group position={[0, 0.86, 0.72]} rotation={[1.25 + lifterAngle * 0.6, 0, 0]}>
+                <mesh castShadow>
+                  <coneGeometry args={[0.1, 0.46, 12]} />
+                  <meshStandardMaterial color="#34d399" emissive="#10b981" emissiveIntensity={0.85} metalness={0.9} roughness={0.15} />
+                </mesh>
+              </group>
+            </group>
+          </group>
+        ) : effectiveBossId === 'cyclone' ? (
+          // 03 THE CYCLONE: Massive rotating horizontal kinetic ring surrounding the perimeter
+          <group position={[0, 0.02, 0.08]}>
+            <group ref={bossSpinnerRef} position={[0, 0.04, -0.04]}>
+              <mesh castShadow rotation={[-Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[cW * 0.65, cW * 0.82, 36]} />
+                <meshStandardMaterial color="#06b6d4" emissive="#0891b2" emissiveIntensity={0.65} metalness={0.92} roughness={0.18} />
+              </mesh>
+              {[-1, 1].map((side) => (
+                <mesh key={side} castShadow position={[side * (cW * 0.74), 0, 0]}>
+                  <boxGeometry args={[0.22, 0.15, 0.32]} />
+                  <meshStandardMaterial color="#f8fafc" metalness={0.95} roughness={0.12} />
+                </mesh>
+              ))}
+            </group>
+          </group>
+        ) : effectiveBossId === 'spider' ? (
+          // 04 THE SPIDER: Hexagonal armored pod with twin high-RPM mini-drums
+          <group position={[0, 0.02, 0.14]}>
+            {[-0.28, 0.28].map((xOff, i) => (
+              <group key={i} position={[xOff, -0.02, 0.2]}>
+                <mesh castShadow rotation={[0, 0, Math.PI / 2]}>
+                  <cylinderGeometry args={[0.18, 0.18, 0.28, 16]} />
+                  <meshStandardMaterial color="#a855f7" emissive="#7c3aed" emissiveIntensity={0.65} metalness={0.88} roughness={0.2} />
+                </mesh>
+              </group>
+            ))}
+            <mesh position={[0, 0.18, 0.05]}>
+              <cylinderGeometry args={[0.2, 0.24, 0.14, 6]} />
+              <meshStandardMaterial color="#3b0764" metalness={0.7} roughness={0.3} />
+            </mesh>
+          </group>
+        ) : effectiveBossId === 'titan' ? (
+          // 05 THE TITAN: Ultra-heavy dreadnought frame with central kinetic drum & dynamic side shields
+          <group position={[0, 0.04, 0.16]}>
+            <mesh castShadow rotation={[0, 0, Math.PI / 2]} position={[0, 0.02, 0.28]}>
+              <cylinderGeometry args={[0.28, 0.28, 0.62, 24]} />
+              <meshStandardMaterial color="#ec4899" emissive="#db2777" emissiveIntensity={0.6} metalness={0.9} roughness={0.2} />
+            </mesh>
+            {[-1, 1].map((side) => (
+              <mesh key={side} castShadow position={[side * 0.46, -0.04, 0.24]} rotation={[0.28, side * -0.22, 0]}>
+                <boxGeometry args={[0.28, 0.34, 0.42]} />
+                <meshStandardMaterial color="#475569" metalness={0.82} roughness={0.25} />
+              </mesh>
+            ))}
+            <mesh position={[0, 0.24, -0.1]}>
+              <boxGeometry args={[0.45, 0.14, 0.4]} />
+              <meshStandardMaterial color="#ec4899" emissive="#ec4899" emissiveIntensity={0.9} />
             </mesh>
           </group>
         ) : config.weaponId === 'custom-weapon' && config.customWeapon ? (
