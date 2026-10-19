@@ -8,18 +8,23 @@ import {
   Terminal,
   UploadCloud,
   Usb,
+  RotateCcw,
+  BookOpen,
 } from 'lucide-react';
 import React, { useState } from 'react';
 import { soundEngine } from '../../audio/soundEngine';
 import {
-  BOTCODE_BUGS,
-  checkBotCodeBugs,
+  BOTCODE_VARIANTS,
+  evaluateBotCode,
   INITIAL_BOTCODE_SCRIPT,
+  type BotCodeValidation,
 } from '../../data/teamData';
 import {
   type SoftwareConfiguration,
   type TeamRobotProject,
 } from '../../types/robot';
+
+import { ResetTaskModal } from './ResetTaskModal';
 
 interface SoftwareScreenProps {
   project: TeamRobotProject;
@@ -33,6 +38,7 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
   onReturnToDashboard,
 }) => {
   const soft = project.software;
+  const originalScript = soft.initialScript || INITIAL_BOTCODE_SCRIPT;
 
   // Step 1: Physical connection
   const [cableConnected, setCableConnected] = useState(soft.computerConnected || soft.softwareUploaded);
@@ -40,15 +46,42 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Step 2: Code Editor State
-  const [code, setCode] = useState(soft.codeContent || INITIAL_BOTCODE_SCRIPT);
-  const [activeBugId, setActiveBugId] = useState<string | null>(null);
+  const [code, setCode] = useState(soft.codeContent || originalScript);
+  const [lastCheck, setLastCheck] = useState<BotCodeValidation | null>(() => {
+    if (soft.bugsFixed || soft.softwareUploaded) {
+      return evaluateBotCode(soft.codeContent || originalScript);
+    }
+    return null;
+  });
+  const [showReference, setShowReference] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  const bugAnalysis = checkBotCodeBugs(code);
+  const currentEval = evaluateBotCode(code);
 
   const updateSoft = (updated: Partial<SoftwareConfiguration>) => {
     onUpdateSoftware({ ...soft, ...updated });
+  };
+
+  const handleResetSoftware = () => {
+    soundEngine.playInstall();
+    setCableConnected(false);
+    setSelectedRobotPort(null);
+    setConnectionError(null);
+    setCode(originalScript);
+    setLastCheck(null);
+    setIsUploading(false);
+    setUploadProgress(0);
+    updateSoft({
+      computerConnected: false,
+      codeContent: originalScript,
+      bugsFixed: false,
+      softwareUploaded: false,
+      testPassed: false,
+      isCompleted: false,
+    });
+    setShowResetModal(false);
   };
 
   const handleConnectPort = (port: 'POWER' | 'CONTROL' | 'MOTOR' | 'SENSOR') => {
@@ -66,24 +99,41 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
     }
   };
 
-  const handleFixWord = (bugId: string, correction: string) => {
-    soundEngine.playInstall();
-    const bug = BOTCODE_BUGS.find((b) => b.id === bugId);
-    if (!bug) return;
+  const handleCheckCode = () => {
+    soundEngine.playClick();
+    const evaluation = evaluateBotCode(code);
+    setLastCheck(evaluation);
 
-    const newCode = code.replace(bug.wrongText, correction);
-    setCode(newCode);
-    setActiveBugId(null);
+    if (evaluation.allVerified) {
+      soundEngine.playInstall();
+      updateSoft({
+        codeContent: code,
+        bugsFixed: true,
+      });
+    } else {
+      soundEngine.playWarning();
+      updateSoft({
+        codeContent: code,
+        bugsFixed: false,
+      });
+    }
+  };
 
-    const check = checkBotCodeBugs(newCode);
+  const handleResetTemplate = (variantIndex = 0) => {
+    soundEngine.playClick();
+    const template = BOTCODE_VARIANTS[variantIndex] || BOTCODE_VARIANTS[0];
+    setCode(template.script);
+    setLastCheck(null);
     updateSoft({
-      codeContent: newCode,
-      bugsFixed: check.allFixed,
+      codeContent: template.script,
+      bugsFixed: false,
+      softwareUploaded: false,
+      isCompleted: false,
     });
   };
 
   const handleUploadToRobot = () => {
-    if (!bugAnalysis.allFixed || isUploading) return;
+    if (!currentEval.allVerified || isUploading) return;
     soundEngine.playClick();
     setIsUploading(true);
     setUploadProgress(0);
@@ -95,6 +145,8 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
           setIsUploading(false);
           soundEngine.playInstall();
           updateSoft({
+            codeContent: code,
+            bugsFixed: true,
             softwareUploaded: true,
             testPassed: true,
             isCompleted: true,
@@ -139,8 +191,17 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
           </div>
         </div>
 
-        {/* Completion Action */}
+        {/* Completion Action & Task Reset */}
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowResetModal(true)}
+            title="Reset Software task progress"
+            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono-num text-slate-400 hover:text-rose-300 bg-slate-900 border border-slate-800 hover:border-rose-900/50 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>↻ Reset Task</span>
+          </button>
+
           <button
             onClick={toggleComplete}
             disabled={!soft.softwareUploaded}
@@ -157,6 +218,14 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
           </button>
         </div>
       </div>
+
+      <ResetTaskModal
+        isOpen={showResetModal}
+        roleTitle="SOFTWARE"
+        description="This will disconnect the USB cable, restore the original code bug set for this session, clear uploaded software, and mark the Software task as incomplete. Other team tasks will not be changed."
+        onConfirm={handleResetSoftware}
+        onCancel={() => setShowResetModal(false)}
+      />
 
       {!cableConnected ? (
         /* ==========================================
@@ -239,10 +308,10 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
         </div>
       ) : (
         /* ==========================================
-           STEP 2: BOTCODE EDITOR & DEBUGGING
+           STEP 2: BOTCODE TEXT EDITOR & DEBUGGING
            ========================================== */
-        <div className="flex-1 my-3 flex flex-col lg:flex-row gap-4 min-h-[500px]">
-          {/* Main BotCode Editor Screen */}
+        <div className="flex-1 my-3 flex flex-col lg:flex-row gap-4 min-h-[520px]">
+          {/* Main BotCode Text Editor Window */}
           <div className="flex-1 bg-slate-950/90 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
             <div>
               {/* Terminal Window Header */}
@@ -253,134 +322,126 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                     BOTCODE IDE v2.4 • onboard://{project.teamName.toLowerCase().replace(/\s+/g, '_')}.bot
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-xs font-mono-num">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-emerald-400 font-bold">LINK ACTIVE</span>
+                <div className="flex items-center gap-3 text-xs font-mono-num">
+                  <button
+                    onClick={() => setShowReference(!showReference)}
+                    className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white transition-colors"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>BOTCODE REFERENCE</span>
+                  </button>
+                  <button
+                    onClick={() => handleResetTemplate(0)}
+                    title="Reset to original code"
+                    className="cursor-pointer inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span className="text-[11px]">RESET</span>
+                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-emerald-400 font-bold">LINK ACTIVE</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Bug Count Alert */}
+              {/* Status Banner */}
               <div className="mt-3">
-                {bugAnalysis.allFixed ? (
+                {currentEval.allVerified ? (
                   <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs font-mono-num text-emerald-300 flex items-center justify-between">
-                    <span className="font-bold">✓ 0 BUGS DETECTED • SYNTAX VERIFIED</span>
+                    <span className="font-bold">✓ ALL SUBSYSTEMS VERIFIED • SYNTAX VALID</span>
                     <span className="text-[11px] text-emerald-400">Ready for onboard upload</span>
                   </div>
-                ) : (
+                ) : lastCheck ? (
                   <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs font-mono-num text-amber-300 flex items-center justify-between">
                     <span className="font-bold">
-                      ⚠ {bugAnalysis.remainingBugs.length} BUGS DETECTED IN ROBOT PROGRAM
+                      ⚠ {lastCheck.bugsRemainingCount} SUBSYSTEM DEFECT(S) DETECTED
                     </span>
                     <span className="text-[11px] text-amber-400">
-                      Click the underlined keywords to inspect and repair
+                      Use the BotCode Reference to correct the code
                     </span>
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono-num text-slate-300 flex items-center justify-between">
+                    <span>Edit the code manually below, then click <strong>[CHECK CODE]</strong> to verify.</span>
+                    <span className="text-[11px] text-slate-400">Direct code editing</span>
                   </div>
                 )}
               </div>
 
-              {/* Code Viewing & Repair Canvas */}
-              <div className="my-3 p-4 bg-[#050811] border border-slate-800/80 rounded-xl font-mono text-xs text-slate-300 leading-relaxed overflow-x-auto space-y-1">
-                <div><span className="text-purple-400 font-bold">BOT</span> <span className="text-cyan-300">{project.teamName || 'NIGHTFALL'}</span></div>
-                <br />
-                <div><span className="text-amber-400 font-bold">START:</span></div>
-                <br />
-                <div className="pl-4">
-                  <span className="text-blue-400">sensor</span> opponent = <span className="text-emerald-400">ON</span>
+              {/* Collapsible Command Guide */}
+              {showReference && (
+                <div className="mt-3 p-3.5 bg-slate-900/90 border border-cyan-800/40 rounded-xl text-xs font-mono-num text-slate-300 space-y-2">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                    <span className="font-bold text-cyan-300">BOTCODE COMMAND GUIDE</span>
+                    <span className="text-[10px] text-slate-400">Case-sensitive commands</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                    <div>
+                      <strong className="text-emerald-400 block">MOVEMENT</strong>
+                      <code>drive FORWARD</code> • <code>drive BACKWARD</code> • <code>drive STOP</code>
+                    </div>
+                    <div>
+                      <strong className="text-emerald-400 block">WEAPON ACTUATION</strong>
+                      <code>weapon SPIN</code> • <code>weapon STOP</code> • <code>weapon = READY</code>
+                    </div>
+                    <div>
+                      <strong className="text-emerald-400 block">SENSORS & CONDITIONS</strong>
+                      <code>sensor opponent = ON</code> • <code>IF opponent detected:</code>
+                    </div>
+                    <div>
+                      <strong className="text-emerald-400 block">INVERSION RECOVERY & SYNTAX</strong>
+                      <code>self_right ON</code> • <code>IF robot flipped:</code> (Colons required on all IF lines)
+                    </div>
+                  </div>
                 </div>
-                <div className="pl-4">
-                  <span className="text-blue-400">weapon</span> = <span className="text-emerald-400">READY</span>
-                </div>
-                <br />
+              )}
 
-                {/* IF opponent detected */}
-                <div className="pl-4">
-                  <span className="text-purple-400 font-bold">IF</span> opponent{' '}
-                  {code.includes('deteced') ? (
-                    <button
-                      onClick={() => setActiveBugId('bug_deteced')}
-                      className="cursor-pointer text-amber-400 underline decoration-wavy decoration-amber-400 font-bold px-1 rounded bg-amber-950/40 hover:bg-amber-900/60 transition-colors"
-                    >
-                      deteced
-                    </button>
-                  ) : (
-                    <span className="text-emerald-400 font-bold bg-emerald-950/30 px-1 rounded">
-                      detected
-                    </span>
-                  )}
-                  :
-                </div>
-                <div className="pl-8">
-                  <span className="text-slate-400">drive</span>{' '}
-                  {code.includes('FORWRD') ? (
-                    <button
-                      onClick={() => setActiveBugId('bug_forwrd')}
-                      className="cursor-pointer text-amber-400 underline decoration-wavy decoration-amber-400 font-bold px-1 rounded bg-amber-950/40 hover:bg-amber-900/60 transition-colors"
-                    >
-                      FORWRD
-                    </button>
-                  ) : (
-                    <span className="text-emerald-400 font-bold bg-emerald-950/30 px-1 rounded">
-                      FORWARD
-                    </span>
-                  )}
-                </div>
-                <br />
-
-                {/* IF opponent close */}
-                <div className="pl-4">
-                  <span className="text-purple-400 font-bold">IF</span> opponent close:
-                </div>
-                <div className="pl-8">
-                  {code.includes('wepon') ? (
-                    <button
-                      onClick={() => setActiveBugId('bug_wepon')}
-                      className="cursor-pointer text-amber-400 underline decoration-wavy decoration-amber-400 font-bold px-1 rounded bg-amber-950/40 hover:bg-amber-900/60 transition-colors"
-                    >
-                      wepon
-                    </button>
-                  ) : (
-                    <span className="text-emerald-400 font-bold bg-emerald-950/30 px-1 rounded">
-                      weapon
-                    </span>
-                  )}{' '}
-                  {code.includes('SPNI') ? (
-                    <button
-                      onClick={() => setActiveBugId('bug_spni')}
-                      className="cursor-pointer text-amber-400 underline decoration-wavy decoration-amber-400 font-bold px-1 rounded bg-amber-950/40 hover:bg-amber-900/60 transition-colors"
-                    >
-                      SPNI
-                    </button>
-                  ) : (
-                    <span className="text-emerald-400 font-bold bg-emerald-950/30 px-1 rounded">
-                      SPIN
-                    </span>
-                  )}
-                </div>
-                <br />
-
-                {/* IF robot flipped */}
-                <div className="pl-4">
-                  <span className="text-purple-400 font-bold">IF</span> robot flipped:
-                </div>
-                <div className="pl-8">
-                  <span className="text-slate-400">self_right</span> <span className="text-emerald-400">ON</span>
-                </div>
-                <br />
-                <div><span className="text-amber-400 font-bold">END</span></div>
+              {/* Direct Code Editor Textarea */}
+              <div className="my-3">
+                <textarea
+                  rows={14}
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value);
+                  }}
+                  spellCheck={false}
+                  className="w-full p-4 bg-[#050811] border border-slate-800 rounded-xl font-mono text-xs text-emerald-300 leading-relaxed focus:outline-none focus:border-emerald-500 resize-none selection:bg-emerald-500/30"
+                  placeholder="Enter BotCode program..."
+                />
               </div>
+
+              {/* Diagnostic messages from last check */}
+              {lastCheck && lastCheck.diagnostics.length > 0 && (
+                <div className="space-y-1.5 mb-2">
+                  {lastCheck.diagnostics.map((diag, i) => (
+                    <div
+                      key={i}
+                      className="p-2 rounded-lg bg-rose-950/30 border border-rose-800/40 text-xs font-mono-num text-rose-300 flex items-center gap-2"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                      <span>{diag}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Upload Action Bar */}
-            <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
-              <span className="text-xs font-mono-num text-slate-400">
-                Click any highlighted keyword in the editor above to correct bugs.
-              </span>
+            {/* Action Bar */}
+            <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
+              <button
+                onClick={handleCheckCode}
+                className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-mono-num font-bold text-white transition-colors"
+              >
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                <span>CHECK CODE</span>
+              </button>
 
               <button
                 onClick={handleUploadToRobot}
-                disabled={!bugAnalysis.allFixed || isUploading}
+                disabled={!currentEval.allVerified || isUploading}
                 className={`cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-display font-black text-sm transition-all shadow-lg ${
-                  !bugAnalysis.allFixed
+                  !currentEval.allVerified
                     ? 'opacity-40 cursor-not-allowed bg-slate-800 text-slate-500'
                     : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20 transform hover:-translate-y-0.5'
                 }`}
@@ -400,17 +461,17 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
             <div>
               <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
                 <Code2 className="w-4 h-4 text-emerald-400" />
-                <h3 className="font-display font-bold text-sm text-white">SOFTWARE CHECKLIST</h3>
+                <h3 className="font-display font-bold text-sm text-white">SUBSYSTEM STATUS</h3>
               </div>
 
               {/* Checklist Items */}
               <div className="mt-4 space-y-2.5">
                 {[
-                  { label: 'Connection established', complete: true },
-                  { label: 'Movement command verified', complete: bugAnalysis.checklist.movement },
-                  { label: 'Weapon command verified', complete: bugAnalysis.checklist.weapon },
-                  { label: 'Opponent detection verified', complete: bugAnalysis.checklist.detection },
-                  { label: 'Recovery system verified', complete: bugAnalysis.checklist.recovery },
+                  { label: 'Movement subsystem verified', complete: currentEval.subsystems.movement },
+                  { label: 'Opponent detection verified', complete: currentEval.subsystems.detection },
+                  { label: 'Weapon subsystem verified', complete: currentEval.subsystems.weapon },
+                  { label: 'Recovery system verified', complete: currentEval.subsystems.recovery },
+                  { label: 'Syntax & colons verified', complete: currentEval.subsystems.syntax },
                 ].map((item, idx) => (
                   <div
                     key={idx}
@@ -442,13 +503,13 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                     </div>
                     Program successfully uploaded to the onboard microcontroller!
                   </div>
-                ) : bugAnalysis.allFixed ? (
+                ) : currentEval.allVerified ? (
                   <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono-num">
-                    All bugs resolved! Click <strong>[UPLOAD TO ROBOT]</strong> to flash onboard memory.
+                    All subsystems verified! Click <strong>[UPLOAD TO ROBOT]</strong> to flash onboard memory.
                   </div>
                 ) : (
                   <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-200 text-xs font-mono-num">
-                    {bugAnalysis.remainingBugs.length} bug(s) remaining. Inspect code lines in the editor.
+                    {currentEval.bugsRemainingCount} subsystem(s) incomplete or failing verification.
                   </div>
                 )}
               </div>
@@ -456,67 +517,9 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
 
             {/* Quick Helper Note */}
             <div className="pt-3 border-t border-slate-800 text-[11px] font-mono-num text-slate-400">
-              <span className="text-emerald-400 font-bold block mb-1">PROGRAMMER TIP:</span>
-              Robot code must be precise. Spelling errors cause the microcontroller to reject autonomous commands.
+              <span className="text-emerald-400 font-bold block mb-1">ENGINEER DEBUG TIP:</span>
+              Inspect each line against the BotCode Reference. Pay close attention to command names, direction keywords, and colons after IF statements.
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bug Fix Interactive Modal */}
-      {activeBugId && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#0b1020] border border-slate-700 rounded-2xl w-full max-w-md p-5 shadow-2xl animate-in fade-in zoom-in-95">
-            <div className="flex justify-between items-start mb-3 pb-2 border-b border-slate-800">
-              <div>
-                <span className="text-[10px] font-mono-num text-amber-400 uppercase tracking-widest font-bold block">
-                  SYNTAX REPAIR
-                </span>
-                <h3 className="font-display font-bold text-base text-white">
-                  Fix Subsystem Keyword
-                </h3>
-              </div>
-              <button
-                onClick={() => setActiveBugId(null)}
-                className="cursor-pointer text-slate-400 hover:text-white text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
-            {(() => {
-              const bug = BOTCODE_BUGS.find((b) => b.id === activeBugId);
-              if (!bug) return null;
-              return (
-                <div>
-                  <p className="text-xs font-mono-num text-slate-300 mb-3">
-                    {bug.hint}
-                  </p>
-                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono-num mb-4">
-                    <span className="text-slate-400">CURRENT TEXT: </span>
-                    <strong className="text-rose-400 font-bold">{bug.wrongText}</strong>
-                  </div>
-
-                  <span className="text-[10px] font-mono-num text-slate-400 uppercase tracking-wider block mb-2">
-                    SELECT CORRECTION:
-                  </span>
-                  <div className="grid grid-cols-2 gap-2 mb-4">
-                    <button
-                      onClick={() => handleFixWord(bug.id, bug.correctText)}
-                      className="cursor-pointer p-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400 text-emerald-300 font-mono-num font-bold text-xs text-left"
-                    >
-                      {bug.correctText} ✓
-                    </button>
-                    <button
-                      onClick={() => setActiveBugId(null)}
-                      className="cursor-pointer p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 font-mono-num text-xs text-left"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
           </div>
         </div>
       )}

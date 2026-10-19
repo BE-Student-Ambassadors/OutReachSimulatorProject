@@ -190,6 +190,11 @@ export function validateSystemIntegration(project: TeamRobotProject): SystemInte
   // ==========================================
   // 1. MECHANICAL VALIDATION
   // ==========================================
+  if (!project.mechanical.isCompleted) {
+    mechanicalPassed = false;
+    failures.push('Mechanical: Physical robot design has not been finalized and signed off.');
+  }
+
   if (summary.totalWeightLb > MAX_ROBOT_WEIGHT_LB) {
     mechanicalPassed = false;
     failures.push(

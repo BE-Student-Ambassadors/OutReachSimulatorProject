@@ -1,7 +1,9 @@
 import {
   ArrowLeft,
   CheckCircle2,
+  HelpCircle,
   Megaphone,
+  RotateCcw,
   Wand2,
 } from 'lucide-react';
 import React, { useState } from 'react';
@@ -9,6 +11,7 @@ import { soundEngine } from '../../audio/soundEngine';
 import {
   CAMPAIGN_THEMES,
   evaluateAdCampaignPrompt,
+  INITIAL_PROJECT_LEAD_CONFIG,
   PROJECT_LEAD_SPECS,
   type AdCampaignEvaluation,
 } from '../../data/teamData';
@@ -18,6 +21,7 @@ import {
   type SponsorTier,
   type TeamRobotProject,
 } from '../../types/robot';
+import { ResetTaskModal } from './ResetTaskModal';
 
 interface ProjectLeadScreenProps {
   project: TeamRobotProject;
@@ -34,14 +38,13 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
   const summary = computeTeamEngineeringSummary(project);
 
   const [activeTab, setActiveTab] = useState<'create' | 'procurement'>('create');
-  const [promptText, setPromptText] = useState(
-    lead.adPrompt ||
-      `Create a futuristic advertisement for our BattleBot ${project.teamName || 'TITAN'}. Highlight its ${project.mechanical.weaponId.replace('-', ' ')} weapon and autonomous combat system. Make it dramatic and appeal to robotics sponsors.`
-  );
+  // Starts EMPTY per requirement: No high-scoring starter prompt!
+  const [promptText, setPromptText] = useState(lead.adPrompt || '');
+  const [showResetModal, setShowResetModal] = useState(false);
 
   const [evaluation, setEvaluation] = useState<AdCampaignEvaluation | null>(() => {
-    if (lead.campaignScore > 0 && lead.sponsorTier !== 'None') {
-      return evaluateAdCampaignPrompt(lead.adPrompt || promptText, project);
+    if (lead.campaignScore > 0 && lead.sponsorTier !== 'None' && lead.adPrompt) {
+      return evaluateAdCampaignPrompt(lead.adPrompt, project);
     }
     return null;
   });
@@ -58,6 +61,30 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
     onUpdateProjectLead({ ...lead, ...updated });
   };
 
+  const handleResetBusiness = () => {
+    soundEngine.playInstall();
+    setPromptText('');
+    setEvaluation(null);
+    setShowResultModal(false);
+    updateLead({
+      ...INITIAL_PROJECT_LEAD_CONFIG,
+      baseBudgetUsd: 1800,
+      budgetCapUsd: 1800,
+      sponsorshipUsd: 0,
+      sponsorTier: 'None',
+      adPrompt: '',
+      adHeadline: '',
+      campaignScore: 0,
+      activeSponsors: [],
+      campaign: null,
+      shippingTier: 'standard',
+      sparePartsKit: 'drive',
+      complianceSigned: false,
+      isCompleted: false,
+    });
+    setShowResetModal(false);
+  };
+
   const handleGenerateAd = () => {
     if (!promptText.trim() || isGenerating) return;
     soundEngine.playClick();
@@ -69,7 +96,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
       const result = evaluateAdCampaignPrompt(promptText, project);
       setEvaluation(result);
       setShowResultModal(true);
-    }, 1100);
+    }, 1000);
   };
 
   const handleAcceptSponsorship = () => {
@@ -125,7 +152,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-purple-400" />
               <span className="text-[10px] font-mono-num uppercase tracking-wider text-purple-400 font-semibold">
-                DISCIPLINE 04 • BUSINESS LEAD
+                DISCIPLINE 04 • PROJECT LEAD
               </span>
             </div>
             <h2 className="font-display font-black text-2xl text-white">
@@ -166,6 +193,15 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
           </div>
 
           <button
+            onClick={() => setShowResetModal(true)}
+            title="Reset Business task progress"
+            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono-num text-slate-400 hover:text-rose-300 bg-slate-900 border border-slate-800 hover:border-rose-900/50 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>↻ Reset Task</span>
+          </button>
+
+          <button
             onClick={toggleComplete}
             disabled={!lead.isCompleted && currentSponsorship === 0}
             className={`cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-display font-bold transition-all ${
@@ -181,6 +217,14 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
           </button>
         </div>
       </div>
+
+      <ResetTaskModal
+        isOpen={showResetModal}
+        roleTitle="BUSINESS"
+        description="This will clear your advertisement prompt, erase generated campaign results, remove earned sponsorship funding, and mark the Business task as incomplete. Other team tasks will not be changed."
+        onConfirm={handleResetBusiness}
+        onCancel={() => setShowResetModal(false)}
+      />
 
       {/* Current Funding Overview Bar */}
       <div className="my-3 p-3 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono-num">
@@ -226,7 +270,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
            TAB 1: PROMPT-BASED ADVERTISEMENT CREATOR
            ========================================== */
         <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-[480px]">
-          {/* Left: Prompt Input Form */}
+          {/* Left: Prompt Input Form & Goal Guidance */}
           <div className="w-full lg:w-[460px] bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-2 pb-2 border-b border-slate-800 mb-3">
@@ -236,9 +280,19 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
                 </h3>
               </div>
 
-              <p className="text-xs text-slate-400 mb-3 leading-relaxed">
-                Describe the campaign for your BattleBot. Mention your robot’s name, weapon, engineering capabilities, and appeal to potential robotics sponsors.
-              </p>
+              {/* Goal Guidance Panel */}
+              <div className="mb-3 p-3 bg-slate-900/90 border border-purple-900/40 rounded-xl text-xs font-mono-num text-slate-300 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-purple-300 font-bold">
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span>CAMPAIGN GOAL QUESTIONS:</span>
+                </div>
+                <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-300">
+                  <li>What makes your BattleBot memorable and intimidating?</li>
+                  <li>What engineering strengths does your robot bring to combat?</li>
+                  <li>Why would a company care about sponsoring your team?</li>
+                  <li>How do you ask sponsors to support you today?</li>
+                </ul>
+              </div>
 
               {/* Natural Language Prompt Field */}
               <div className="relative">
@@ -246,8 +300,8 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
                   rows={6}
                   value={promptText}
                   onChange={(e) => setPromptText(e.target.value)}
-                  placeholder="Example: Create a futuristic advertisement for our BattleBot. Call it NIGHTFALL. Highlight its vertical spinner and autonomous technology. Make it dramatic and appeal to robotics companies."
-                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono-num text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-400 leading-relaxed resize-none"
+                  placeholder="Describe the advertisement you want to create..."
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-400 leading-relaxed resize-none"
                 />
               </div>
 
@@ -272,7 +326,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
             {/* Action Bar */}
             <div className="pt-3 border-t border-slate-800 flex justify-between items-center">
               <span className="text-[11px] font-mono-num text-slate-500">
-                You can iterate as many times as you want.
+                Iterate as many times as needed.
               </span>
               <button
                 onClick={handleGenerateAd}
@@ -320,7 +374,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
                   "{evaluation.headline}"
                 </p>
 
-                {/* Robot Graphic Placeholder / Silhouette */}
+                {/* Robot Silhouette Graphic */}
                 <div className="my-3 py-6 px-4 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-col items-center justify-center">
                   <span className="text-3xl mb-1">🤖</span>
                   <span className="font-display font-bold text-sm text-white">
@@ -362,7 +416,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
             ) : (
               <div className="text-center p-8 max-w-sm text-slate-500 font-mono-num text-xs">
                 <Megaphone className="w-12 h-12 text-slate-700 mx-auto mb-3" />
-                <p>Type a prompt on the left and click <strong>[GENERATE AD]</strong> to render your campaign.</p>
+                <p>Type a prompt on the left and click <strong>[GENERATE AD]</strong> to pitch sponsors.</p>
               </div>
             )}
           </div>
@@ -437,7 +491,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
         </div>
       )}
 
-      {/* Sponsorship Result Modal with Retry Loop */}
+      {/* Sponsorship Result Modal with 5-Category Breakdown & Retry Loop */}
       {showResultModal && evaluation && (
         <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4">
           <div className="bg-[#0b1020] border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in fade-in zoom-in-95">
@@ -459,22 +513,35 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
               </span>
             </div>
 
-            {/* Rubric Checklist */}
+            {/* Rubric Category Breakdown */}
             <div className="my-3 space-y-2">
-              {Object.values(evaluation.criteria).map((crit, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono-num"
-                >
-                  <span className="text-slate-200">{crit.label}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-400">{crit.score} / {crit.maxScore}</span>
-                    <span className={crit.passed ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
-                      {crit.passed ? '✓' : '△'}
-                    </span>
+              {[
+                evaluation.criteria.robotIdentity,
+                evaluation.criteria.engineeringStory,
+                evaluation.criteria.sponsorValue,
+                evaluation.criteria.callToAction,
+                evaluation.criteria.creativeDirection,
+              ]
+                .filter(Boolean)
+                .map((crit, idx) => (
+                  <div
+                    key={idx}
+                    className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono-num"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-slate-200 font-bold">{crit.label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">{crit.score} / {crit.maxScore} pts</span>
+                        <span className={crit.passed ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                          {crit.passed ? '✓' : '△'}
+                        </span>
+                      </div>
+                    </div>
+                    {crit.hint && !crit.passed && (
+                      <p className="text-[10px] text-amber-300/80 mt-0.5">{crit.hint}</p>
+                    )}
                   </div>
-                </div>
-              ))}
+                ))}
             </div>
 
             {/* Sponsor Feedback Quote */}
@@ -496,7 +563,7 @@ export const ProjectLeadScreen: React.FC<ProjectLeadScreenProps> = ({
                 onClick={handleImproveCampaign}
                 className="cursor-pointer px-4 py-2.5 rounded-xl text-xs font-mono-num text-slate-300 hover:text-white bg-slate-900 border border-slate-700 hover:border-slate-600 transition-colors"
               >
-                ← IMPROVE CAMPAIGN
+                ← EDIT & TRY AGAIN
               </button>
 
               <button

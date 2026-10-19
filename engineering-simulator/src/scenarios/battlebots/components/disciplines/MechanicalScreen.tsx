@@ -5,6 +5,7 @@ import {
   Box,
   CheckCircle2,
   CircleDot,
+  RotateCcw,
   Shield,
   Swords,
   Wrench,
@@ -19,6 +20,7 @@ import {
   WEAPON_CATALOG,
   WHEELS_CATALOG,
 } from '../../data/components';
+import { INITIAL_MECHANICAL_CONFIG } from '../../data/teamData';
 import { computeTeamEngineeringSummary } from '../../simulation/integrationValidator';
 import {
   type ArmorId,
@@ -33,6 +35,7 @@ import {
   type WheelsId,
 } from '../../types/robot';
 import { Robot3D } from '../three/Robot3D';
+import { ResetTaskModal } from './ResetTaskModal';
 
 interface MechanicalScreenProps {
   project: TeamRobotProject;
@@ -48,8 +51,15 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
   onReturnToDashboard,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('weapon');
+  const [showResetModal, setShowResetModal] = useState(false);
   const mech = project.mechanical;
   const summary = computeTeamEngineeringSummary(project);
+
+  const handleResetMechanical = () => {
+    soundEngine.playInstall();
+    onUpdateMechanical({ ...INITIAL_MECHANICAL_CONFIG, isCompleted: false });
+    setShowResetModal(false);
+  };
 
   const previewConfig: RobotConfiguration = {
     name: project.teamName,
@@ -137,7 +147,7 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
           </div>
         </div>
 
-        {/* Live Cross-Discipline Badges */}
+        {/* Live Cross-Discipline Badges & Actions */}
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-3 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono-num">
             <div>
@@ -154,6 +164,15 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
           </div>
 
           <button
+            onClick={() => setShowResetModal(true)}
+            title="Reset Mechanical task progress"
+            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono-num text-slate-400 hover:text-rose-300 bg-slate-900/80 border border-slate-800 hover:border-rose-900/50 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>↻ Reset Task</span>
+          </button>
+
+          <button
             onClick={toggleComplete}
             className={`cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-display font-bold transition-all ${
               mech.isCompleted
@@ -166,6 +185,14 @@ export const MechanicalScreen: React.FC<MechanicalScreenProps> = ({
           </button>
         </div>
       </div>
+
+      <ResetTaskModal
+        isOpen={showResetModal}
+        roleTitle="MECHANICAL"
+        description="This will restore the Mechanical challenge to its starting configuration. Other team tasks will not be changed."
+        onConfirm={handleResetMechanical}
+        onCancel={() => setShowResetModal(false)}
+      />
 
       {/* Middle Spacer for 3D View */}
       <div className="flex-1 pointer-events-none" />

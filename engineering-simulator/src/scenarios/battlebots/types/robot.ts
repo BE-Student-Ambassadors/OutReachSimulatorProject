@@ -274,6 +274,7 @@ export interface SoftwareConfiguration {
   bugsFixed: boolean;
   softwareUploaded: boolean;
   codeContent: string;
+  initialScript?: string;
   approach: SoftwareApproachDecision;
   attack: SoftwareAttackDecision;
   recovery: SoftwareRecoveryDecision;

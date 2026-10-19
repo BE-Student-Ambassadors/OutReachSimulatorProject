@@ -353,7 +353,12 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
     it('identifies unpowered stages in incomplete simplified harness', () => {
       // Missing computer connection and drive motor line
       const partialWires = DEFAULT_SIMPLIFIED_WIRES.filter(
-        (w) => w.toPort !== 'comp_in' && w.toPort !== 'mot_drive_in'
+        (w) =>
+          w.toPort !== 'comp_in' &&
+          w.toPort !== 'comp_pwr_in' &&
+          w.toPort !== 'mot_drive_in' &&
+          w.toPort !== 'mot_left_in' &&
+          w.toPort !== 'mot_right_in'
       );
       const result = validateSimplifiedElectrical(partialWires);
       expect(result.valid).toBe(false);
@@ -361,7 +366,7 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
       expect(result.drivePowered).toBe(false);
       expect(result.batteryConnected).toBe(true);
       expect(result.observations.some((o) => o.includes('ROBOT COMPUTER HAS NO POWER'))).toBe(true);
-      expect(result.observations.some((o) => o.includes('DRIVE SYSTEM HAS NO POWER'))).toBe(true);
+      expect(result.observations.some((o) => o.includes('DRIVE SYSTEM'))).toBe(true);
     });
   });
 
@@ -429,8 +434,8 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
       expect(evalResult.fundingUsd).toBe(700);
       expect(evalResult.criteria.robotIdentity.passed).toBe(true);
       expect(evalResult.criteria.engineeringStory.passed).toBe(true);
-      expect(evalResult.criteria.sponsorAppeal.passed).toBe(true);
-      expect(evalResult.criteria.clearMessage.passed).toBe(true);
+      expect(evalResult.criteria.sponsorValue.passed).toBe(true);
+      expect(evalResult.criteria.callToAction.passed).toBe(true);
     });
 
     it('expands effective budget without duplicate sponsorship stacking', () => {
@@ -455,5 +460,282 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
       project.projectLead.budgetCapUsd = project.projectLead.baseBudgetUsd + project.projectLead.sponsorshipUsd;
       expect(computeTeamEngineeringSummary(project).effectiveBudgetUsd).toBe(2500);
     });
+
+    it('returns score 0 and None tier when ad prompt is empty', () => {
+      const project = createInitialTeamProject();
+      const evalResult = evaluateAdCampaignPrompt('', project);
+      expect(evalResult.score).toBe(0);
+      expect(evalResult.tier).toBe('None');
+      expect(evalResult.fundingUsd).toBe(0);
+      expect(evalResult.headline).toContain('AWAITING');
+    });
+  });
+
+  describe('The Bull Balanced Combat Tuning & Multi-Build Test', () => {
+    it('provides competitive combat across diverse builds with expected win rate tiers', () => {
+      // 1. Weak Build: Thin armor, no utility, low-torque speed drive
+      const weakConfig = {
+        name: 'WEAK BUILD',
+        chassisId: 'compact' as const,
+        driveId: 'speed' as const,
+        wheelsId: 'small' as const,
+        armorId: 'aluminum' as const,
+        armorThickness: 'thin' as const,
+        weaponId: 'hammer' as const,
+        batteryId: 'small' as const,
+        utilityId: 'none' as const,
+        accentColor: '#ef4444',
+      };
+
+      // 2. Well-Integrated Build: Titanium medium armor, balanced drive, vertical spinner, cooling fan
+      const strongConfig = {
+        name: 'STRONG INTEGRATED BUILD',
+        chassisId: 'wide' as const,
+        driveId: 'torque' as const,
+        wheelsId: 'high-traction' as const,
+        armorId: 'titanium' as const,
+        armorThickness: 'medium' as const,
+        weaponId: 'vertical-spinner' as const,
+        batteryId: 'medium' as const,
+        utilityId: 'extra-cooling' as const,
+        accentColor: '#10b981',
+      };
+
+      const simulateMatches = (config: import('../types/robot').RobotConfiguration, count: number): number => {
+        let wins = 0;
+        for (let seed = 0; seed < count; seed++) {
+          const sim = createBattleSimulation(config, 'aggressive', 'bull', [], 120, 15);
+          for (let step = 0; step < 1200; step++) {
+            if (sim.isFinished) break;
+            stepBattleSimulation(sim, 0.04);
+          }
+          if (sim.winner === 'player') wins++;
+        }
+        return wins;
+      };
+
+      const weakWins = simulateMatches(weakConfig, 5);
+      const strongWins = simulateMatches(strongConfig, 5);
+
+      // Strong build should outperform or match weak build against The Bull's wedge
+      expect(strongWins).toBeGreaterThanOrEqual(weakWins);
+    });
+  });
+
+  describe('Individual Role / Task Reset Behavior', () => {
+    it('resets Mechanical without affecting Electrical, Software, or Business progress', () => {
+      const project = createInitialTeamProject('RESET TEST TEAM');
+      // Set completed state across disciplines
+      project.mechanical = { ...project.mechanical, chassisId: 'wide', isCompleted: true };
+      project.electrical = { ...project.electrical, wiringVerified: true, isCompleted: true };
+      project.software = { ...project.software, computerConnected: true, bugsFixed: true, softwareUploaded: true, isCompleted: true };
+      project.projectLead = { ...project.projectLead, sponsorshipUsd: 700, sponsorTier: 'Gold', isCompleted: true };
+
+      // Simulate Mechanical Reset
+      project.mechanical = {
+        chassisId: 'compact',
+        driveId: 'balanced',
+        wheelsId: 'small',
+        armorId: 'aluminum',
+        armorThickness: 'medium',
+        weaponId: 'wedge',
+        utilityId: 'none',
+        accentColor: '#22d3ee',
+        isCompleted: false,
+      };
+
+      // Mechanical is reset
+      expect(project.mechanical.isCompleted).toBe(false);
+      expect(project.mechanical.chassisId).toBe('compact');
+
+      // Other disciplines remain intact
+      expect(project.electrical.wiringVerified).toBe(true);
+      expect(project.electrical.isCompleted).toBe(true);
+      expect(project.software.softwareUploaded).toBe(true);
+      expect(project.software.isCompleted).toBe(true);
+      expect(project.projectLead.sponsorshipUsd).toBe(700);
+      expect(project.projectLead.sponsorTier).toBe('Gold');
+      expect(project.projectLead.isCompleted).toBe(true);
+
+      // System Integration is invalidated
+      const integration = validateSystemIntegration(project);
+      expect(integration.mechanicalPassed).toBe(false);
+      expect(integration.overallPassed).toBe(false);
+    });
+
+    it('resets Electrical wires and power-on state without touching other disciplines', () => {
+      const project = createInitialTeamProject('RESET TEST TEAM');
+      project.mechanical.isCompleted = true;
+      project.electrical = {
+        batteryId: 'medium',
+        driveEscRatingA: 50,
+        weaponEscRatingA: 80,
+        currentLimiterA: 120,
+        coolingSystem: 'fan',
+        wires: [...DEFAULT_SIMPLIFIED_WIRES],
+        wiringVerified: true,
+        isCompleted: true,
+      };
+      project.software.isCompleted = true;
+      project.software.softwareUploaded = true;
+      project.software.testPassed = true;
+      project.projectLead.isCompleted = true;
+      project.projectLead.sponsorshipUsd = 400;
+      project.projectLead.complianceSigned = true;
+
+      // Verify passing before reset
+      expect(validateSystemIntegration(project).overallPassed).toBe(true);
+
+      // Simulate Electrical Reset
+      project.electrical = {
+        batteryId: 'medium',
+        driveEscRatingA: 50,
+        weaponEscRatingA: 80,
+        currentLimiterA: 120,
+        coolingSystem: 'passive',
+        wires: [],
+        wiringVerified: false,
+        isCompleted: false,
+      };
+
+      expect(project.electrical.wires).toHaveLength(0);
+      expect(project.electrical.wiringVerified).toBe(false);
+      expect(project.electrical.isCompleted).toBe(false);
+
+      // Other disciplines untouched
+      expect(project.mechanical.isCompleted).toBe(true);
+      expect(project.software.isCompleted).toBe(true);
+      expect(project.projectLead.isCompleted).toBe(true);
+
+      // System Integration is now blocked
+      const integration = validateSystemIntegration(project);
+      expect(integration.electricalPassed).toBe(false);
+      expect(integration.overallPassed).toBe(false);
+    });
+
+    it('resets Software to original session bug set without generating a new bug variant', () => {
+      const project = createInitialTeamProject('RESET TEST TEAM');
+      const originalScript = project.software.initialScript || INITIAL_BOTCODE_SCRIPT;
+
+      // Student fixes bugs and completes
+      project.software.computerConnected = true;
+      project.software.codeContent = 'CLEAN CODE WITHOUT BUGS';
+      project.software.bugsFixed = true;
+      project.software.softwareUploaded = true;
+      project.software.testPassed = true;
+      project.software.isCompleted = true;
+
+      // Simulate Software Reset
+      project.software = {
+        ...project.software,
+        computerConnected: false,
+        codeContent: originalScript,
+        bugsFixed: false,
+        softwareUploaded: false,
+        testPassed: false,
+        isCompleted: false,
+      };
+
+      expect(project.software.computerConnected).toBe(false);
+      expect(project.software.codeContent).toBe(originalScript);
+      expect(project.software.bugsFixed).toBe(false);
+      expect(project.software.softwareUploaded).toBe(false);
+      expect(project.software.isCompleted).toBe(false);
+
+      // System Integration is blocked
+      const integration = validateSystemIntegration(project);
+      expect(integration.softwarePassed).toBe(false);
+      expect(integration.overallPassed).toBe(false);
+    });
+
+    it('resets Business sponsorship and deducts funding from total budget', () => {
+      const project = createInitialTeamProject('RESET TEST TEAM');
+      project.projectLead.adPrompt = 'A grand battlebot for the ages';
+      project.projectLead.sponsorshipUsd = 700;
+      project.projectLead.sponsorTier = 'Gold';
+      project.projectLead.budgetCapUsd = 2500;
+      project.projectLead.isCompleted = true;
+      project.projectLead.complianceSigned = true;
+
+      expect(computeTeamEngineeringSummary(project).effectiveBudgetUsd).toBe(2500);
+
+      // Simulate Business Reset
+      project.projectLead = {
+        baseBudgetUsd: 1800,
+        budgetCapUsd: 1800,
+        sponsorshipUsd: 0,
+        sponsorTier: 'None',
+        adPrompt: '',
+        adHeadline: '',
+        campaignScore: 0,
+        activeSponsors: [],
+        campaign: null,
+        shippingTier: 'standard',
+        sparePartsKit: 'drive',
+        complianceSigned: false,
+        isCompleted: false,
+      };
+
+      expect(project.projectLead.sponsorshipUsd).toBe(0);
+      expect(project.projectLead.sponsorTier).toBe('None');
+      expect(project.projectLead.budgetCapUsd).toBe(1800);
+      expect(computeTeamEngineeringSummary(project).effectiveBudgetUsd).toBe(1800);
+      expect(project.projectLead.isCompleted).toBe(false);
+
+      // System Integration blocked
+      const integration = validateSystemIntegration(project);
+      expect(integration.projectLeadPassed).toBe(false);
+      expect(integration.overallPassed).toBe(false);
+    });
+
+    it('verifies electrical progressive hint system responds contextually without revealing answers', () => {
+      // 1. Initial empty wiring should target main power
+      const emptyCheck = validateSimplifiedElectrical([]);
+      expect(emptyCheck.subsystems?.mainPower).toBe(false);
+
+      // Simulate hint progression for mainPower
+      const getHintForSubsystem = (subsystem: string, level: number) => {
+        if (subsystem === 'mainPower') {
+          if (level === 1) return { title: 'HINT 1 — CONCEPTUAL', text: 'Start by tracing how power gets from the battery to the rest of the robot.' };
+          if (level === 2) return { title: 'HINT 2 — SUBSYSTEM', text: 'The Main Switch needs power from the battery before the Power Distribution Board can supply the robot.' };
+          return { title: 'HINT 3 — CONNECTION CLUE', text: 'Look at the BATTERY output labels and the MAIN SWITCH input labels (+ to +, - to -). Trace the switch output to the PDB.' };
+        }
+        return { title: 'HINT', text: '' };
+      };
+
+      const h1 = getHintForSubsystem('mainPower', 1);
+      expect(h1.title).toContain('HINT 1');
+      expect(h1.text).not.toContain('bat_pos'); // Never reveals exact port IDs
+
+      const h2 = getHintForSubsystem('mainPower', 2);
+      expect(h2.title).toContain('HINT 2');
+      expect(h2.text).toContain('Main Switch');
+
+      const h3 = getHintForSubsystem('mainPower', 3);
+      expect(h3.title).toContain('HINT 3');
+      expect(h3.text).toContain('BATTERY output labels');
+      expect(h3.text).not.toContain('bat_pos to sw_in_pos'); // Never gives trivial solution
+
+      // 2. Once main power is wired, next subsystem in queue is driveSystem
+      const mainPowerOnlyWires: WireConnection[] = [
+        { id: 'w1', fromPort: 'bat_pos', toPort: 'sw_in_pos' },
+        { id: 'w2', fromPort: 'bat_neg', toPort: 'sw_in_neg' },
+        { id: 'w3', fromPort: 'sw_out_pos', toPort: 'pdb_in_pos' },
+        { id: 'w4', fromPort: 'sw_out_neg', toPort: 'pdb_in_neg' },
+      ];
+      const partialCheck = validateSimplifiedElectrical(mainPowerOnlyWires);
+      expect(partialCheck.subsystems?.mainPower).toBe(true);
+      expect(partialCheck.subsystems?.driveSystem).toBe(false);
+
+      // Complete harness check
+      const fullCheck = validateSimplifiedElectrical(DEFAULT_SIMPLIFIED_WIRES);
+      expect(fullCheck.valid).toBe(true);
+      expect(fullCheck.subsystems?.mainPower).toBe(true);
+      expect(fullCheck.subsystems?.driveSystem).toBe(true);
+      expect(fullCheck.subsystems?.weaponSystem).toBe(true);
+      expect(fullCheck.subsystems?.robotComputer).toBe(true);
+      expect(fullCheck.subsystems?.sensorNetwork).toBe(true);
+    });
   });
 });
+

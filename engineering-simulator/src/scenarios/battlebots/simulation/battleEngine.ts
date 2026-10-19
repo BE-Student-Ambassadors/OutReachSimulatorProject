@@ -174,7 +174,7 @@ export function createBattleSimulation(
 
   const sim: LiveBattleSimulation = {
     timeSec: 0,
-    maxDurationSec: 36,
+    maxDurationSec: 75, // 75 seconds for deep tactical 30-90s combat
     isFinished: false,
     winner: null,
     winReason: '',
@@ -516,13 +516,30 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
     switch (bossId) {
       case 'bull': {
         const headingDiff = normalizeAngle(angleBossToPlayer - boss.headingRad);
-        if (Math.abs(headingDiff) < 0.35 && dist < 3.4 && sim.bossChargeCooldownSec <= 0 && sim.bossChargeActiveSec <= 0) {
-          sim.bossChargeActiveSec = 1.2;
-          sim.bossChargeCooldownSec = 4.2;
-          boss.aiStateLabel = 'ENGAGE';
+        const playerNearWall = Math.abs(player.x) > ARENA_HALF_SIZE - 0.95 || Math.abs(player.z) > ARENA_HALF_SIZE - 0.95;
+
+        // Wedge Orientation Lock: Rotate aggressively to present bronze plow directly (within +-0.25 rad)
+        desiredBossHeading = angleBossToPlayer;
+
+        // Charge trigger: initiate charge when aligned within 0.28 rad or when pinning player near perimeter wall
+        if ((Math.abs(headingDiff) < 0.28 || playerNearWall) && dist < 3.8 && sim.bossChargeCooldownSec <= 0 && sim.bossChargeActiveSec <= 0) {
+          sim.bossChargeActiveSec = 1.35;
+          sim.bossChargeCooldownSec = 3.6;
+          boss.aiStateLabel = playerNearWall ? 'PUSH' : 'ENGAGE';
         }
-        const chargeBoost = sim.bossChargeActiveSec > 0 ? 1.14 : 0.82;
-        desiredBossSpeed = bossMaxSpeed * chargeBoost;
+
+        // Charge Abort / Braking Recovery: If player evades and angle exceeds 0.45 rad, abort charge to avoid overshooting wall
+        if (sim.bossChargeActiveSec > 0 && Math.abs(headingDiff) > 0.45 && dist > 1.2) {
+          sim.bossChargeActiveSec = 0; // Abort charge and pivot back toward opponent
+          desiredBossSpeed = bossMaxSpeed * 0.55;
+          boss.aiStateLabel = 'APPROACH';
+        } else {
+          const chargeBoost = sim.bossChargeActiveSec > 0 ? (playerNearWall ? 1.25 : 1.18) : 0.92;
+          desiredBossSpeed = bossMaxSpeed * chargeBoost;
+          if (sim.bossChargeActiveSec <= 0) {
+            boss.aiStateLabel = dist < 1.4 ? 'PUSH' : 'APPROACH';
+          }
+        }
         break;
       }
       case 'scorpion': {
@@ -793,7 +810,11 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
         const bPushDir = bFwdX * (-nx) + bFwdZ * (-nz);
 
         const pDriveForce = playerStats.pushingForceN * Math.max(0, pPushDir);
-        const bDriveForce = bossStats.pushingForceN * Math.max(0, bPushDir);
+        let bDriveForce = bossStats.pushingForceN * Math.max(0, bPushDir);
+        // The Bull bronze wedge leverage bonus during active charge or front plow contact
+        if (bossId === 'bull' && (sim.bossChargeActiveSec > 0 || bPushDir > 0.6)) {
+          bDriveForce *= 1.25;
+        }
 
         const netPushForce = pDriveForce - bDriveForce; // > 0 moves along +normal (player pushes boss)
         const aPush = netPushForce / (m1 + m2);

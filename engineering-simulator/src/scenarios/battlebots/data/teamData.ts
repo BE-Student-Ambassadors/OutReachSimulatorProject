@@ -590,13 +590,20 @@ export const DEFAULT_VALID_WIRES: WireConnection[] = [
 ];
 
 export const DEFAULT_SIMPLIFIED_WIRES: WireConnection[] = [
-  { id: 'w1', fromPort: 'bat_out', toPort: 'sw_in' },
-  { id: 'w2', fromPort: 'sw_out', toPort: 'pdb_in' },
-  { id: 'w3', fromPort: 'pdb_drive_out', toPort: 'esc_drive_in' },
-  { id: 'w4', fromPort: 'esc_drive_out', toPort: 'mot_drive_in' },
-  { id: 'w5', fromPort: 'pdb_weapon_out', toPort: 'esc_weapon_in' },
-  { id: 'w6', fromPort: 'esc_weapon_out', toPort: 'mot_weapon_in' },
-  { id: 'w7', fromPort: 'pdb_comp_out', toPort: 'comp_in' },
+  { id: 'w1', fromPort: 'bat_pos', toPort: 'sw_in_pos' },
+  { id: 'w2', fromPort: 'bat_neg', toPort: 'sw_in_neg' },
+  { id: 'w3', fromPort: 'sw_out_pos', toPort: 'pdb_in_pos' },
+  { id: 'w4', fromPort: 'sw_out_neg', toPort: 'pdb_in_neg' },
+  { id: 'w5', fromPort: 'pdb_drive_out', toPort: 'esc_drive_in' },
+  { id: 'w6', fromPort: 'pdb_weapon_out', toPort: 'esc_weapon_in' },
+  { id: 'w7', fromPort: 'pdb_reg_out', toPort: 'reg_in' },
+  { id: 'w8', fromPort: 'esc_drive_mot_l', toPort: 'mot_left_in' },
+  { id: 'w9', fromPort: 'esc_drive_mot_r', toPort: 'mot_right_in' },
+  { id: 'w10', fromPort: 'esc_weapon_mot', toPort: 'mot_weapon_in' },
+  { id: 'w11', fromPort: 'reg_out_5v', toPort: 'comp_pwr_in' },
+  { id: 'w12', fromPort: 'comp_sig_drive', toPort: 'esc_drive_sig' },
+  { id: 'w13', fromPort: 'comp_sig_weapon', toPort: 'esc_weapon_sig' },
+  { id: 'w14', fromPort: 'sens_data', toPort: 'comp_sens_data' },
 ];
 
 export interface SimplifiedElectricalValidation {
@@ -607,6 +614,14 @@ export interface SimplifiedElectricalValidation {
   drivePowered: boolean;
   weaponPowered: boolean;
   computerPowered: boolean;
+  sensorConnected?: boolean;
+  subsystems?: {
+    mainPower: boolean;
+    driveSystem: boolean;
+    weaponSystem: boolean;
+    robotComputer: boolean;
+    sensorNetwork: boolean;
+  };
 }
 
 function hasConnectionBetween(wires: WireConnection[], portA: string, portB: string): boolean {
@@ -620,58 +635,138 @@ function hasConnectionBetween(wires: WireConnection[], portA: string, portB: str
 export function validateSimplifiedElectrical(wires: WireConnection[]): SimplifiedElectricalValidation {
   const observations: string[] = [];
 
-  const batteryConnected = hasConnectionBetween(wires, 'bat_out', 'sw_in');
-  const mainPowerConnected = hasConnectionBetween(wires, 'sw_out', 'pdb_in');
-  const driveEscIn = hasConnectionBetween(wires, 'pdb_drive_out', 'esc_drive_in');
-  const driveEscOut = hasConnectionBetween(wires, 'esc_drive_out', 'mot_drive_in');
-  const drivePowered = driveEscIn && driveEscOut;
-  const weaponEscIn = hasConnectionBetween(wires, 'pdb_weapon_out', 'esc_weapon_in');
-  const weaponEscOut = hasConnectionBetween(wires, 'esc_weapon_out', 'mot_weapon_in');
-  const weaponPowered = weaponEscIn && weaponEscOut;
-  const computerPowered = hasConnectionBetween(wires, 'pdb_comp_out', 'comp_in');
+  const has14WirePorts = wires.some(
+    (w) =>
+      w.fromPort === 'bat_pos' ||
+      w.toPort === 'bat_pos' ||
+      w.fromPort === 'sw_in_pos' ||
+      w.toPort === 'sw_in_pos' ||
+      w.fromPort === 'esc_drive_mot_l' ||
+      w.toPort === 'esc_drive_mot_l'
+  );
 
-  if (!batteryConnected) {
-    observations.push('⚠ BATTERY NOT CONNECTED: Battery power has not been routed to the Main Safety Switch.');
-  }
-  if (!mainPowerConnected) {
-    observations.push('⚠ MAIN POWER NOT CONNECTED: Power Distribution Board has no power from the Safety Switch.');
-  }
-  if (!drivePowered) {
-    observations.push('⚠ DRIVE SYSTEM HAS NO POWER: Drive controller input or motor output line is missing.');
-  }
-  if (!weaponPowered) {
-    observations.push('⚠ WEAPON SYSTEM HAS NO POWER: Weapon controller input or motor output line is missing.');
-  }
-  if (!computerPowered) {
-    observations.push('⚠ ROBOT COMPUTER HAS NO POWER: 5V logic line to autonomous computer is disconnected.');
+  let mainPower = false;
+  let driveSystem = false;
+  let weaponSystem = false;
+  let robotComputer = false;
+  let sensorNetwork = false;
+
+  if (has14WirePorts) {
+    mainPower =
+      hasConnectionBetween(wires, 'bat_pos', 'sw_in_pos') &&
+      hasConnectionBetween(wires, 'bat_neg', 'sw_in_neg') &&
+      hasConnectionBetween(wires, 'sw_out_pos', 'pdb_in_pos') &&
+      hasConnectionBetween(wires, 'sw_out_neg', 'pdb_in_neg');
+
+    driveSystem =
+      hasConnectionBetween(wires, 'pdb_drive_out', 'esc_drive_in') &&
+      hasConnectionBetween(wires, 'comp_sig_drive', 'esc_drive_sig') &&
+      hasConnectionBetween(wires, 'esc_drive_mot_l', 'mot_left_in') &&
+      hasConnectionBetween(wires, 'esc_drive_mot_r', 'mot_right_in');
+
+    weaponSystem =
+      hasConnectionBetween(wires, 'pdb_weapon_out', 'esc_weapon_in') &&
+      hasConnectionBetween(wires, 'comp_sig_weapon', 'esc_weapon_sig') &&
+      hasConnectionBetween(wires, 'esc_weapon_mot', 'mot_weapon_in');
+
+    robotComputer =
+      hasConnectionBetween(wires, 'pdb_reg_out', 'reg_in') &&
+      hasConnectionBetween(wires, 'reg_out_5v', 'comp_pwr_in');
+
+    sensorNetwork = hasConnectionBetween(wires, 'sens_data', 'comp_sens_data');
+  } else {
+    // Backward compatibility for 7-wire harness
+    const batConn = hasConnectionBetween(wires, 'bat_out', 'sw_in');
+    const swConn = hasConnectionBetween(wires, 'sw_out', 'pdb_in');
+    mainPower = batConn && swConn;
+
+    const driveEscIn = hasConnectionBetween(wires, 'pdb_drive_out', 'esc_drive_in');
+    const driveEscOut = hasConnectionBetween(wires, 'esc_drive_out', 'mot_drive_in');
+    driveSystem = driveEscIn && driveEscOut;
+
+    const weapEscIn = hasConnectionBetween(wires, 'pdb_weapon_out', 'esc_weapon_in');
+    const weapEscOut = hasConnectionBetween(wires, 'esc_weapon_out', 'mot_weapon_in');
+    weaponSystem = weapEscIn && weapEscOut;
+
+    robotComputer = hasConnectionBetween(wires, 'pdb_comp_out', 'comp_in');
+    sensorNetwork = true;
   }
 
-  const valid = batteryConnected && mainPowerConnected && drivePowered && weaponPowered && computerPowered;
+  if (!mainPower) {
+    observations.push('⚠ MAIN POWER OFFLINE: High-voltage battery circuit to Power Distribution is incomplete.');
+  }
+  if (!driveSystem) {
+    observations.push('⚠ DRIVE SYSTEM OFFLINE: Drive controller power, motor phases, or command signal unverified.');
+  }
+  if (!weaponSystem) {
+    observations.push('⚠ WEAPON SYSTEM OFFLINE: Weapon controller power, motor phase, or trigger signal unverified.');
+  }
+  if (!robotComputer) {
+    observations.push('⚠ ROBOT COMPUTER HAS NO POWER: 5V logic voltage regulator circuit incomplete.');
+  }
+  if (!sensorNetwork) {
+    observations.push('⚠ SENSOR NETWORK OFFLINE: Telemetry data line not connected to robot computer.');
+  }
+
+  const valid = mainPower && driveSystem && weaponSystem && robotComputer && sensorNetwork;
+
   return {
     valid,
     observations,
-    batteryConnected,
-    mainPowerConnected,
-    drivePowered,
-    weaponPowered,
-    computerPowered,
+    batteryConnected: mainPower,
+    mainPowerConnected: mainPower,
+    drivePowered: driveSystem,
+    weaponPowered: weaponSystem,
+    computerPowered: robotComputer,
+    sensorConnected: sensorNetwork,
+    subsystems: {
+      mainPower,
+      driveSystem,
+      weaponSystem,
+      robotComputer,
+      sensorNetwork,
+    },
   };
 }
 
-// COMPATIBLE PORT HIGHLIGHT MAP
+// COMPATIBLE PORT PAIRS (Neutral Physical Interface)
 export const SIMPLIFIED_PORT_COMPATIBILITY: Record<string, string[]> = {
+  bat_pos: ['sw_in_pos'],
+  bat_neg: ['sw_in_neg'],
+  sw_in_pos: ['bat_pos'],
+  sw_in_neg: ['bat_neg'],
+  sw_out_pos: ['pdb_in_pos'],
+  sw_out_neg: ['pdb_in_neg'],
+  pdb_in_pos: ['sw_out_pos'],
+  pdb_in_neg: ['sw_out_neg'],
+  pdb_drive_out: ['esc_drive_in'],
+  esc_drive_in: ['pdb_drive_out'],
+  esc_drive_sig: ['comp_sig_drive'],
+  comp_sig_drive: ['esc_drive_sig'],
+  esc_drive_mot_l: ['mot_left_in'],
+  mot_left_in: ['esc_drive_mot_l'],
+  esc_drive_mot_r: ['mot_right_in'],
+  mot_right_in: ['esc_drive_mot_r'],
+  pdb_weapon_out: ['esc_weapon_in'],
+  esc_weapon_in: ['pdb_weapon_out'],
+  esc_weapon_sig: ['comp_sig_weapon'],
+  comp_sig_weapon: ['esc_weapon_sig'],
+  esc_weapon_mot: ['mot_weapon_in'],
+  mot_weapon_in: ['esc_weapon_mot'],
+  pdb_reg_out: ['reg_in'],
+  reg_in: ['pdb_reg_out'],
+  reg_out_5v: ['comp_pwr_in'],
+  comp_pwr_in: ['reg_out_5v'],
+  sens_data: ['comp_sens_data'],
+  comp_sens_data: ['sens_data'],
+  // Legacy aliases
   bat_out: ['sw_in'],
   sw_in: ['bat_out'],
   sw_out: ['pdb_in'],
   pdb_in: ['sw_out'],
-  pdb_drive_out: ['esc_drive_in'],
-  esc_drive_in: ['pdb_drive_out'],
   esc_drive_out: ['mot_drive_in'],
   mot_drive_in: ['esc_drive_out'],
-  pdb_weapon_out: ['esc_weapon_in'],
-  esc_weapon_in: ['pdb_weapon_out'],
   esc_weapon_out: ['mot_weapon_in'],
-  mot_weapon_in: ['esc_weapon_out'],
   pdb_comp_out: ['comp_in'],
   comp_in: ['pdb_comp_out'],
 };
@@ -689,24 +784,89 @@ export interface BotCodeBug {
   hint: string;
 }
 
-export const INITIAL_BOTCODE_SCRIPT = `BOT NIGHTFALL
+export interface BotCodeBugVariant {
+  id: string;
+  variantIndex: number;
+  script: string;
+  description: string;
+}
+
+export const BOTCODE_VARIANTS: BotCodeBugVariant[] = [
+  {
+    id: 'variant-1',
+    variantIndex: 0,
+    script: `BOT NIGHTFALL
 
 START:
 
-  sensor opponent = ON
+    sensor opponent = ON
+    sensor distance = ON
 
-  weapon = READY
+    weapon = READY
 
-  IF opponent deteced:
-      drive FORWRD
+    IF opponent deteced:
+        drive FORWRD
 
-  IF opponent close:
-      wepon SPNI
+    IF opponent close:
+        wepon SPNI
 
-  IF robot flipped:
-      self_right ON
+    IF robot flipped:
+        self_right ON
 
-END`;
+END`,
+    description: 'Typo in detection, misspelling in drive, typo in weapon and action',
+  },
+  {
+    id: 'variant-2',
+    variantIndex: 1,
+    script: `BOT NIGHTFALL
+
+START:
+
+    sensor opponent = OFF
+    sensor distance = ON
+
+    weapon = READY
+
+    IF opponent detected:
+        drive BACKWARD
+
+    IF opponent close:
+        wepon SPIN
+
+    IF robot flipped:
+        self_right
+
+END`,
+    description: 'Opponent sensor turned OFF, reverse drive direction on detect, typo in weapon, missing ON command in recovery',
+  },
+  {
+    id: 'variant-3',
+    variantIndex: 2,
+    script: `BOT NIGHTFALL
+
+START:
+
+    sensor opponent = ON
+    sensor distance = ON
+
+    weapon = OFF
+
+    IF opponent detected
+        drive FORWARD
+
+    IF opponent close:
+        weapon SPNI
+
+    IF robot flipped:
+        self_right ON
+
+END`,
+    description: 'Weapon armed state OFF, missing colon in detection, typo in weapon spin command',
+  },
+];
+
+export const INITIAL_BOTCODE_SCRIPT = BOTCODE_VARIANTS[0].script;
 
 export const BOTCODE_BUGS: BotCodeBug[] = [
   {
@@ -743,6 +903,104 @@ export const BOTCODE_BUGS: BotCodeBug[] = [
   },
 ];
 
+export interface BotCodeSubsystems {
+  movement: boolean;
+  detection: boolean;
+  weapon: boolean;
+  recovery: boolean;
+  syntax: boolean;
+}
+
+export interface BotCodeValidation {
+  allVerified: boolean;
+  subsystems: BotCodeSubsystems;
+  bugsRemainingCount: number;
+  diagnostics: string[];
+}
+
+export function evaluateBotCode(code: string): BotCodeValidation {
+  const cleanCode = (code || '').trim();
+  const lines = cleanCode.split('\n').map((l) => l.trim());
+
+  // 1. Detection Subsystem:
+  // Must have 'sensor opponent = ON' (not OFF)
+  // Must have 'IF opponent detected:' (correct spelling and colon)
+  const hasSensorOn = /sensor\s+opponent\s*=\s*ON/i.test(cleanCode) && !/sensor\s+opponent\s*=\s*OFF/i.test(cleanCode);
+  const hasDetectClause = /IF\s+opponent\s+detected\s*:/i.test(cleanCode);
+  const detection = hasSensorOn && hasDetectClause;
+
+  // 2. Movement Subsystem:
+  // Must have 'drive FORWARD' under attack/detect (no 'drive FORWRD', no 'drive BACKWARD', no 'drive STOP')
+  const hasDriveForward = /drive\s+FORWARD\b/.test(cleanCode);
+  const hasDriveTypo = /FORWRD/i.test(cleanCode);
+  const hasWrongDrive = /drive\s+BACKWARD/i.test(cleanCode) || /drive\s+STOP/i.test(cleanCode);
+  const movement = hasDriveForward && !hasDriveTypo && !hasWrongDrive;
+
+  // 3. Weapon Subsystem:
+  // Must have 'weapon = READY' (not OFF)
+  // Must have 'weapon SPIN' (no 'wepon', no 'SPNI', no 'weapon STOP')
+  const hasWeaponReady = /weapon\s*=\s*READY/i.test(cleanCode) && !/weapon\s*=\s*OFF/i.test(cleanCode);
+  const hasWeaponSpin = /weapon\s+SPIN\b/.test(cleanCode);
+  const hasWeaponTypo = /wepon/i.test(cleanCode) || /SPNI/i.test(cleanCode);
+  const hasWeaponStop = /weapon\s+STOP/i.test(cleanCode);
+  const weapon = hasWeaponReady && hasWeaponSpin && !hasWeaponTypo && !hasWeaponStop;
+
+  // 4. Recovery Subsystem:
+  // Must have 'self_right ON' under 'IF robot flipped:' (not just 'self_right' or 'OFF')
+  const hasSelfRightOn = /self_right\s+ON\b/.test(cleanCode);
+  const hasIncompleteSelfRight = /self_right\s*$/m.test(cleanCode);
+  const hasFlippedClause = /IF\s+robot\s+flipped\s*:/i.test(cleanCode);
+  const recovery = hasSelfRightOn && !hasIncompleteSelfRight && hasFlippedClause;
+
+  // 5. Syntax Subsystem:
+  // Must have 'START:' and 'END'
+  // All 'IF' clauses must end with ':'
+  const hasStart = /^START:/m.test(cleanCode);
+  const hasEnd = /^END/m.test(cleanCode);
+  const ifLines = lines.filter((l) => l.startsWith('IF'));
+  const allIfsHaveColon = ifLines.length > 0 && ifLines.every((l) => l.endsWith(':'));
+  const syntax = hasStart && hasEnd && allIfsHaveColon;
+
+  let bugsRemainingCount = 0;
+  const diagnostics: string[] = [];
+
+  if (!movement) {
+    bugsRemainingCount++;
+    diagnostics.push('Movement system: drive command is misspelled or moving in reverse.');
+  }
+  if (!detection) {
+    bugsRemainingCount++;
+    diagnostics.push('Opponent detection: sensor is deactivated or detection conditional syntax is incorrect.');
+  }
+  if (!weapon) {
+    bugsRemainingCount++;
+    diagnostics.push('Weapon control: weapon is disarmed, misspelled, or instructed to stop on close contact.');
+  }
+  if (!recovery) {
+    bugsRemainingCount++;
+    diagnostics.push('Recovery system: self-righting parameter is missing or inverted conditional is incomplete.');
+  }
+  if (!syntax) {
+    bugsRemainingCount++;
+    diagnostics.push('Program syntax: check colons on conditional blocks and program tags.');
+  }
+
+  const allVerified = movement && detection && weapon && recovery && syntax;
+
+  return {
+    allVerified,
+    subsystems: {
+      movement,
+      detection,
+      weapon,
+      recovery,
+      syntax,
+    },
+    bugsRemainingCount,
+    diagnostics,
+  };
+}
+
 export function checkBotCodeBugs(code: string): {
   remainingBugs: BotCodeBug[];
   fixedBugs: BotCodeBug[];
@@ -755,26 +1013,45 @@ export function checkBotCodeBugs(code: string): {
     recovery: boolean;
   };
 } {
-  const remainingBugs = BOTCODE_BUGS.filter((bug) => code.includes(bug.wrongText));
-  const fixedBugs = BOTCODE_BUGS.filter((bug) => !code.includes(bug.wrongText));
+  const result = evaluateBotCode(code);
+  const remainingBugs: BotCodeBug[] = [];
+  const fixedBugs: BotCodeBug[] = [];
 
-  const detection = !code.includes('deteced') && code.includes('detected');
-  const movement = !code.includes('FORWRD') && code.includes('FORWARD');
-  const weapon = !code.includes('wepon') && !code.includes('SPNI') && code.includes('weapon') && code.includes('SPIN');
-  const recovery = code.includes('self_right ON');
+  // Check specific bug occurrences for granular tracking
+  if (/deteced/i.test(code) || !result.subsystems.detection) {
+    remainingBugs.push({ id: 'bug_deteced', line: 9, subsystem: 'Detection', wrongText: 'deteced', correctText: 'detected', hint: 'Check detection syntax' });
+  } else {
+    fixedBugs.push({ id: 'bug_deteced', line: 9, subsystem: 'Detection', wrongText: 'deteced', correctText: 'detected', hint: 'Check detection syntax' });
+  }
 
-  const allFixed = detection && movement && weapon && recovery && remainingBugs.length === 0;
+  if (/FORWRD/i.test(code) || /BACKWARD/i.test(code) || !result.subsystems.movement) {
+    remainingBugs.push({ id: 'bug_forwrd', line: 10, subsystem: 'Movement', wrongText: 'FORWRD', correctText: 'FORWARD', hint: 'Check movement command' });
+  } else {
+    fixedBugs.push({ id: 'bug_forwrd', line: 10, subsystem: 'Movement', wrongText: 'FORWRD', correctText: 'FORWARD', hint: 'Check movement command' });
+  }
+
+  if (/SPNI/i.test(code) || /weapon\s+STOP/i.test(code)) {
+    remainingBugs.push({ id: 'bug_spni', line: 13, subsystem: 'Weapon', wrongText: 'SPNI', correctText: 'SPIN', hint: 'Check weapon action' });
+  } else {
+    fixedBugs.push({ id: 'bug_spni', line: 13, subsystem: 'Weapon', wrongText: 'SPNI', correctText: 'SPIN', hint: 'Check weapon action' });
+  }
+
+  if (/wepon/i.test(code) || /weapon\s*=\s*OFF/i.test(code)) {
+    remainingBugs.push({ id: 'bug_wepon', line: 13, subsystem: 'Weapon', wrongText: 'wepon', correctText: 'weapon', hint: 'Check weapon identifier' });
+  } else {
+    fixedBugs.push({ id: 'bug_wepon', line: 13, subsystem: 'Weapon', wrongText: 'wepon', correctText: 'weapon', hint: 'Check weapon identifier' });
+  }
 
   return {
     remainingBugs,
     fixedBugs,
-    allFixed,
+    allFixed: result.allVerified,
     checklist: {
       connection: true,
-      movement,
-      weapon,
-      detection,
-      recovery,
+      movement: result.subsystems.movement,
+      weapon: result.subsystems.weapon,
+      detection: result.subsystems.detection,
+      recovery: result.subsystems.recovery,
     },
   };
 }
@@ -793,15 +1070,18 @@ export interface AdRubricCriterion {
 
 export interface AdCampaignEvaluation {
   score: number;
-  tier: 'Bronze' | 'Silver' | 'Gold';
+  tier: 'None' | 'Bronze' | 'Silver' | 'Gold';
   fundingUsd: number;
   headline: string;
   theme: 'aggressive' | 'tech' | 'armored' | 'speed';
   criteria: {
     robotIdentity: AdRubricCriterion;
     engineeringStory: AdRubricCriterion;
-    sponsorAppeal: AdRubricCriterion;
-    clearMessage: AdRubricCriterion;
+    sponsorValue: AdRubricCriterion;
+    callToAction: AdRubricCriterion;
+    creativeDirection: AdRubricCriterion;
+    sponsorAppeal?: AdRubricCriterion;
+    clearMessage?: AdRubricCriterion;
   };
   sponsorFeedback: string;
 }
@@ -812,70 +1092,111 @@ export function evaluateAdCampaignPrompt(
 ): AdCampaignEvaluation {
   const prompt = (rawPrompt || '').trim();
   const lower = prompt.toLowerCase();
+  const words = prompt.split(/\s+/).filter(Boolean);
 
-  // 1. Robot Identity (0 to 25)
-  let identityScore = 14;
+  if (words.length === 0) {
+    return {
+      score: 0,
+      tier: 'None',
+      fundingUsd: 0,
+      headline: 'AWAITING CAMPAIGN PROMPT',
+      theme: 'tech',
+      criteria: {
+        robotIdentity: { label: 'Robot Identity', passed: false, score: 0, maxScore: 20, hint: 'Give your BattleBot a bold, memorable name or identity.' },
+        engineeringStory: { label: 'Engineering Story', passed: false, score: 0, maxScore: 25, hint: 'Highlight specific weapon, armor, and drivetrain engineering.' },
+        sponsorValue: { label: 'Sponsor Value', passed: false, score: 0, maxScore: 30, hint: 'Explain what companies gain by supporting your team (brand visibility, STEM education, tournament partnership).' },
+        callToAction: { label: 'Call to Action', passed: false, score: 0, maxScore: 15, hint: 'Include a direct call to action inviting sponsors to partner or support.' },
+        creativeDirection: { label: 'Creative Direction', passed: false, score: 0, maxScore: 10, hint: 'Describe the visual tone, mood, or setting of your campaign.' },
+        sponsorAppeal: { label: 'Sponsor Value', passed: false, score: 0, maxScore: 30, hint: 'Explain what companies gain by supporting your team.' },
+        clearMessage: { label: 'Call to Action', passed: false, score: 0, maxScore: 15, hint: 'Include a direct call to action.' },
+      },
+      sponsorFeedback: 'No campaign prompt provided. Enter a prompt describing your BattleBot advertisement.',
+    };
+  }
+
+  // 1. Robot Identity (0 to 20 pts)
+  let identityScore = 0;
   let identityHint = '';
   const hasName =
     /[A-Z]{3,}/.test(prompt) ||
     /["'][^"']+["']/.test(prompt) ||
-    /call it|named|nightfall|titan|bull|apex|viper|shadow|beast|thunder|claw/i.test(prompt);
-  const hasTone = /futuristic|dramatic|aggressive|sleek|unstoppable|champion|dominant|lethal|fearless|powerful/i.test(prompt);
+    /call it|named|battlebot|nightfall|titan|bull|apex|viper|shadow|beast|thunder|claw/i.test(prompt);
+  const hasTone = /futuristic|dramatic|aggressive|sleek|unstoppable|champion|dominant|lethal|fearless|powerful|heavyweight|high-impact|arena|combat/i.test(prompt);
 
-  if (hasName) identityScore += 6;
-  if (hasTone) identityScore += 5;
-  if (identityScore < 20) {
-    identityHint = 'Give your BattleBot a bold, memorable identity or name so the audience remembers it.';
+  if (hasName) identityScore += 10;
+  if (hasTone) identityScore += 7;
+  if (words.length >= 4) identityScore += 3;
+  if (identityScore < 16) {
+    identityHint = 'Give your BattleBot a bold capitalized name and define a clear theme (e.g. futuristic, aggressive, fortress).';
   }
 
-  // 2. Engineering Story (0 to 25)
-  let engScore = 12;
+  // 2. Engineering Story (0 to 25 pts)
+  let engScore = 0;
   let engHint = '';
-  const mentionsWeapon = /spinner|vertical|horizontal|wedge|hammer|lifter|grabber|blade|weapon|kinetic|joule|rpm|strike|smash|hit/i.test(prompt);
-  const mentionsSpecs = /speed|fast|mph|traction|torque|motor|armor|titanium|steel|chassis|power|battery|esc|cooling|defense|autonomous|ai|sensor/i.test(prompt);
+  const mentionsWeapon = /spinner|vertical|horizontal|wedge|hammer|lifter|grabber|blade|weapon|kinetic|joule|rpm|drum/i.test(prompt);
+  const mentionsSpecs = /speed|fast|mph|traction|torque|motor|brushless|armor|titanium|steel|ar500|aluminum|chassis|power|battery|esc|cooling|autonomous|ai|sensor|telemetry|lidar|ultrasonic|technology/i.test(prompt);
+  const mentionsPerformance = /kinetic energy|rotational|leverage|low-clearance|penetration|impact resistance|shock|spin-up|acceleration|traction|deadly|advanced/i.test(prompt);
 
-  if (mentionsWeapon) engScore += 7;
-  if (mentionsSpecs) engScore += 6;
+  if (mentionsWeapon) engScore += 8;
+  if (mentionsSpecs) engScore += 9;
+  if (mentionsPerformance) engScore += 8;
   if (engScore < 20) {
-    engHint = 'Highlight your specific weapon type, kinetic power, or engineering stats to show what the machine can do.';
+    engHint = 'Describe both your weapon system and physical/electrical specs (e.g. AR500 steel, vertical spinner, kinetic energy transfer).';
   }
 
-  // 3. Sponsor Appeal (0 to 25)
-  let sponsorScore = 12;
+  // 3. Sponsor Value (0 to 30 pts) - Strictest Category!
+  let sponsorScore = 0;
   let sponsorHint = '';
-  const mentionsSponsors = /sponsor|robotics|company|companies|industry|technology|tech|partner|support|backing|invest|future|engineering|showcase|brand/i.test(prompt);
-  const mentionsValue = /why|revolution|dominate|arena|champion|lead|innovation|talent|teamwork|fund/i.test(prompt);
+  const mentionsSponsorPartnership = /sponsor|sponsorship|partner|partnership|invest|invest in|backer|support|corporate/i.test(prompt);
+  const mentionsBrandVisibility = /brand|logo|exposure|visibility|broadcast|showcase|audience|arena showcase|chassis placement/i.test(prompt);
+  const mentionsStemCommunity = /stem|education|student|next-gen|future|workforce|engineering team|innovation|talent|development|community|team/i.test(prompt);
+  const mentionsVictoryValue = /champion|championship|tournament|dominate|victory|win the arena|win/i.test(prompt);
 
-  if (mentionsSponsors) sponsorScore += 7;
-  if (mentionsValue) sponsorScore += 6;
+  if (mentionsSponsorPartnership) sponsorScore += 10;
+  if (mentionsBrandVisibility) sponsorScore += 10;
+  if (mentionsStemCommunity) sponsorScore += 10;
+  if (mentionsVictoryValue && sponsorScore < 30) sponsorScore += 10;
+
   if (sponsorScore < 20) {
-    sponsorHint = 'Explain why supporting your robotics team matters or appeal directly to technology/robotics sponsors.';
+    sponsorHint = 'Explain why supporting your robotics team matters to a company: brand visibility on the chassis, supporting student STEM education, or championship partnership.';
   }
 
-  // 4. Call to Action / Clarity (0 to 25)
-  let clarityScore = 14;
+  // 4. Call to Action / Message (0 to 15 pts)
+  let ctaScore = 0;
+  let ctaHint = '';
+  const hasDirectCall = /join us|partner with|support our|sponsor our|invest in|invest|back our|help us|contact us|become a partner|sponsor/i.test(prompt);
+  const hasAudienceAddress = /companies|industry|robotics companies|sponsors|leaders|community|team|arena|dominate|today/i.test(prompt);
+
+  if (hasDirectCall) ctaScore += 10;
+  if (hasAudienceAddress) ctaScore += 5;
+  if (ctaScore < 12) {
+    ctaHint = 'Include a direct call to action inviting robotics companies or sponsors to partner with your team today.';
+  }
+
+  // 5. Creative Direction / Clarity (0 to 10 pts)
+  let clarityScore = 0;
   let clarityHint = '';
-  const wordCount = prompt.split(/\s+/).filter(Boolean).length;
-  if (wordCount >= 8) clarityScore += 5;
-  if (wordCount >= 18) clarityScore += 6;
-  if (wordCount < 8) {
-    clarityHint = 'Add more descriptive detail to your campaign prompt to create a fuller advertisement.';
+  if (words.length >= 5) clarityScore += 5;
+  if (words.length >= 20) clarityScore += 5;
+  if (clarityScore < 8) {
+    clarityHint = 'Expand your prompt into complete descriptive sentences with clear creative and visual direction.';
   }
 
-  const totalScore = Math.min(100, Math.max(45, identityScore + engScore + sponsorScore + clarityScore));
+  const rawTotal = identityScore + engScore + sponsorScore + ctaScore + clarityScore;
+  const totalScore = Math.min(100, Math.max(40, rawTotal));
 
   let tier: 'Bronze' | 'Silver' | 'Gold' = 'Bronze';
   let fundingUsd = 200;
-  let sponsorFeedback = 'Your campaign communicates the project, but the sponsor wants a clearer engineering story.';
+  let sponsorFeedback = 'Basic advertisement created. To earn Silver or Gold, explain the engineering specs and what value the sponsor receives.';
 
   if (totalScore >= 85) {
     tier = 'Gold';
     fundingUsd = 700;
-    sponsorFeedback = 'Excellent campaign! Your team clearly communicated the robot, engineering story, and value of supporting the project.';
+    sponsorFeedback = 'Premier Campaign! Your team clearly communicated the robot identity, technical engineering specs, and a compelling sponsor value proposition.';
   } else if (totalScore >= 65) {
     tier = 'Silver';
     fundingUsd = 400;
-    sponsorFeedback = 'Strong campaign! The sponsor understands your robot and why the project matters.';
+    sponsorFeedback = 'Solid Campaign! The robot and engineering are memorable, but the campaign could more strongly explain what the sponsor gains by backing your team.';
   }
 
   // Headline extraction
@@ -887,8 +1208,18 @@ export function evaluateAdCampaignPrompt(
 
   let theme: 'aggressive' | 'tech' | 'armored' | 'speed' = 'aggressive';
   if (/tech|futuristic|ai|autonomous/i.test(lower)) theme = 'tech';
-  else if (/armor|tank|titanium/i.test(lower)) theme = 'armored';
+  else if (/armor|tank|titanium|ar500/i.test(lower)) theme = 'armored';
   else if (/speed|fast|lightning/i.test(lower)) theme = 'speed';
+
+  const criteriaObj = {
+    robotIdentity: { label: 'Robot Identity', passed: identityScore >= 16, score: identityScore, maxScore: 20, hint: identityHint },
+    engineeringStory: { label: 'Engineering Story', passed: engScore >= 18, score: engScore, maxScore: 25, hint: engHint },
+    sponsorValue: { label: 'Sponsor Value', passed: sponsorScore >= 20, score: sponsorScore, maxScore: 30, hint: sponsorHint },
+    callToAction: { label: 'Call to Action', passed: ctaScore >= 10, score: ctaScore, maxScore: 15, hint: ctaHint },
+    creativeDirection: { label: 'Creative Direction', passed: clarityScore >= 8, score: clarityScore, maxScore: 10, hint: clarityHint },
+    sponsorAppeal: { label: 'Sponsor Value', passed: sponsorScore >= 20, score: sponsorScore, maxScore: 30, hint: sponsorHint },
+    clearMessage: { label: 'Call to Action', passed: ctaScore >= 10, score: ctaScore, maxScore: 15, hint: ctaHint },
+  };
 
   return {
     score: totalScore,
@@ -896,12 +1227,7 @@ export function evaluateAdCampaignPrompt(
     fundingUsd,
     headline,
     theme,
-    criteria: {
-      robotIdentity: { label: 'Robot Identity', passed: identityScore >= 20, score: identityScore, maxScore: 25, hint: identityHint },
-      engineeringStory: { label: 'Engineering Story', passed: engScore >= 20, score: engScore, maxScore: 25, hint: engHint },
-      sponsorAppeal: { label: 'Sponsor Appeal', passed: sponsorScore >= 20, score: sponsorScore, maxScore: 25, hint: sponsorHint },
-      clearMessage: { label: 'Clear Message & CTA', passed: clarityScore >= 20, score: clarityScore, maxScore: 25, hint: clarityHint },
-    },
+    criteria: criteriaObj,
     sponsorFeedback,
   };
 }
@@ -1405,6 +1731,7 @@ export const INITIAL_SOFTWARE_CONFIG: SoftwareConfiguration = {
   bugsFixed: false,
   softwareUploaded: false,
   codeContent: INITIAL_BOTCODE_SCRIPT,
+  initialScript: INITIAL_BOTCODE_SCRIPT,
   approach: 'charge',
   attack: 'immediate',
   recovery: 'reverse_turn',
@@ -1438,6 +1765,7 @@ export function createInitialTeamProject(teamName = 'TEAM TITAN'): TeamRobotProj
     electrical: { ...INITIAL_ELECTRICAL_CONFIG, wires: [] },
     software: {
       ...INITIAL_SOFTWARE_CONFIG,
+      initialScript: INITIAL_BOTCODE_SCRIPT,
       rules: [...DEFAULT_SOFTWARE_RULES],
     },
     projectLead: {
