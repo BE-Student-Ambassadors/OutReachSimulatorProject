@@ -5,6 +5,7 @@ import {
   type AutonomousStrategy,
   type BattleAnalysisReport,
   type BattleEventLog,
+  type BehaviorRule,
   type BossDossier,
   type BossId,
   type CombatantTelemetry,
@@ -56,6 +57,9 @@ export interface LiveBattleSimulation {
   weaponAtSpeedAnnounced: boolean;
   tempWarningAnnounced: boolean;
   powerLimitAnnounced: boolean;
+  softwareRules?: BehaviorRule[];
+  electricalLimiterA?: number;
+  coolingTempReductionC?: number;
 
   // Post-battle counters
   impactsDelivered: number;
@@ -108,8 +112,11 @@ function addEvent(
 
 export function createBattleSimulation(
   playerConfig: RobotConfiguration,
-  strategy: AutonomousStrategy,
-  bossId: BossId = 'bull'
+  strategy: AutonomousStrategy = 'control',
+  bossId: BossId = 'bull',
+  softwareRules?: BehaviorRule[],
+  electricalLimiterA = 0,
+  coolingTempReductionC = 0
 ): LiveBattleSimulation {
   const playerStats = calculateEngineeringStats(playerConfig);
   const bossDossier = getBossById(bossId);
@@ -201,6 +208,9 @@ export function createBattleSimulation(
     bullPushTimeSec: 0,
     peakMotorTempC: 38,
     cameraImpactShake: 0,
+    softwareRules,
+    electricalLimiterA,
+    coolingTempReductionC,
     debugHitboxes: {
       playerChassis: getRobotCollisionModel(initialPlayer.x, initialPlayer.z, initialPlayer.headingRad, playerConfig, null).chassis,
       bossChassis: getRobotCollisionModel(initialBoss.x, initialBoss.z, initialBoss.headingRad, bossDossier.config, bossId).chassis,
@@ -267,7 +277,15 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
     if (playerStats.weaponSpinUpSec > 0) {
       const spinRate = 100 / Math.max(0.35, playerStats.weaponSpinUpSec);
       const powerFactor = playerStats.powerLimited ? 0.78 : 1.0;
-      player.weaponSpinPct = Math.min(100, player.weaponSpinPct + spinRate * powerFactor * dt);
+      const limiterFactor =
+        sim.electricalLimiterA && sim.electricalLimiterA > 0
+          ? sim.electricalLimiterA === 100
+            ? 0.65
+            : sim.electricalLimiterA === 120
+            ? 0.8
+            : 0.92
+          : 1.0;
+      player.weaponSpinPct = Math.min(100, player.weaponSpinPct + spinRate * powerFactor * limiterFactor * dt);
       if (player.weaponSpinPct >= 95 && !sim.weaponAtSpeedAnnounced && playerStats.weaponEnergyJ >= 1200) {
         addEvent(sim, 'WEAPON AT SPEED', 'info');
         sim.weaponAtSpeedAnnounced = true;
@@ -300,7 +318,8 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
   boss.batteryPct = Math.max(0, boss.batteryPct - bossDrainRate * dt);
 
   // Motor temperature
-  const targetTemp = playerStats.expectedMotorTempC + (strategy === 'aggressive' ? 5 : 0);
+  const coolingBonus = sim.coolingTempReductionC || 0;
+  const targetTemp = Math.max(38, playerStats.expectedMotorTempC - coolingBonus + (strategy === 'aggressive' ? 5 : 0));
   player.motorTempC += (targetTemp - player.motorTempC) * dt * 0.14;
   if (player.motorTempC > sim.peakMotorTempC) {
     sim.peakMotorTempC = Math.round(player.motorTempC);
@@ -382,6 +401,66 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
       desiredPlayerHeading = wallTargetHeading;
       desiredPlayerSpeed = playerMaxSpeed * 0.92;
       player.aiStateLabel = 'PUSH';
+    } else if (sim.softwareRules && sim.softwareRules.length > 0) {
+      let matchedAction: string | null = null;
+      const angleDiffToBoss = Math.abs(normalizeAngle(anglePlayerToBoss - player.headingRad));
+
+      for (const rule of sim.softwareRules) {
+        let match = false;
+        if (rule.sensor === 'robot_tilt') {
+          match = rule.conditionValue === 'flipped' ? player.isFlipped : !player.isFlipped;
+        } else if (rule.sensor === 'weapon_ready') {
+          match = rule.conditionValue === 'yes' ? player.weaponSpinPct >= 80 : player.weaponSpinPct < 80;
+        } else if (rule.sensor === 'opponent_distance') {
+          match =
+            rule.conditionValue === 'close'
+              ? dist < 1.5
+              : rule.conditionValue === 'medium'
+              ? dist >= 1.5 && dist <= 2.8
+              : dist > 2.8;
+        } else if (rule.sensor === 'opponent_angle') {
+          match =
+            rule.conditionValue === 'front'
+              ? angleDiffToBoss < 0.45
+              : rule.conditionValue === 'flank'
+              ? angleDiffToBoss >= 0.45 && angleDiffToBoss <= 1.8
+              : angleDiffToBoss > 1.8;
+        } else if (rule.sensor === 'front_contact') {
+          match = rule.conditionValue === 'contact' ? sim.contactCooldownSec > 0 : sim.contactCooldownSec <= 0;
+        }
+
+        if (match) {
+          matchedAction = rule.action;
+          break;
+        }
+      }
+
+      if (matchedAction === 'full_charge') {
+        desiredPlayerHeading = anglePlayerToBoss;
+        desiredPlayerSpeed = playerMaxSpeed * 1.12;
+        player.aiStateLabel = 'ENGAGE';
+      } else if (matchedAction === 'approach') {
+        desiredPlayerHeading = anglePlayerToBoss;
+        desiredPlayerSpeed = playerMaxSpeed * 0.88;
+        player.aiStateLabel = 'APPROACH';
+      } else if (matchedAction === 'flank_target') {
+        desiredPlayerHeading = normalizeAngle(anglePlayerToBoss + 0.65 * Math.sign(dx || 1));
+        desiredPlayerSpeed = playerMaxSpeed * 0.95;
+        player.aiStateLabel = 'FLANK';
+      } else if (matchedAction === 'back_away') {
+        desiredPlayerHeading = anglePlayerToBoss;
+        desiredPlayerSpeed = -playerMaxSpeed * 0.75;
+        player.aiStateLabel = 'EVADE';
+      } else if (matchedAction === 'turn_toward') {
+        desiredPlayerHeading = anglePlayerToBoss;
+        desiredPlayerSpeed = playerMaxSpeed * 0.2;
+        player.aiStateLabel = 'SENSE';
+      } else {
+        // Fallback approach
+        desiredPlayerHeading = anglePlayerToBoss;
+        desiredPlayerSpeed = playerMaxSpeed * 0.88;
+        player.aiStateLabel = 'APPROACH';
+      }
     } else if (needsSpinUp) {
       // Approach cautiously while spinning up weapon (maintain direct frontal heading toward opponent)
       desiredPlayerHeading = anglePlayerToBoss;

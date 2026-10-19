@@ -103,6 +103,10 @@ export interface ComponentCardSpec<T extends string = string> {
   name: string;
   subtitle: string;
   weightLb: number;
+  costUsd?: number;
+  leadTimeDays?: number;
+  peakCurrentA?: number;
+  continuousCurrentA?: number;
   pros: string[];
   cons: string[];
   engineeringDetail: {
@@ -189,10 +193,149 @@ export interface InstallConsequenceToast {
 
 export type AppScreen =
   | 'welcome'
-  | 'boss-intro'
+  | 'mission'
+  | 'team-dashboard'
+  | 'mechanical'
+  | 'electrical'
+  | 'software'
+  | 'project-lead'
+  | 'integration'
   | 'workshop'
   | 'test-lab'
+  | 'boss-intro'
   | 'arena';
+
+export type TeamRole = 'mechanical' | 'electrical' | 'software' | 'project-lead';
+
+export interface MechanicalConfiguration {
+  chassisId: ChassisId;
+  driveId: DriveId;
+  wheelsId: WheelsId;
+  armorId: ArmorId;
+  armorThickness: ArmorThickness;
+  weaponId: WeaponId;
+  utilityId: UtilityId;
+  accentColor: string;
+  isCompleted: boolean;
+}
+
+export type BatteryType = BatteryId;
+export type DriveEscRating = 35 | 50 | 70;
+export type WeaponEscRating = 40 | 80 | 120;
+export type CurrentLimiterOption = 0 | 100 | 120 | 140; // 0 = uncapped
+export type CoolingSystemOption = 'passive' | 'fan' | 'copper';
+
+export interface WireConnection {
+  id: string;
+  fromPort: string;
+  toPort: string;
+}
+
+export interface ElectricalConfiguration {
+  batteryId: BatteryType;
+  driveEscRatingA: DriveEscRating;
+  weaponEscRatingA: WeaponEscRating;
+  currentLimiterA: CurrentLimiterOption;
+  coolingSystem: CoolingSystemOption;
+  wires: WireConnection[];
+  wiringVerified: boolean;
+  isCompleted: boolean;
+}
+
+export type SoftwareSensorId =
+  | 'opponent_distance'
+  | 'opponent_angle'
+  | 'weapon_ready'
+  | 'robot_tilt'
+  | 'front_contact';
+
+export type SoftwareActionId =
+  | 'full_charge'
+  | 'approach'
+  | 'flank_target'
+  | 'back_away'
+  | 'turn_toward'
+  | 'recover_self_right';
+
+export interface BehaviorRule {
+  id: string;
+  sensor: SoftwareSensorId;
+  conditionValue: string; // e.g. 'close', 'front', 'yes', 'flipped', 'touching'
+  action: SoftwareActionId;
+  label: string;
+}
+
+export type SoftwareApproachDecision = 'charge' | 'careful' | 'flank';
+export type SoftwareAttackDecision = 'immediate' | 'line_up' | 'back_off';
+export type SoftwareRecoveryDecision = 'reverse_turn' | 'self_right' | 'keep_attacking';
+
+export interface SoftwareConfiguration {
+  computerConnected: boolean;
+  bugsFixed: boolean;
+  softwareUploaded: boolean;
+  codeContent: string;
+  approach: SoftwareApproachDecision;
+  attack: SoftwareAttackDecision;
+  recovery: SoftwareRecoveryDecision;
+  rules: BehaviorRule[];
+  sensorPackage: 'basic' | 'ultrasonic' | 'lidar';
+  isCompleted: boolean;
+  testPassed: boolean;
+}
+
+export type SponsorTier = 'None' | 'Bronze' | 'Silver' | 'Gold';
+
+export interface ActiveSponsorship {
+  sponsorId: string;
+  sponsorName: string;
+  amountUsd: number;
+  tier: 'Bronze' | 'Silver' | 'Gold';
+}
+
+export interface MarketingCampaign {
+  robotName: string;
+  headline: string;
+  theme: 'aggressive' | 'tech' | 'armored' | 'speed';
+  approved: boolean;
+}
+
+export interface ProjectLeadConfiguration {
+  baseBudgetUsd: number; // 1800
+  budgetCapUsd: number; // baseBudgetUsd + sponsorshipUsd
+  sponsorshipUsd: number; // 0, 200, 400, 700
+  sponsorTier: SponsorTier;
+  adPrompt: string;
+  adHeadline: string;
+  campaignScore: number;
+  activeSponsors: ActiveSponsorship[];
+  campaign: MarketingCampaign | null;
+  shippingTier: 'standard' | 'expedited';
+  sparePartsKit: 'none' | 'drive' | 'full';
+  complianceSigned: boolean;
+  isCompleted: boolean;
+}
+
+export interface SystemIntegrationReport {
+  overallPassed: boolean;
+  mechanicalPassed: boolean;
+  electricalPassed: boolean;
+  softwarePassed: boolean;
+  projectLeadPassed: boolean;
+  failures: string[];
+  warnings: string[];
+}
+
+export interface TeamRobotProject {
+  teamName: string;
+  activeRole: TeamRole | null;
+  mechanical: MechanicalConfiguration;
+  electrical: ElectricalConfiguration;
+  software: SoftwareConfiguration;
+  projectLead: ProjectLeadConfiguration;
+  derivedStats: EngineeringStats;
+  integration: SystemIntegrationReport;
+  lastBattleResult: BattleAnalysisReport | null;
+}
 
 export type TestLabType = 'speed' | 'push' | 'weapon' | 'stability' | 'power';
 

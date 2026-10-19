@@ -19,7 +19,7 @@ import {
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { soundEngine } from '../../audio/soundEngine';
-import { BOSS_LADDER, getBossById } from '../../data/bosses';
+import { getBossById } from '../../data/bosses';
 import {
   ARENA_HALF_SIZE,
   createBattleSimulation,
@@ -27,16 +27,27 @@ import {
   type LiveBattleSimulation,
   stepBattleSimulation,
 } from '../../simulation/battleEngine';
-import { type AutonomousStrategy, type BattleAnalysisReport, type BattleEventLog, type BossId, type CombatantTelemetry, type EngineeringStats, type RobotConfiguration, type SparkBurst } from '../../types/robot';
+import {
+  type AutonomousStrategy,
+  type BattleAnalysisReport,
+  type BattleEventLog,
+  type BossId,
+  type CombatantTelemetry,
+  type EngineeringStats,
+  type RobotConfiguration,
+  type SparkBurst,
+  type TeamRobotProject,
+} from '../../types/robot';
 import { Robot3D } from '../three/Robot3D';
 
 interface ArenaScreenProps {
   playerConfig: RobotConfiguration;
   playerStats: EngineeringStats;
   bossId?: BossId;
+  teamProject?: TeamRobotProject;
   onReturnToWorkshop: (resetToStarter?: boolean) => void;
+  onReturnToDashboard?: () => void;
   onDefeatBoss?: (bossId: BossId) => void;
-  onNextBoss?: () => void;
 }
 
 type SpectatorCamMode = 'director' | 'wide' | 'chase';
@@ -606,12 +617,12 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   playerConfig,
   playerStats,
   bossId = 'bull',
+  teamProject,
   onReturnToWorkshop,
+  onReturnToDashboard,
   onDefeatBoss,
-  onNextBoss,
 }) => {
-  const bossDossier = getBossById(bossId);
-  const nextBoss = BOSS_LADDER.find((b) => b.tier === bossDossier.tier + 1);
+  const bossDossier = getBossById('bull'); // ONE BOSS ONLY: THE BULL
 
   const [selectedStrategy, setSelectedStrategy] = useState<AutonomousStrategy>('control');
   const [battlePhase, setBattlePhase] = useState<'intro-strategy' | 'fighting' | 'finished'>(
@@ -620,7 +631,23 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   const [camMode, setCamMode] = useState<SpectatorCamMode>('director');
   const [showHitboxes, setShowHitboxes] = useState(false);
 
-  const [initialSim] = useState(() => createBattleSimulation(playerConfig, selectedStrategy, bossId));
+  const coolingDrop =
+    teamProject?.electrical.coolingSystem === 'fan'
+      ? 15
+      : teamProject?.electrical.coolingSystem === 'copper'
+      ? 24
+      : 0;
+
+  const [initialSim] = useState(() =>
+    createBattleSimulation(
+      playerConfig,
+      selectedStrategy,
+      'bull',
+      teamProject?.software.rules,
+      teamProject?.electrical.currentLimiterA,
+      coolingDrop
+    )
+  );
   const simRef = useRef<LiveBattleSimulation | null>(initialSim);
 
   const [hudPlayer, setHudPlayer] = useState<CombatantTelemetry>(() => initialSim.player);
@@ -646,7 +673,14 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
 
   const handleStartBattle = () => {
     soundEngine.playArenaHorn();
-    simRef.current = createBattleSimulation(playerConfig, selectedStrategy, bossId);
+    simRef.current = createBattleSimulation(
+      playerConfig,
+      selectedStrategy,
+      'bull',
+      teamProject?.software.rules,
+      teamProject?.electrical.currentLimiterA,
+      coolingDrop
+    );
     setHudPlayer(simRef.current.player);
     setHudBull(simRef.current.bull);
     setHudTimeSec(0);
@@ -1174,39 +1208,35 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
 
               {analysisReport.winner === 'player' ? (
                 <div className="flex flex-wrap items-center gap-3">
-                  {nextBoss && onNextBoss && (
-                    <button
-                      onClick={() => {
-                        soundEngine.playInstall();
-                        onNextBoss();
-                      }}
-                      className="cursor-pointer inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 text-xs sm:text-sm font-display font-extrabold shadow-lg shadow-emerald-500/25 transform hover:scale-[1.02]"
-                    >
-                      <Trophy className="w-4 h-4" />
-                      CHALLENGE TIER 0{nextBoss.tier}: {nextBoss.name} →
-                    </button>
-                  )}
                   <button
                     onClick={() => {
                       soundEngine.playInstall();
-                      onReturnToWorkshop(false);
+                      if (onReturnToDashboard) {
+                        onReturnToDashboard();
+                      } else {
+                        onReturnToWorkshop(false);
+                      }
                     }}
-                    className="cursor-pointer inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-cyan-500/40 text-xs sm:text-sm font-display font-bold text-cyan-300"
+                    className="cursor-pointer inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 text-sm font-display font-extrabold shadow-lg shadow-emerald-500/25 transform hover:scale-[1.02]"
                   >
                     <Wrench className="w-4 h-4" />
-                    REDESIGN IN WORKSHOP
+                    RETURN TO TEAM DASHBOARD →
                   </button>
                 </div>
               ) : (
                 <button
                   onClick={() => {
                     soundEngine.playInstall();
-                    onReturnToWorkshop(false);
+                    if (onReturnToDashboard) {
+                      onReturnToDashboard();
+                    } else {
+                      onReturnToWorkshop(false);
+                    }
                   }}
                   className="cursor-pointer inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-gradient-to-r from-cyan-400 to-sky-400 hover:from-cyan-300 hover:to-sky-300 text-slate-950 text-sm font-display font-extrabold shadow-lg shadow-cyan-500/25"
                 >
                   <Wrench className="w-4 h-4" />
-                  RETURN TO WORKSHOP & REDESIGN
+                  RETURN TO ENGINEERING & ITERATE
                 </button>
               )}
             </div>
