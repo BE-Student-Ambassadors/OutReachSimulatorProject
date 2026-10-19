@@ -1,288 +1,134 @@
-import {
-  Compass,
-  Cpu,
-  Flame,
-  Rocket,
-  Scale,
-  Shield,
-  ShieldCheck,
-  Umbrella,
-  Wind,
-} from 'lucide-react'
-import { count, money, uid } from '../../core/format'
-import type { Scenario, ToolDef } from '../../core/scenario'
+import { Rocket } from 'lucide-react'
+import { count, money } from '../../core/format'
+import type { Scenario } from '../../core/scenario'
 import { RocketArt } from './CardArt'
-import {
-  AIRFRAME_MATERIALS,
-  BUDGET,
-  CHUTE_SPECS,
-  IMPULSE_CLASSES,
-  PAYLOAD_MOTORS,
-  PROGRAM_SPECS,
-  REQUIRED,
-  STATION_COSTS,
-  VARIANTS,
-} from './config'
+import { REQUIRED, SEED_FUNDS, VARIANTS } from './config'
 import { designCost } from './cost'
 import { RocketProperties } from './RocketProperties'
 import { RocketRun, type RocketResult } from './sim/engine'
-import type { RocketObject, RocketProgramId, RocketVariantId } from './types'
+import type { RocketObject, RocketVariantId } from './types'
 import { RocketWorld } from './world/RocketWorld'
 
-const tools: ToolDef[] = [
-  {
-    id: 'gyro',
-    label: '1. Gyroscope Rig',
-    icon: Compass,
-    accent: '#0284c7',
-    priceLabel: money(STATION_COSTS.gyroCalibration),
-    summary: 'Payload Role 1: 3-axis timing calibrator that holds payload orientation during descent.',
-    placement: 'point',
-  },
-  {
-    id: 'payloadMotor',
-    label: '2. Payload Motor',
-    icon: Cpu,
-    accent: '#d97706',
-    priceLabel: `from ${money(PAYLOAD_MOTORS['micro-gimbal'].cost)}`,
-    summary: 'Payload Role 2: Reaction wheel motor providing torque to counter descent spin.',
-    placement: 'point',
-  },
-  {
-    id: 'payloadTest',
-    label: '3. Payload Drop Rig',
-    icon: Umbrella,
-    accent: '#b45309',
-    priceLabel: `from ${money(CHUTE_SPECS['drogue-small'].cost)}`,
-    summary: 'Payload Role 3: Drop test altitude, wind lead angle, and parachute deployment rig.',
-    placement: 'point',
-  },
-  {
-    id: 'weightDist',
-    label: '4. Rocket Weights',
-    icon: Scale,
-    accent: '#2c5b3c',
-    priceLabel: 'Included',
-    summary: 'Rocket Role 4: Internal bay arrangement determining Center of Gravity (CG) stability.',
-    placement: 'point',
-  },
-  {
-    id: 'airframe',
-    label: '5. Airframe Material',
-    icon: Shield,
-    accent: '#7c5cbf',
-    priceLabel: `from ${money(AIRFRAME_MATERIALS.cardboard.cost)}`,
-    summary: 'Rocket Role 5: Airframe structural composite, nose cone shape, and fin geometry.',
-    placement: 'point',
-  },
-  {
-    id: 'launchSetup',
-    label: '6. Flight Launch Pad',
-    icon: Rocket,
-    accent: '#b8461b',
-    priceLabel: `from ${money(IMPULSE_CLASSES['l-class'].cost)}`,
-    summary: 'Rocket Role 6: Solid rocket motor impulse class, rail angle, and nose ballast trim.',
-    placement: 'point',
-  },
-  {
-    id: 'program:reefing',
-    label: PROGRAM_SPECS.reefing.label,
-    icon: Umbrella,
-    accent: '#3f7d46',
-    priceLabel: money(PROGRAM_SPECS.reefing.cost),
-    summary: PROGRAM_SPECS.reefing.summary,
-    placement: 'program',
-  },
-  {
-    id: 'program:carbonFins',
-    label: PROGRAM_SPECS.carbonFins.label,
-    icon: ShieldCheck,
-    accent: '#3f7d46',
-    priceLabel: money(PROGRAM_SPECS.carbonFins.cost),
-    summary: PROGRAM_SPECS.carbonFins.summary,
-    placement: 'program',
-  },
-  {
-    id: 'program:windSonde',
-    label: PROGRAM_SPECS.windSonde.label,
-    icon: Wind,
-    accent: '#3f7d46',
-    priceLabel: money(PROGRAM_SPECS.windSonde.cost),
-    summary: PROGRAM_SPECS.windSonde.summary,
-    placement: 'program',
-  },
-]
+const IGNITION_FACTS: Record<RocketResult['ignitionBlocks'][number], string> = {
+  'no-body': 'There was no body tube in its slot on the blueprint, so nothing held the rocket together.',
+  'no-avionics': 'The avionics bay was not in its slot, so the flight computer was not mounted in the rocket.',
+  'no-program': 'The flight computer had no working program uploaded.',
+  'no-power': 'The power circuit was not connected, so the flight computer never turned on.',
+  'no-ignite-command': 'The launch program never ran an IGNITE command.',
+  'no-igniter': 'The igniter circuit was not connected, so the motor never got the signal to light.',
+  'no-motor': 'There was no motor in the motor mount.',
+}
 
-/**
- * Strictly factual observations about the flight and payload drop test.
- * Never prescribes a solution.
- */
+/** Factual observations about a launch. Never advice. */
 function observations(r: RocketResult): string[] {
   const out: string[] = []
-  const t = r.telemetry
-
-  // Rocket observations
-  if (r.mode !== 'payload-only') {
-    if (r.rocketOutcome === 'pad-stall') {
-      out.push(`The rocket reached only ${count(r.apogeeFt)} ft because the motor nozzle was not positioned at the tail end of the bay stack.`)
-    } else if (r.rocketOutcome === 'unstable-tumble') {
-      out.push(
-        `The rocket tumbled after leaving the launch rail (stability margin was ${t.stabilityCalibers} calibers; CG at ${t.cgCalibers} cal vs CP at ${t.cpCalibers} cal).`,
-      )
-    } else if (r.rocketOutcome === 'structural-shred') {
-      out.push(
-        t.weakestPart === 'fins'
-          ? `The fins fluttered and tore off at ${count(t.breakupSpeedMph)} mph, ${count(t.breakupAltFt)} ft up, and the rocket broke apart behind them. The motor was still burning and would have pushed it to ${count(t.peakSpeedMph)} mph.`
-          : `The airframe tore apart at ${count(t.breakupSpeedMph)} mph, ${count(t.breakupAltFt)} ft up. The motor was still burning and would have pushed it to ${count(t.peakSpeedMph)} mph.`,
-      )
-    } else {
-      out.push(
-        `The rocket reached an apogee of ${count(r.apogeeFt)} ft (${count(r.apogeeErrorFt)} ft from the 10,000 ft target), topping out at ${count(t.peakSpeedMph)} mph of its ${count(t.maxSafeSpeedMph)} mph safe speed.`,
-      )
-    }
+  if (r.outcome === 'no-ignition') {
+    out.push('The motor never lit and the rocket stayed on the pad.')
+    r.ignitionBlocks.forEach((b) => out.push(IGNITION_FACTS[b]))
+  } else if (r.outcome === 'no-liftoff') {
+    out.push(`The motor fired for ${r.burnSeconds} s, but its thrust was only ${r.thrustToWeight}× the rocket's ${r.massKg} kg weight, so it never left the pad.`)
+  } else if (r.outcome === 'breakup') {
+    out.push(
+      `The ${r.weakestPart} ${r.weakestPart === 'fins' ? 'are' : 'is'} rated to ${count(r.maxSafeMph)} mph. The rocket passed that speed ${count(r.breakupAltFt)} ft up and tore apart.`,
+    )
+  } else {
+    out.push(
+      `The rocket reached ${count(r.apogeeFt)} ft (${count(r.apogeeErrorFt)} ft from the ${count(REQUIRED.targetApogeeFt)} ft target), with a top speed of ${count(r.peakSpeedMph)} of its ${count(r.maxSafeMph)} mph rated speed.`,
+    )
+    out.push(`The motor burned for ${r.burnSeconds} s${r.fuelRanOut ? ' and ran out of fuel' : ''}. Liftoff mass was ${r.massKg} kg.`)
+    if (r.tumbled) out.push('With no fin set in the fin slot, the rocket tumbled end over end as it climbed.')
+    if (r.corkscrew) out.push('The warped fin spun the rocket in a corkscrew as it climbed.')
+    if (r.noNose) out.push('With no nose cone in its slot, the open front of the tube pushed against a lot of air.')
+    if (!r.sawFalling) out.push('The flight computer never detected the rocket falling (the "ON falling" block needs the altimeter circuit).')
+    if (r.chute === 'no-charge') out.push('The program called DEPLOY, but the ejection charge circuit was not connected.')
+    if (r.chute === 'no-parachute') out.push('The ejection charge fired, but there was no parachute in the parachute slot.')
+    if (r.chute === 'separated') out.push('The parachute came out, but nothing tied it to the rocket: the shock cord was not in its slot.')
+    if (r.chute === 'torn') out.push(`The parachute opened at ${count(r.deploySpeedMph ?? 0)} mph, ${count(r.deployAltFt ?? 0)} ft up, faster than its rated opening speed, and ripped.`)
+    if (r.chute === 'open') out.push(`The parachute opened ${count(r.deployAltFt ?? 0)} ft up while falling at ${count(r.deploySpeedMph ?? 0)} mph.`)
+    out.push(`It touched down at ${r.landingFps} ft/s, ${count(r.driftFt)} ft downwind of the pad.`)
   }
-
-  // Payload observations
-  if (r.mode !== 'rocket-only') {
-    if (r.payloadOutcome === 'splatter') {
-      out.push(
-        `The payload impacted the ground at ${t.landingSpeedFps} ft/s and shattered into pieces (motor mass: ${t.payloadMotorMassKg} kg, parachute opened at ${count(t.chuteDeployAltFt)} ft).`,
-      )
-    } else if (r.payloadOutcome === 'spin-motor-weak') {
-      out.push(
-        `The payload spun out of control during descent (reaction motor produced ${t.payloadMotorTorqueNm} N·m of torque) and landed ${count(r.landingDistFt)} ft from the target pad.`,
-      )
-    } else if (r.payloadOutcome === 'spin-gyro-uncalibrated') {
-      out.push(
-        `The payload spun out of control during descent (gyroscope calibration averaged ${t.gyroCalibrationPct}%) and landed ${count(r.landingDistFt)} ft from the target pad.`,
-      )
-    } else {
-      out.push(
-        `The payload touched down intact at ${t.landingSpeedFps} ft/s, ${count(r.landingDistFt)} ft from the center of the target pad.`,
-      )
-    }
-  }
-
+  if (!r.hasTelemetry) out.push('No radio data reached the ground station during the flight.')
+  out.push(`The team spent ${money(r.spent)} of ${money(r.funds)}.`)
   return out
 }
 
 export const rocketScenario: Scenario<RocketObject, RocketResult> = {
   id: 'rocket',
-  title: 'Rocket Team (IREC)',
-  discipline: 'Aerospace + Mechanical + Mechatronics Engineering',
-  tagline: '6-engineer team split into Payload & Rocket sub-teams. Hit 10,000 ft and land the payload on target.',
+  title: 'Rocket Team',
+  discipline: 'Electrical + Mechanical + Software + Business',
+  tagline: '4 engineers, 1 rocket, almost no money. Wire it, build it, code it, fund it, then launch it.',
   intro: {
-    heading: 'IREC Launch & Payload Recovery',
+    heading: 'Build a rocket on a shoestring',
     paragraphs: [
-      'Your 6-person aerospace team is competing at the International Rocketry Engineering Competition (IREC).',
-      'Your team splits into two 3-person sub-teams: the Payload Sub-Team (Gyroscope Calibration, Reaction Motor Selection, and Drop Test Rig) and the Rocket Sub-Team (Internal Weight Distribution, Airframe Materials, and Launch Pad Setup).',
-      'If the payload motor is too heavy, the payload will splatter into pieces on impact; if the motor is too weak or the gyroscope is uncalibrated, it will spin out of control.',
-      'Reach the 10,000 ft target apogee and land your payload intact on the target bullseye within budget.',
+      `Your team has ${money(SEED_FUNDS)} and a blueprint. Your rocket has to climb to ${count(REQUIRED.targetApogeeFt)} ft (± ${REQUIRED.apogeeToleranceFt}) and come back down gently enough to fly again.`,
+      'Electrical wires the flight breadboard. Mechanical buys parts online and builds the rocket. Software debugs and tunes the flight program. Business wins sponsors to pay for it all.',
+      'Every station needs the others. Launch as often as you like: each launch is a test that tells you what happened.',
     ],
   },
   instructions: [
-    'Open Role Picks to rank your 1st & 2nd choice role across Payload and Rocket.',
-    'Payload Sub-Team: calibrate the gyroscope, pick the motor, and run the Drop Test.',
-    'Rocket Sub-Team: order internal bay weights, pick airframe materials, and test launch.',
-    `Stay within your ${money(BUDGET)} team budget.`,
-    'Press LAUNCH IREC MISSION to test both sub-teams together.',
+    'Pick your role (Roles button). You can visit every station.',
+    'Follow the checklist at the top of your station.',
+    'Go to the Launch Pad and launch whenever you want to test.',
+    `Reach ${count(REQUIRED.targetApogeeFt)} ft, land at ${REQUIRED.maxLandingFps} ft/s or slower, and spend no more than you raise.`,
   ],
-  budget: BUDGET,
+  budget: SEED_FUNDS,
   minimalShell: true,
-  runLabel: 'Launch IREC Mission',
-  variants: [
-    { id: 'standard', label: VARIANTS.standard.label, blurb: VARIANTS.standard.blurb },
-    { id: 'payload-drop', label: VARIANTS['payload-drop'].label, blurb: VARIANTS['payload-drop'].blurb },
-    { id: 'rocket-launch', label: VARIANTS['rocket-launch'].label, blurb: VARIANTS['rocket-launch'].blurb },
-    { id: 'crosswind', label: VARIANTS.crosswind.label, blurb: VARIANTS.crosswind.blurb, requiresPass: true },
+  runLabel: 'Launch',
+  variants: [{ id: 'standard', label: VARIANTS.standard.label, blurb: VARIANTS.standard.blurb }],
+  tools: [
+    {
+      id: 'rocket',
+      label: 'Rocket',
+      icon: Rocket,
+      accent: '#2c5b3c',
+      priceLabel: 'Varies',
+      summary: 'Built from the four stations.',
+      placement: 'point',
+    },
   ],
-  tools,
   requirements: [
     {
       id: 'apogee',
-      label: 'Rocket Apogee (10,000 ft)',
-      passLabel: 'Apogee Target Reached',
-      target: `10,000 ± ${REQUIRED.maxApogeeErrorFt} ft`,
-      status: (r) =>
-        r
-          ? {
-              value: `${count(r.apogeeFt)} ft`,
-              pass: r.rocketPassed,
-            }
-          : { value: null, pass: null },
+      label: `Apogee (${count(REQUIRED.targetApogeeFt)} ft)`,
+      passLabel: 'Apogee on target',
+      target: `${count(REQUIRED.targetApogeeFt)} ± ${REQUIRED.apogeeToleranceFt} ft`,
+      status: (r) => (r ? { value: `${count(r.apogeeFt)} ft`, pass: r.apogeePassed } : { value: null, pass: null }),
     },
     {
-      id: 'payload',
-      label: 'Payload Target Landing',
-      passLabel: 'Payload Intact on Target',
-      target: `Intact, ≤ ${REQUIRED.maxLandingDistFt} ft`,
+      id: 'recovery',
+      label: 'Safe landing',
+      passLabel: 'Landed safely',
+      target: `≤ ${REQUIRED.maxLandingFps} ft/s`,
       status: (r) =>
         r
-          ? {
-              value: r.payloadIntact
-                ? `${count(r.landingDistFt)} ft`
-                : r.payloadOutcome === 'splatter'
-                  ? 'SPLATTERED'
-                  : 'SPUN OUT',
-              pass: r.payloadPassed,
-            }
+          ? { value: r.outcome === 'flight' ? `${r.landingFps} ft/s` : r.outcome === 'breakup' ? 'BROKE UP' : 'NO FLIGHT', pass: r.recoveryPassed }
           : { value: null, pass: null },
     },
     {
       id: 'budget',
-      label: 'Project Cost',
-      passLabel: 'Within Budget',
-      target: `≤ ${money(BUDGET)}`,
-      status: (_r, cost) => ({ value: money(cost), pass: cost <= BUDGET }),
+      label: 'Money',
+      passLabel: 'Within budget',
+      target: 'Spent ≤ raised',
+      status: (r, cost) => (r ? { value: `${money(r.spent)} / ${money(r.funds)}`, pass: r.budgetPassed } : { value: money(cost), pass: null }),
     },
   ],
   initialDesign: () => [],
   cost: designCost,
   remove: (design, id) => design.filter((o) => o.id !== id),
-  programs: {
-    isOn: (design, toolId) =>
-      design.some((o) => o.kind === 'program' && `program:${o.program}` === toolId),
-    toggle: (design, toolId) => {
-      const program = toolId.replace('program:', '') as RocketProgramId
-      const on = design.some((o) => o.kind === 'program' && o.program === program)
-      return on
-        ? design.filter((o) => !(o.kind === 'program' && o.program === program))
-        : [...design, { id: uid('program'), kind: 'program', program, updatedAt: Date.now() }]
-    },
-  },
   createRun: (design, variantId) => new RocketRun(design, (variantId as RocketVariantId) ?? 'standard'),
   observations,
-  stats: (r, design) => [
-    { label: 'Total cost', value: money(designCost(design)) },
-    { label: 'Rocket apogee', value: `${count(r.apogeeFt)} ft` },
-    { label: 'Stability margin', value: `${r.telemetry.stabilityCalibers} cal` },
-    { label: 'Peak dynamic pressure', value: `${r.telemetry.peakDynamicPressureKpa} / ${r.telemetry.structuralLimitKpa} kPa` },
-    {
-      label: 'Top / safe speed',
-      value: `${count(r.rocketOutcome === 'structural-shred' ? r.telemetry.breakupSpeedMph : r.telemetry.peakSpeedMph)} / ${count(r.telemetry.maxSafeSpeedMph)} mph`,
-    },
-    { label: 'Gyroscope calibration', value: `${r.telemetry.gyroCalibrationPct}%` },
-    { label: 'Payload motor', value: `${r.telemetry.payloadMotorMassKg} kg · ${r.telemetry.payloadMotorTorqueNm} N·m` },
-    { label: 'Landing speed', value: `${r.telemetry.landingSpeedFps} ft/s` },
-    { label: 'Target pad distance', value: `${count(r.landingDistFt)} ft` },
+  stats: (r) => [
+    { label: 'Apogee', value: `${count(r.apogeeFt)} ft` },
+    { label: 'Top / rated speed', value: `${count(r.peakSpeedMph)} / ${count(r.maxSafeMph)} mph` },
+    { label: 'Burn time', value: `${r.burnSeconds} s` },
+    { label: 'Liftoff mass', value: `${r.massKg} kg` },
+    { label: 'Parachute opened', value: r.deployAltFt !== null ? `${count(r.deployAltFt)} ft` : '—' },
+    { label: 'Landing speed', value: `${r.landingFps} ft/s` },
+    { label: 'Drift', value: `${count(r.driftFt)} ft` },
+    { label: 'Money', value: `${money(r.spent)} / ${money(r.funds)}` },
   ],
-  summary: (r) =>
-    `${count(r.apogeeFt)} ft · ${
-      r.payloadIntact
-        ? `${r.landingDistFt} ft pad`
-        : r.payloadOutcome === 'splatter'
-          ? 'SPLAT'
-          : 'SPIN-OUT'
-    }`,
+  summary: (r) => (r.outcome === 'flight' ? `${count(r.apogeeFt)} ft · ${r.landingFps} ft/s` : r.outcome === 'breakup' ? `broke up ${count(r.breakupAltFt)} ft` : 'no liftoff'),
   World: RocketWorld,
   Properties: RocketProperties,
   CardArt: RocketArt,
-  overlayLabel: 'Target ring',
-  overlayLegend: {
-    title: 'IREC Payload Landing Zone (≤ 50 ft radius)',
-    colors: ['#dc2626', '#f97316', '#22c55e'],
-    range: 'Bullseye → 50 ft boundary',
-  },
 }
-
-export { Flame }

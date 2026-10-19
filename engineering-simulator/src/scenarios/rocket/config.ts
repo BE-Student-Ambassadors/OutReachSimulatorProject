@@ -1,548 +1,442 @@
 import type {
-  AirframeMaterialId,
-  AirframeObject,
-  ChuteSizeId,
-  FinProfileId,
-  GyroConfigObject,
-  ImpulseClassId,
-  LaunchSetupObject,
-  NoseConeId,
-  PayloadMotorId,
-  PayloadMotorObject,
-  PayloadTestRigObject,
-  RocketBayId,
+  BusinessObject,
+  CircuitId,
+  ElectricalObject,
+  KitPartId,
+  MechanicalObject,
+  PartCategory,
   RocketObject,
-  RocketProgramId,
   RocketVariantId,
-  WeightDistObject,
+  SlotId,
+  SoftwareObject,
+  SponsorId,
 } from './types'
 
-export const BUDGET = 120_000
+/** Money the team starts with before any sponsor pays. Not enough for a full rocket on its own. */
+export const SEED_FUNDS = 40
 
 export const REQUIRED = {
-  /** IREC target altitude in feet. */
-  targetApogeeFt: 10_000,
-  /** Maximum allowed apogee error (+/- ft from 10,000 ft) to pass Rocket Altitude requirement. */
-  maxApogeeErrorFt: 850,
-  /** Maximum landing distance from target bullseye pad (ft) for an intact payload. */
-  maxLandingDistFt: 50,
-  /** Minimum average gyroscope calibration score (0..100) to avoid spin-out. */
-  minGyroCalibrationPct: 75,
-  /** Minimum motor torque (N*m) required in standard vs crosswind to prevent spin-out. */
-  minMotorTorqueNm: 2.2,
-  minMotorTorqueCrosswindNm: 3.8,
-  /** Maximum payload motor mass (kg) before descent rate overloads the landing structure (splatter!). */
-  maxMotorMassKg: 5.5,
+  targetApogeeFt: 1500,
+  apogeeToleranceFt: 150,
+  /** Fastest touchdown the rocket survives without damage. */
+  maxLandingFps: 20,
 } as const
 
-export const VARIANTS: Record<
-  RocketVariantId,
-  {
-    label: string
-    blurb: string
-    windMph: number
-    turbulenceFactor: number
-    mode: 'full' | 'payload-only' | 'rocket-only'
-  }
-> = {
-  standard: {
-    label: 'Full IREC Mission',
-    blurb: '10,000 ft launch + payload drop',
-    windMph: 10,
-    turbulenceFactor: 1.0,
-    mode: 'full',
-  },
-  'payload-drop': {
-    label: 'Payload Drop Test',
-    blurb: 'Drop test from crane/drone',
-    windMph: 10,
-    turbulenceFactor: 1.0,
-    mode: 'payload-only',
-  },
-  'rocket-launch': {
-    label: 'Rocket Flight Test',
-    blurb: 'Ascent & apogee test',
-    windMph: 10,
-    turbulenceFactor: 1.0,
-    mode: 'rocket-only',
-  },
-  crosswind: {
-    label: 'Desert Crosswind Finals',
-    blurb: '24 mph gusting desert wind',
-    windMph: 24,
-    turbulenceFactor: 1.35,
-    mode: 'full',
-  },
+export const VARIANTS: Record<RocketVariantId, { label: string; blurb: string; windMph: number }> = {
+  standard: { label: 'Launch Day', blurb: 'Light breeze, 6 mph', windMph: 6 },
 }
 
-export interface PayloadMotorSpec {
-  id: PayloadMotorId
-  name: string
-  massKg: number
-  torqueNm: number
-  powerW: number
-  cost: number
-  specLine: string
-}
+// ---------------------------------------------------------------- electrical
 
-export const PAYLOAD_MOTORS: Record<PayloadMotorId, PayloadMotorSpec> = {
-  'micro-gimbal': {
-    id: 'micro-gimbal',
-    name: 'Micro Brushless 40W',
-    massKg: 0.6,
-    torqueNm: 0.6,
-    powerW: 40,
-    cost: 4_000,
-    specLine: '0.6 kg · 0.6 N·m torque · Ultralight camera gimbal motor',
-  },
-  'light-servo': {
-    id: 'light-servo',
-    name: 'NEMA-17 Reaction Servo 110W',
-    massKg: 1.3,
-    torqueNm: 1.4,
-    powerW: 110,
-    cost: 9_000,
-    specLine: '1.3 kg · 1.4 N·m torque · Small reaction wheel drive',
-  },
-  'aero-torque': {
-    id: 'aero-torque',
-    name: 'Aerospace Torque Drive 260W',
-    massKg: 2.7,
-    torqueNm: 3.2,
-    powerW: 260,
-    cost: 18_000,
-    specLine: '2.7 kg · 3.2 N·m torque · Flight-grade reaction control motor',
-  },
-  'carbon-twin': {
-    id: 'carbon-twin',
-    name: 'Carbon-Pro Twin Gimbal 380W',
-    massKg: 3.4,
-    torqueNm: 4.6,
-    powerW: 380,
-    cost: 28_000,
-    specLine: '3.4 kg · 4.6 N·m torque · High-authority dual reaction wheel',
-  },
-  'heavy-iron': {
-    id: 'heavy-iron',
-    name: 'Industrial Cast-Iron Drive 950W',
-    massKg: 9.8,
-    torqueNm: 8.5,
-    powerW: 950,
-    cost: 12_000,
-    specLine: '9.8 kg · 8.5 N·m torque · Heavy industrial cast-iron housing',
-  },
-}
-
-export interface ChuteSpec {
-  id: ChuteSizeId
-  name: string
-  diameterM: number
-  dragAreaM2: number
-  cost: number
-  specLine: string
-}
-
-export const CHUTE_SPECS: Record<ChuteSizeId, ChuteSpec> = {
-  'drogue-small': {
-    id: 'drogue-small',
-    name: '1.2 m Drogue Canopy',
-    diameterM: 1.2,
-    dragAreaM2: 1.1,
-    cost: 3_000,
-    specLine: 'Fast descent · Low wind drift, high landing speed',
-  },
-  'main-standard': {
-    id: 'main-standard',
-    name: '2.4 m Cruciform Main Chute',
-    diameterM: 2.4,
-    dragAreaM2: 4.2,
-    cost: 8_000,
-    specLine: 'Balanced descent rate and stability for 4–8 kg payloads',
-  },
-  'tandem-large': {
-    id: 'tandem-large',
-    name: '3.4 m Tandem Parafoil',
-    diameterM: 3.4,
-    dragAreaM2: 6.2,
-    cost: 15_000,
-    specLine: 'Softest landing · Catches more crosswind during descent',
-  },
-}
-
-export interface RocketBaySpec {
-  id: RocketBayId
+export interface CircuitSpec {
+  id: CircuitId
   label: string
-  shortLabel: string
-  baseMassKg: number
+  /** The two pins the wire joins. */
+  pins: [string, string]
   color: string
-  description: string
+  /** What the circuit does, as a fact. */
+  summary: string
 }
 
-export const ROCKET_BAYS: Record<RocketBayId, RocketBaySpec> = {
-  'nose-ballast': {
-    id: 'nose-ballast',
-    label: 'Tungsten Trim Ballast',
-    shortLabel: 'Ballast',
-    baseMassKg: 2.2,
-    color: '#475569',
-    description: 'Dense nose weight that shifts Center of Gravity (CG) forward.',
-  },
-  'payload-bay': {
-    id: 'payload-bay',
-    label: 'IREC Payload Module',
-    shortLabel: 'Payload',
-    baseMassKg: 3.2, // plus chosen payload motor mass!
-    color: '#d97706',
-    description: 'Carries the gyroscope, reaction motor, and recovery rig.',
-  },
-  'avionics-bay': {
-    id: 'avionics-bay',
-    label: 'Avionics & GPS Telemetry',
-    shortLabel: 'Avionics',
-    baseMassKg: 1.6,
-    color: '#0284c7',
-    description: 'Barometric altimeter, flight computer, and dual-deploy charges.',
-  },
-  'recovery-bay': {
-    id: 'recovery-bay',
-    label: 'Airframe Recovery Harness',
-    shortLabel: 'Recovery',
-    baseMassKg: 2.4,
-    color: '#16a34a',
-    description: ' Kevlar shock cords and airframe recovery parachutes.',
-  },
-  'propellant-tank': {
-    id: 'propellant-tank',
-    label: 'APCP Propellant Grain Case',
-    shortLabel: 'Propellant',
-    baseMassKg: 11.5,
-    color: '#dc2626',
-    description: 'High-mass solid composite propellant grains.',
-  },
-  'motor-nozzle': {
-    id: 'motor-nozzle',
-    label: 'Booster Casing & Graphite Nozzle',
-    shortLabel: 'Booster Nozzle',
-    baseMassKg: 7.8,
-    color: '#7c3aed',
-    description: 'Thrust structure and nozzle. Must be at the tail to exhaust!',
-  },
-}
-
-/**
- * Default starting bay order is intentionally top-heavy/scrambled (propellant & nozzle misplaced)
- * so the starting design fails until the Weight Distribution Engineer orders it properly.
- */
-export const DEFAULT_BAY_ORDER: RocketBayId[] = [
-  'propellant-tank',
-  'recovery-bay',
-  'motor-nozzle',
-  'avionics-bay',
-  'payload-bay',
-  'nose-ballast',
+export const CIRCUITS: CircuitSpec[] = [
+  { id: 'power', label: 'Power', pins: ['BAT', 'FC·PWR'], color: '#c23b22', summary: 'Battery to the flight computer. Everything else runs on this.' },
+  { id: 'igniter', label: 'Igniter', pins: ['FC·IGN', 'IGNITER'], color: '#d99a1e', summary: 'Lets the flight computer light the motor.' },
+  { id: 'eject', label: 'Ejection charge', pins: ['FC·EJ', 'EJECT'], color: '#7c4dbd', summary: 'Pops the parachute out of the body tube.' },
+  { id: 'altimeter', label: 'Altimeter', pins: ['ALT', 'FC·ALT'], color: '#3f8f52', summary: 'Tells the flight computer its height and when it starts falling.' },
+  { id: 'radio', label: 'Radio', pins: ['RADIO', 'FC·TX'], color: '#cf4f86', summary: 'Sends live altitude and speed to the ground station.' },
 ]
 
-/** Ideal forward-to-aft order that places CG ahead of CP with nozzle at the aft end. */
-export const IDEAL_BAY_ORDER: RocketBayId[] = [
-  'nose-ballast',
-  'payload-bay',
-  'avionics-bay',
-  'recovery-bay',
-  'propellant-tank',
-  'motor-nozzle',
-]
+export const BOARD_ROWS = 6
+export const BOARD_COLS = 7
 
-export interface AirframeMaterialSpec {
-  id: AirframeMaterialId
-  name: string
+// ---------------------------------------------------------------- mechanical
+
+export interface PartListing {
+  id: string
+  category: PartCategory
+  title: string
+  condition: 'New' | 'Used' | 'Handmade' | 'Open box'
+  price: number
+  seller: string
+  /** Seller feedback, percent positive. */
+  rating: number
   massKg: number
-  maxQLimitKpa: number
-  cost: number
-  specLine: string
+  /** Item specifics, as listed. */
+  specs: string[]
+  sellerNote: string
+  /** Drag coefficient this part adds (nose cones and fins). */
+  cd?: number
+  /** Fastest the part can fly before it tears (body tubes and fins), mph. */
+  safeMph?: number
+  /** A warped fin makes the rocket corkscrew. */
+  warped?: boolean
+  thrustN?: number
+  /** Seconds of fuel at 100% throttle. */
+  fuelSec?: number
+  fuelKg?: number
+  /** Parachute drag area (Cd × area), m². */
+  chuteCdA?: number
+  /** Fastest the canopy can open without ripping, mph. */
+  chuteMaxMph?: number
 }
 
-export const AIRFRAME_MATERIALS: Record<AirframeMaterialId, AirframeMaterialSpec> = {
-  cardboard: {
-    id: 'cardboard',
-    name: 'Phenolic Kraft Cardboard',
-    massKg: 3.5,
-    maxQLimitKpa: 28,
-    cost: 6_000,
-    specLine: '3.5 kg · Max-Q limit 28 kPa · Light & cheap, weak at supersonic speed',
+export const LISTINGS: PartListing[] = [
+  // Nose cones
+  {
+    id: 'nose-blunt',
+    category: 'nose',
+    title: 'Plastic nose cone, rounded, scuffed',
+    condition: 'Used',
+    price: 4,
+    seller: 'garage_finds_88',
+    rating: 91,
+    massKg: 0.05,
+    specs: ['Shape: rounded (blunt)', 'Fits 2.6 in tube', 'Weight: 50 g'],
+    sellerNote: 'Pulled off an old kit. Some scratches.',
+    cd: 0.5,
   },
-  aluminum: {
-    id: 'aluminum',
-    name: '6061-T6 Aerospace Aluminum',
-    massKg: 9.2,
-    maxQLimitKpa: 85,
-    cost: 20_000,
-    specLine: '9.2 kg · Max-Q limit 85 kPa · Strong metallic airframe, heavier',
+  {
+    id: 'nose-ogive',
+    category: 'nose',
+    title: 'Ogive nose cone, white plastic',
+    condition: 'New',
+    price: 12,
+    seller: 'rocketry_outlet',
+    rating: 99,
+    massKg: 0.055,
+    specs: ['Shape: ogive (pointed curve)', 'Fits 2.6 in tube', 'Weight: 55 g'],
+    sellerNote: 'Ships in 1 business day.',
+    cd: 0.38,
   },
-  fiberglass: {
-    id: 'fiberglass',
-    name: 'S-Glass Filament Fiberglass',
-    massKg: 5.8,
-    maxQLimitKpa: 78,
-    cost: 28_000,
-    specLine: '5.8 kg · Max-Q limit 78 kPa · Balanced strength-to-weight composite',
+  {
+    id: 'nose-vk',
+    category: 'nose',
+    title: 'Fiberglass Von Kármán nose cone',
+    condition: 'New',
+    price: 30,
+    seller: 'apex_composites',
+    rating: 100,
+    massKg: 0.09,
+    specs: ['Shape: Von Kármán (low drag)', 'Fits 2.6 in tube', 'Weight: 90 g'],
+    sellerNote: 'Hand laid fiberglass, sanded smooth.',
+    cd: 0.31,
   },
-  carbon: {
-    id: 'carbon',
-    name: 'Autoclave Carbon Fiber',
-    massKg: 4.1,
-    maxQLimitKpa: 110,
-    cost: 44_000,
-    specLine: '4.1 kg · Max-Q limit 110 kPa · Ultra-light, highest stiffness',
+  // Body tubes
+  {
+    id: 'body-cardboard',
+    category: 'body',
+    title: 'Cardboard mailing tube, 2.6 in × 30 in',
+    condition: 'Used',
+    price: 3,
+    seller: 'officesurplus_co',
+    rating: 95,
+    massKg: 0.12,
+    specs: ['Material: spiral cardboard', 'Rated speed: 210 mph', 'Weight: 120 g'],
+    sellerNote: 'Mailing tubes, lightly used. Caps not included.',
+    safeMph: 210,
   },
-  steel: {
-    id: 'steel',
-    name: 'Welded Schedule-40 Steel',
-    massKg: 21.0,
-    maxQLimitKpa: 140,
-    cost: 10_000,
-    specLine: '21.0 kg · Max-Q limit 140 kPa · Extremely heavy structural tube',
+  {
+    id: 'body-phenolic',
+    category: 'body',
+    title: 'Phenolic body tube (small dent)',
+    condition: 'Open box',
+    price: 11,
+    seller: 'rocketry_outlet',
+    rating: 99,
+    massKg: 0.18,
+    specs: ['Material: phenolic resin', 'Rated speed: 330 mph', 'Weight: 180 g'],
+    sellerNote: 'Small dent near one end from shipping. Otherwise new.',
+    safeMph: 330,
   },
+  {
+    id: 'body-fiberglass',
+    category: 'body',
+    title: 'Fiberglass airframe tube, 2.6 in',
+    condition: 'New',
+    price: 34,
+    seller: 'apex_composites',
+    rating: 100,
+    massKg: 0.3,
+    specs: ['Material: fiberglass', 'Rated speed: 650 mph', 'Weight: 300 g'],
+    sellerNote: 'Competition grade.',
+    safeMph: 650,
+  },
+  // Fins
+  {
+    id: 'fins-balsa',
+    category: 'fins',
+    title: 'Balsa fin set (3), one slightly warped',
+    condition: 'Used',
+    price: 3,
+    seller: 'garage_finds_88',
+    rating: 91,
+    massKg: 0.025,
+    specs: ['Material: balsa wood', 'Rated speed: 240 mph', 'Weight: 25 g', 'One fin bent about 3°'],
+    sellerNote: 'Left in a hot car. Still usable I think.',
+    cd: 0.12,
+    safeMph: 240,
+    warped: true,
+  },
+  {
+    id: 'fins-plywood',
+    category: 'fins',
+    title: 'Plywood fin set (3), laser cut',
+    condition: 'New',
+    price: 9,
+    seller: 'makerspace_cuts',
+    rating: 97,
+    massKg: 0.06,
+    specs: ['Material: 1/8 in plywood', 'Rated speed: 360 mph', 'Weight: 60 g'],
+    sellerNote: 'Cut to order.',
+    cd: 0.1,
+    safeMph: 360,
+  },
+  {
+    id: 'fins-g10',
+    category: 'fins',
+    title: 'G10 fiberglass fin set (3), beveled',
+    condition: 'New',
+    price: 24,
+    seller: 'apex_composites',
+    rating: 100,
+    massKg: 0.1,
+    specs: ['Material: G10 fiberglass', 'Rated speed: 700 mph', 'Weight: 100 g', 'Edges beveled'],
+    sellerNote: 'Same fins the college teams use.',
+    cd: 0.08,
+    safeMph: 700,
+  },
+  // Motors
+  {
+    id: 'motor-mini',
+    category: 'motor',
+    title: 'Mini hybrid motor, "fired once, works"',
+    condition: 'Used',
+    price: 14,
+    seller: 'launchday_leftovers',
+    rating: 88,
+    massKg: 0.2,
+    specs: ['Max thrust: 45 N', 'Fuel: 2.6 s at full throttle', 'Weight: 260 g with fuel'],
+    sellerNote: 'Fired once at a club launch. Cleaned.',
+    thrustN: 45,
+    fuelSec: 2.6,
+    fuelKg: 0.06,
+  },
+  {
+    id: 'motor-standard',
+    category: 'motor',
+    title: 'Hybrid motor, standard',
+    condition: 'New',
+    price: 32,
+    seller: 'rocketry_outlet',
+    rating: 99,
+    massKg: 0.24,
+    specs: ['Max thrust: 70 N', 'Fuel: 3.2 s at full throttle', 'Weight: 330 g with fuel'],
+    sellerNote: 'Sealed box.',
+    thrustN: 70,
+    fuelSec: 3.2,
+    fuelKg: 0.09,
+  },
+  {
+    id: 'motor-pro',
+    category: 'motor',
+    title: 'Pro hybrid motor, high thrust',
+    condition: 'New',
+    price: 64,
+    seller: 'apex_composites',
+    rating: 100,
+    massKg: 0.28,
+    specs: ['Max thrust: 105 N', 'Fuel: 3.8 s at full throttle', 'Weight: 410 g with fuel'],
+    sellerNote: 'Our strongest motor that fits a 2.6 in tube.',
+    thrustN: 105,
+    fuelSec: 3.8,
+    fuelKg: 0.13,
+  },
+  // Parachutes
+  {
+    id: 'chute-bag',
+    category: 'parachute',
+    title: 'Homemade trash-bag parachute, 18 in',
+    condition: 'Handmade',
+    price: 2,
+    seller: 'thrifty_launches',
+    rating: 84,
+    massKg: 0.015,
+    specs: ['Diameter: 18 in', 'Material: trash bag', 'Max opening speed: 50 mph', 'Weight: 15 g'],
+    sellerNote: 'Made it myself. Tape is strong.',
+    chuteCdA: 0.12,
+    chuteMaxMph: 50,
+  },
+  {
+    id: 'chute-nylon',
+    category: 'parachute',
+    title: 'Nylon parachute, 30 in',
+    condition: 'New',
+    price: 11,
+    seller: 'rocketry_outlet',
+    rating: 99,
+    massKg: 0.04,
+    specs: ['Diameter: 30 in', 'Material: nylon', 'Max opening speed: 90 mph', 'Weight: 40 g'],
+    sellerNote: 'Includes shroud lines.',
+    chuteCdA: 0.46,
+    chuteMaxMph: 90,
+  },
+  {
+    id: 'chute-ripstop',
+    category: 'parachute',
+    title: 'Ripstop parachute, 42 in, with swivel',
+    condition: 'New',
+    price: 22,
+    seller: 'apex_composites',
+    rating: 100,
+    massKg: 0.07,
+    specs: ['Diameter: 42 in', 'Material: ripstop nylon', 'Max opening speed: 130 mph', 'Weight: 70 g'],
+    sellerNote: 'Swivel keeps the lines from twisting.',
+    chuteCdA: 0.8,
+    chuteMaxMph: 130,
+  },
+]
+
+export const LISTING_BY_ID: Record<string, PartListing> = Object.fromEntries(LISTINGS.map((l) => [l.id, l]))
+
+export const CATEGORY_LABELS: Record<PartCategory, string> = {
+  nose: 'Nose cones',
+  body: 'Body tubes',
+  fins: 'Fin sets',
+  motor: 'Motors',
+  parachute: 'Parachutes',
 }
 
-export interface NoseConeSpec {
-  id: NoseConeId
+export const KIT_PARTS: Record<KitPartId, { label: string; massKg: number; note: string }> = {
+  'kit:shock-cord': { label: 'Shock cord', massKg: 0.03, note: 'Elastic cord that ties the parachute to the rocket.' },
+  'kit:avionics-bay': { label: 'Avionics bay', massKg: 0.07, note: 'Holds the breadboard and flight computer.' },
+}
+
+export interface BlueprintSlot {
+  id: SlotId
+  label: string
+  /** What belongs here: a shop category or a kit part. */
+  takes: PartCategory | KitPartId
+}
+
+/** Nose to tail, the way the blueprint draws it. */
+export const BLUEPRINT: BlueprintSlot[] = [
+  { id: 'nose', label: 'Nose cone', takes: 'nose' },
+  { id: 'parachute', label: 'Parachute', takes: 'parachute' },
+  { id: 'shockCord', label: 'Shock cord', takes: 'kit:shock-cord' },
+  { id: 'avionics', label: 'Avionics bay', takes: 'kit:avionics-bay' },
+  { id: 'body', label: 'Body tube', takes: 'body' },
+  { id: 'motor', label: 'Motor', takes: 'motor' },
+  { id: 'fins', label: 'Fin set', takes: 'fins' },
+]
+
+/** Seconds from "Buy It Now" until the parcel shows up on the bench. */
+export const SHIPPING_SECONDS = 6
+/** Kept by the shop when a part goes back. */
+export const RESTOCKING_FEE = 2
+
+// ---------------------------------------------------------------- business
+
+export interface SponsorSpec {
+  id: SponsorId
   name: string
-  dragCd: number
-  cpShiftCal: number
-  cost: number
-  specLine: string
+  industry: string
+  contact: string
+  /** Their opening offer for one flyer. */
+  opening: number
+  /** The most they will agree to. Hidden from students. */
+  ceiling: number
+  pitch: string
+  brandColor: string
 }
 
-export const NOSE_CONES: Record<NoseConeId, NoseConeSpec> = {
-  blunt: {
-    id: 'blunt',
-    name: 'Blunt Hemispherical',
-    dragCd: 0.68,
-    cpShiftCal: -0.2,
-    cost: 2_000,
-    specLine: 'Cd 0.68 · High wave drag above Mach 0.7',
+export const SPONSORS: SponsorSpec[] = [
+  {
+    id: 'ridgeline',
+    name: 'Ridgeline Hardware',
+    industry: 'Hardware store',
+    contact: 'Dana, store manager',
+    opening: 35,
+    ceiling: 55,
+    pitch: 'We love seeing students build things. We could put up a flyer by our register if it shows off your rocket and our store.',
+    brandColor: '#b8461b',
   },
-  conical: {
-    id: 'conical',
-    name: '15° Conical Nose',
-    dragCd: 0.48,
-    cpShiftCal: 0.0,
-    cost: 5_000,
-    specLine: 'Cd 0.48 · Simple Mach-capable cone',
+  {
+    id: 'byte-burger',
+    name: 'Byte Burger',
+    industry: 'Restaurant',
+    contact: 'Marco, owner',
+    opening: 25,
+    ceiling: 45,
+    pitch: 'Our customers are your neighbors! Make us a fun flyer for the front window and we will chip in.',
+    brandColor: '#d99a1e',
   },
-  ogive: {
-    id: 'ogive',
-    name: 'Tangent Ogive',
-    dragCd: 0.36,
-    cpShiftCal: 0.15,
-    cost: 9_000,
-    specLine: 'Cd 0.36 · Smooth aerodynamic profile',
+  {
+    id: 'summit-solar',
+    name: 'Summit Solar Co.',
+    industry: 'Solar installer',
+    contact: 'Priya, marketing lead',
+    opening: 50,
+    ceiling: 70,
+    pitch: 'Clean energy and rockets both need engineers. We want a flyer for our booth at the county fair.',
+    brandColor: '#2c5b3c',
   },
-  'von-karman': {
-    id: 'von-karman',
-    name: 'Von Kármán Haack Series',
-    dragCd: 0.29,
-    cpShiftCal: 0.25,
-    cost: 14_000,
-    specLine: 'Cd 0.29 · Minimum transonic wave drag',
+  {
+    id: 'tidewater',
+    name: 'Tidewater Credit Union',
+    industry: 'Bank',
+    contact: 'Mr. Okafor, community outreach',
+    opening: 40,
+    ceiling: 60,
+    pitch: 'We sponsor one student team a semester. Send us a flyer we can post in the lobby.',
+    brandColor: '#3f8f52',
   },
+  {
+    id: 'pixel-print',
+    name: 'Pixel Print Shop',
+    industry: 'Print shop',
+    contact: 'Jo, designer',
+    opening: 20,
+    ceiling: 40,
+    pitch: 'We print flyers all day. Impress us with yours and we will sponsor you.',
+    brandColor: '#7c4dbd',
+  },
+]
+
+export const SPONSOR_BY_ID: Record<SponsorId, SponsorSpec> = Object.fromEntries(SPONSORS.map((s) => [s.id, s])) as Record<
+  SponsorId,
+  SponsorSpec
+>
+
+/** A finished flyer pays between these shares of the agreed amount, depending on effort. */
+export const PAYOUT_MIN_SHARE = 0.5
+export const PAYOUT_MAX_SHARE = 1.5
+
+// ---------------------------------------------------------------- getters
+
+export function getElectrical(design: RocketObject[]): ElectricalObject | null {
+  return design.find((o): o is ElectricalObject => o.kind === 'electrical') ?? null
 }
 
-export interface FinProfileSpec {
-  id: FinProfileId
-  name: string
-  cpCalibersFromNose: number
-  dragDeltaCd: number
-  flutterLimitKpa: number
-  cost: number
-  specLine: string
-}
-
-export const FIN_PROFILES: Record<FinProfileId, FinProfileSpec> = {
-  rectangular: {
-    id: 'rectangular',
-    name: 'Large Rectangular Fins',
-    cpCalibersFromNose: 7.4,
-    dragDeltaCd: 0.14,
-    flutterLimitKpa: 45,
-    cost: 3_000,
-    specLine: 'High drag · Prone to fin flutter at high dynamic pressure',
-  },
-  trapezoidal: {
-    id: 'trapezoidal',
-    name: 'Tapered Trapezoidal Fins',
-    cpCalibersFromNose: 7.9,
-    dragDeltaCd: 0.06,
-    flutterLimitKpa: 85,
-    cost: 8_000,
-    specLine: 'Balanced CP authority (7.9 cal) and low transonic drag',
-  },
-  'clipped-delta': {
-    id: 'clipped-delta',
-    name: 'Swept Clipped-Delta Fins',
-    cpCalibersFromNose: 8.3,
-    dragDeltaCd: 0.04,
-    flutterLimitKpa: 115,
-    cost: 13_000,
-    specLine: 'Shifts CP furthest aft (8.3 cal) · Highest flutter resistance',
-  },
-}
-
-export interface ImpulseSpec {
-  id: ImpulseClassId
-  name: string
-  totalImpulseNs: number
-  peakDynamicPressureKpa: number
-  cost: number
-  specLine: string
-}
-
-export const IMPULSE_CLASSES: Record<ImpulseClassId, ImpulseSpec> = {
-  'l-class': {
-    id: 'l-class',
-    name: 'L-Class 65% Grain Load',
-    totalImpulseNs: 4_600,
-    peakDynamicPressureKpa: 24,
-    cost: 6_000,
-    specLine: '4,600 N·s impulse · Low peak altitude (~5,800 ft)',
-  },
-  'm-class': {
-    id: 'm-class',
-    name: 'M-Class 88% Grain Load',
-    totalImpulseNs: 8_400,
-    peakDynamicPressureKpa: 52,
-    cost: 12_000,
-    specLine: '8,400 N·s impulse · Tuned for ultra-light carbon airframes',
-  },
-  'n-class': {
-    id: 'n-class',
-    name: 'N-Class 100% IREC Standard',
-    totalImpulseNs: 10_200,
-    peakDynamicPressureKpa: 64,
-    cost: 16_000,
-    specLine: '10,200 N·s impulse · Standard 10,000 ft IREC motor',
-  },
-  'o-class': {
-    id: 'o-class',
-    name: 'O-Class 125% Overpressure',
-    totalImpulseNs: 14_800,
-    peakDynamicPressureKpa: 92,
-    cost: 24_000,
-    specLine: '14,800 N·s impulse · Overshoots 10,000 ft unless very heavy',
-  },
-}
-
-export const PROGRAM_SPECS: Record<
-  RocketProgramId,
-  { id: RocketProgramId; label: string; cost: number; summary: string }
-> = {
-  reefing: {
-    id: 'reefing',
-    label: 'Stepped Parachute Reefing',
-    cost: 8_000,
-    summary: 'Opens canopy in two stages to reduce opening shock and cut wind drift by 35%.',
-  },
-  carbonFins: {
-    id: 'carbonFins',
-    label: 'Carbon Tip-to-Tip Fin Layup',
-    cost: 9_000,
-    summary: 'Reinforces fin roots and airframe joints (+25 kPa structural Max-Q margin).',
-  },
-  windSonde: {
-    id: 'windSonde',
-    label: 'GPS Wind-Sonde Telemetry',
-    cost: 7_000,
-    summary: 'Measures upper-air wind shear before drop, reducing landing drift error by 40%.',
-  },
-}
-
-export const STATION_COSTS = {
-  gyroCalibration: 5_000, // base instrumentation cost once calibrated
-}
-
-// ---- Default state extractors (used by both headless sim and 3D/station UI) ----
-
-export function getGyroConfig(design: RocketObject[]): GyroConfigObject {
-  const found = design.find((o): o is GyroConfigObject => o.kind === 'gyro')
+export function getMechanical(design: RocketObject[]): MechanicalObject {
   return (
-    found ?? {
-      id: 'station:payload-gyro',
-      kind: 'gyro',
-      rollScore: 28,
-      pitchScore: 35,
-      yawScore: 22,
+    design.find((o): o is MechanicalObject => o.kind === 'mechanical') ?? {
+      id: 'station:mechanical',
+      kind: 'mechanical',
+      orders: [],
+      placements: {},
       updatedAt: 0,
     }
   )
 }
 
-export function getPayloadMotor(design: RocketObject[]): PayloadMotorObject {
-  const found = design.find((o): o is PayloadMotorObject => o.kind === 'payloadMotor')
-  return (
-    found ?? {
-      id: 'station:payload-motor',
-      kind: 'payloadMotor',
-      motorId: 'micro-gimbal', // starts with too-weak motor by default
-      updatedAt: 0,
-    }
-  )
+export function getSoftware(design: RocketObject[]): SoftwareObject | null {
+  return design.find((o): o is SoftwareObject => o.kind === 'software') ?? null
 }
 
-export function getPayloadTestRig(design: RocketObject[]): PayloadTestRigObject {
-  const found = design.find((o): o is PayloadTestRigObject => o.kind === 'payloadTest')
-  return (
-    found ?? {
-      id: 'station:payload-tester',
-      kind: 'payloadTest',
-      dropAltitudeFt: 3500,
-      armedChuteAltFt: 350, // starts dangerously low so default drop test splatters or drifts
-      windLeadDeg: 0,
-      chuteSize: 'drogue-small',
-      updatedAt: 0,
-    }
-  )
+export function getBusiness(design: RocketObject[]): BusinessObject | null {
+  return design.find((o): o is BusinessObject => o.kind === 'business') ?? null
 }
 
-export function getWeightDist(design: RocketObject[]): WeightDistObject {
-  const found = design.find((o): o is WeightDistObject => o.kind === 'weightDist')
-  return (
-    found ?? {
-      id: 'station:rocket-mass',
-      kind: 'weightDist',
-      bayOrder: [...DEFAULT_BAY_ORDER],
-      updatedAt: 0,
-    }
-  )
-}
-
-export function getAirframe(design: RocketObject[]): AirframeObject {
-  const found = design.find((o): o is AirframeObject => o.kind === 'airframe')
-  return (
-    found ?? {
-      id: 'station:rocket-material',
-      kind: 'airframe',
-      materialId: 'cardboard',
-      noseConeId: 'blunt',
-      finProfileId: 'rectangular',
-      updatedAt: 0,
-    }
-  )
-}
-
-export function getLaunchSetup(design: RocketObject[]): LaunchSetupObject {
-  const found = design.find((o): o is LaunchSetupObject => o.kind === 'launchSetup')
-  return (
-    found ?? {
-      id: 'station:rocket-tester',
-      kind: 'launchSetup',
-      railAngleDeg: 89,
-      impulseId: 'l-class',
-      ballastTrimKg: 0,
-      updatedAt: 0,
-    }
-  )
-}
-
-export function hasProgram(design: RocketObject[], program: RocketProgramId): boolean {
-  return design.some((o) => o.kind === 'program' && o.program === program)
+export function upsert(design: RocketObject[], next: RocketObject): RocketObject[] {
+  return design.some((o) => o.id === next.id) ? design.map((o) => (o.id === next.id ? next : o)) : [...design, next]
 }

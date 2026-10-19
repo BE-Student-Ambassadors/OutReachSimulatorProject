@@ -10,7 +10,7 @@ In a live classroom or workshop setting, small teams of students get 10–15 min
 - **Scenario Specifications:**
   - [Scenario 1: Flooded Campus (`docs/specs/flooded-campus.md`)](./docs/specs/flooded-campus.md)
   - [Scenario 2: Morning Traffic (`docs/specs/morning-traffic.md`)](./docs/specs/morning-traffic.md)
-  - [Scenario 3: Rocket Team — IREC (`docs/specs/rocket-team.md`)](./docs/specs/rocket-team.md)
+  - [Scenario 3: Rocket Team (`docs/specs/rocket-team.md`)](./docs/specs/rocket-team.md)
 
 ---
 

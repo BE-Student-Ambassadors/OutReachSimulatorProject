@@ -2,7 +2,7 @@
 
 Browser-based engineering sandbox for a high-school outreach event (Baskin Engineering Student Ambassadors — BESA — at UC Santa Cruz, visiting high schools). Small groups of students get 10–15 minutes to design, test, fail, and iterate until their design meets measurable requirements.
 
-Scenario specs: `docs/specs/flooded-campus.md` (built, live at besachallenge.vercel.app) and `docs/specs/morning-traffic.md` (next). Read the relevant one before working on gameplay, balancing, or UI.
+Scenario specs: `docs/specs/flooded-campus.md` (built, live at besachallenge.vercel.app), `docs/specs/formula-sae.md` (replaced Morning Traffic) and `docs/specs/rocket-team.md`. Read the relevant one before working on gameplay, balancing, or UI.
 
 ## Branding
 
@@ -39,7 +39,7 @@ Scenario specs: `docs/specs/flooded-campus.md` (built, live at besachallenge.ver
 
 ## Architecture rules
 
-- **Scenario modules.** Flooded Campus is the only scenario for now, but Morning Traffic (agent-based) and Earthquake Retrofit (structural) will follow. Shared shell code (layout, toolbox, drag/drop, selection, properties panel, budget, objectives, undo/reset, run controls, results modal, scenario select) must not import flood-specific code. Each scenario provides its own tools, map, simulation, and metrics through a common `Scenario` interface.
+- **Scenario modules.** Scenarios so far: Flooded Campus, Formula SAE, Rocket Team, Battlebot Incubator. Shared shell code (layout, toolbox, drag/drop, selection, properties panel, budget, objectives, undo/reset, run controls, results modal, scenario select) must not import flood-specific code. Each scenario provides its own tools, map, simulation, and metrics through a common `Scenario` interface.
 - **The simulation engine is pure TypeScript.** No React or DOM imports in `src/scenarios/*/sim/`. It must run headlessly so balancing can be tested with Vitest (e.g. "the empty design fails" and "strategy B passes").
 - Don't build placeholder or "coming soon" versions of future scenarios.
 

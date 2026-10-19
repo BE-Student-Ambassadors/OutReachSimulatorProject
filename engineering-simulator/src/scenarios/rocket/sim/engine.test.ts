@@ -1,160 +1,240 @@
 import { describe, expect, test } from 'vitest'
-import { BUDGET, REQUIRED } from '../config'
-import { designCost } from '../cost'
+import { CIRCUITS, REQUIRED, SPONSOR_BY_ID } from '../config'
 import { assignRocketRoles } from '../roles'
+import type { CircuitId } from '../types'
+import { boardStatus, generateBoard, wireConnected } from './board'
+import { counterReply, effortScore, payoutFor, sponsorCeiling, vibeFlyer } from './business'
 import { evaluateRocketDesign, RocketRun } from './engine'
-import {
-  emptyDesign,
-  heavyMotorSplatterDesign,
-  overBudgetDesign,
-  strategyA,
-  strategyB,
-  strategyC,
-  strategyCrosswind,
-  uncalibratedGyroSpinDesign,
-  weakMotorSpinDesign,
-} from './strategies'
+import { BUG_COUNT, compile, starterProgram } from './rocketScript'
+import { defaultNumbers, emptyDesign, STRATEGY_PARTS, strategyMid, strategyPremium, strategyThrifty, teamDesign, untouchedProgram } from './strategies'
 
-describe('Rocket Team (IREC) Simulation Engine & Balancing', () => {
-  test('empty / default layout fails both rocket apogee and payload landing requirements', () => {
-    const r = evaluateRocketDesign(emptyDesign, 'standard')
-    expect(r.rocketPassed).toBe(false)
-    expect(r.payloadPassed).toBe(false)
-    expect(r.payloadIntact).toBe(false)
+const { MID_PARTS, CHEAP_PARTS, PREMIUM_PARTS, TWO_DEALS } = STRATEGY_PARTS
+const midWith = (over: Partial<Parameters<typeof teamDesign>[0]>) =>
+  teamDesign({ parts: MID_PARTS, settings: { throttle: 55, burn_time: 3, deploy_altitude: 1300 }, deals: TWO_DEALS, ...over } as Parameters<typeof teamDesign>[0])
+const allBut = (c: CircuitId) => CIRCUITS.map((x) => x.id).filter((x) => x !== c)
+
+describe('Rocket Team flight', () => {
+  test('the empty design never leaves the pad', () => {
+    const r = evaluateRocketDesign(emptyDesign)
+    expect(r.outcome).toBe('no-ignition')
+    expect(r.apogeePassed).toBe(false)
+    expect(r.recoveryPassed).toBe(false)
   })
 
-  test('Strategies A, B, C, and Crosswind pass within the $120,000 budget', () => {
-    for (const [name, design] of [
-      ['Strategy A (Fiberglass)', strategyA],
-      ['Strategy B (Carbon + M-Class)', strategyB],
-      ['Strategy C (Aluminum + O-Class)', strategyC],
-      ['Strategy D (Crosswind Finals)', strategyCrosswind],
+  test('three different strategies pass every requirement', () => {
+    for (const [name, d] of [
+      ['mid parts', strategyMid],
+      ['thrifty parts', strategyThrifty],
+      ['premium parts', strategyPremium],
     ] as const) {
-      const cost = designCost(design)
-      const r = evaluateRocketDesign(design, 'standard')
-      expect(cost, `${name} cost`).toBeLessThanOrEqual(BUDGET)
-      expect(r.rocketPassed, `${name} rocket apogee (${r.apogeeFt} ft)`).toBe(true)
-      expect(r.apogeeErrorFt, `${name} apogee error`).toBeLessThanOrEqual(REQUIRED.maxApogeeErrorFt)
-      expect(r.payloadPassed, `${name} payload landing (${r.landingDistFt} ft, ${r.payloadOutcome})`).toBe(true)
-      expect(r.payloadOutcome).toBe('target-landed')
+      const r = evaluateRocketDesign(d)
+      expect(r.apogeePassed, `${name}: apogee ${r.apogeeFt} ft (${r.outcome})`).toBe(true)
+      expect(r.recoveryPassed, `${name}: landing ${r.landingFps} ft/s (${r.chute})`).toBe(true)
+      expect(r.budgetPassed, `${name}: spent ${r.spent} of ${r.funds}`).toBe(true)
     }
   })
 
-  test('Payload failure mode 1: too-heavy motor causes comedic splatter on landing', () => {
-    const r = evaluateRocketDesign(heavyMotorSplatterDesign, 'payload-drop')
-    expect(r.payloadOutcome).toBe('splatter')
-    expect(r.payloadIntact).toBe(false)
-    expect(r.payloadPassed).toBe(false)
+  test('the starting program, uploaded with its bugs, does not run', () => {
+    const r = evaluateRocketDesign(untouchedProgram)
+    expect(r.outcome).toBe('no-ignition')
+    expect(r.ignitionBlocks).toContain('no-program')
   })
 
-  test('Payload failure mode 2: too-light/weak motor spins out of control', () => {
-    const r = evaluateRocketDesign(weakMotorSpinDesign, 'payload-drop')
-    expect(r.payloadOutcome).toBe('spin-motor-weak')
-    expect(r.payloadIntact).toBe(false)
-    expect(r.payloadPassed).toBe(false)
+  test('with the bugs fixed, the starting numbers fly but are not tuned for every build', () => {
+    const r = evaluateRocketDesign(defaultNumbers)
+    expect(r.outcome).toBe('flight')
   })
 
-  test('Payload failure mode 3: uncalibrated gyroscope spins out of control', () => {
-    const r = evaluateRocketDesign(uncalibratedGyroSpinDesign, 'payload-drop')
-    expect(r.payloadOutcome).toBe('spin-gyro-uncalibrated')
-    expect(r.payloadIntact).toBe(false)
-    expect(r.payloadPassed).toBe(false)
+  test('each circuit matters', () => {
+    expect(evaluateRocketDesign(midWith({ circuits: allBut('power') })).ignitionBlocks).toContain('no-power')
+    expect(evaluateRocketDesign(midWith({ circuits: allBut('igniter') })).ignitionBlocks).toContain('no-igniter')
+
+    const noEject = evaluateRocketDesign(midWith({ circuits: allBut('eject') }))
+    expect(noEject.chute).toBe('no-charge')
+    expect(noEject.recoveryPassed).toBe(false)
+
+    // Without the altimeter the computer never learns it is falling, so "ON falling" never runs.
+    const noAlt = evaluateRocketDesign(midWith({ circuits: allBut('altimeter') }))
+    expect(noAlt.sawFalling).toBe(false)
+    expect(noAlt.chute).toBe('not-deployed')
+    expect(noAlt.recoveryPassed).toBe(false)
+
+    const noRadio = evaluateRocketDesign(midWith({ circuits: allBut('radio') }))
+    expect(noRadio.hasTelemetry).toBe(false)
+    expect(noRadio.apogeePassed).toBe(true)
   })
 
-  test('Live parachute trigger during RocketRun overrides armed altitude', () => {
-    const run = new RocketRun(strategyA, 'payload-drop')
-    // Step halfway through freefall
-    for (let i = 0; i < 120; i++) run.step()
-    expect(run.frame.canDeployChute).toBe(true)
-    const deployedAt = run.deployParachute()
-    expect(deployedAt).not.toBeNull()
-    expect(run.frame.chuteOpen).toBe(true)
-    while (!run.done) run.step()
-    expect(run.result().telemetry.chuteDeployAltFt).toBe(deployedAt)
+  test('assembly mistakes have physical consequences', () => {
+    const noFins = evaluateRocketDesign(midWith({ placements: { fins: null } }))
+    expect(noFins.tumbled).toBe(true)
+    expect(noFins.apogeePassed).toBe(false)
+
+    const noCord = evaluateRocketDesign(midWith({ placements: { shockCord: null } }))
+    expect(noCord.chute).toBe('separated')
+    expect(noCord.recoveryPassed).toBe(false)
+
+    const swapped = evaluateRocketDesign(midWith({ placements: { motor: 'order-fins', fins: 'order-motor' } }))
+    expect(swapped.outcome).toBe('no-ignition')
+    expect(swapped.ignitionBlocks).toContain('no-motor')
+
+    const noBay = evaluateRocketDesign(midWith({ placements: { avionics: null } }))
+    expect(noBay.ignitionBlocks).toContain('no-avionics')
   })
 
-  test('Flying faster than the airframe can take tears it apart at its safe speed, mid-burn', () => {
-    const overloaded = strategyA.map((o) => (o.kind === 'launchSetup' ? { ...o, impulseId: 'o-class' as const } : o))
-    const r = evaluateRocketDesign(overloaded, 'rocket-launch')
-    expect(r.rocketOutcome).toBe('structural-shred')
-    expect(r.telemetry.peakSpeedMph).toBeGreaterThan(r.telemetry.maxSafeSpeedMph)
-    expect(r.telemetry.breakupSpeedMph).toBe(r.telemetry.maxSafeSpeedMph)
-    expect(r.apogeeFt).toBe(r.telemetry.breakupAltFt)
+  test('too much throttle on a cardboard tube tears it apart at its rated speed', () => {
+    const r = evaluateRocketDesign(teamDesign({ parts: CHEAP_PARTS, settings: { throttle: 100, burn_time: 4 } }))
+    expect(r.outcome).toBe('breakup')
+    expect(r.breakupSpeedMph).toBeGreaterThanOrEqual(r.maxSafeMph)
+    expect(r.breakupSpeedMph).toBeLessThan(r.maxSafeMph + 3)
+  })
 
-    const run = new RocketRun(overloaded, 'rocket-launch')
-    let fastestIntactFps = 0
-    let lastBreakupProgress = -1
-    while (!run.done) {
-      run.step()
-      if (!run.frame.rocketShredded) fastestIntactFps = Math.max(fastestIntactFps, run.frame.hudSpeedFps)
-      else {
-        expect(run.frame.breakupProgress).toBeGreaterThanOrEqual(lastBreakupProgress)
-        lastBreakupProgress = run.frame.breakupProgress
+  test('opening the parachute too low (too fast) rips it', () => {
+    const r = evaluateRocketDesign(midWith({ settings: { throttle: 55, burn_time: 3, deploy_altitude: 300 } }))
+    expect(r.chute).toBe('torn')
+    expect(r.recoveryPassed).toBe(false)
+  })
+
+  test('a small parachute lands too fast', () => {
+    const r = evaluateRocketDesign(teamDesign({ parts: { ...MID_PARTS, parachute: 'chute-bag' }, settings: { throttle: 55, burn_time: 3, deploy_altitude: 5000 } }))
+    expect(r.chute).toBe('open')
+    expect(r.landingFps).toBeGreaterThan(REQUIRED.maxLandingFps)
+  })
+
+  test('premium parts without sponsors are over budget', () => {
+    const r = evaluateRocketDesign(teamDesign({ parts: PREMIUM_PARTS, settings: { throttle: 50, burn_time: 2.5, deploy_altitude: 1000 } }))
+    expect(r.apogeePassed).toBe(true)
+    expect(r.budgetPassed).toBe(false)
+  })
+
+  test('code can change throttle mid-flight', () => {
+    const source = [
+      'SET throttle = 100',
+      'ON launch:',
+      '  IGNITE engine',
+      '  WAIT 0.5',
+      '  SET throttle = 40',
+      '  WAIT 3',
+      '  CUTOFF engine',
+      'END',
+      'ON falling:',
+      '  DEPLOY parachute',
+      'END',
+    ].join('\n')
+    const r = evaluateRocketDesign(midWith({ source }))
+    expect(r.outcome).toBe('flight')
+    expect(r.chute).toBe('open')
+    expect(r.recoveryPassed).toBe(true)
+  })
+
+  test('playback runs to the end with sane frames, and breakups play forward', () => {
+    for (const d of [strategyMid, teamDesign({ parts: CHEAP_PARTS, settings: { throttle: 100, burn_time: 4 } }), emptyDesign]) {
+      const run = new RocketRun(d)
+      let lastBreakup = 0
+      while (!run.done) {
+        run.step()
+        const f = run.frame
+        expect(Number.isFinite(f.rocketPos[1])).toBe(true)
+        expect(f.rocketPos[1]).toBeGreaterThanOrEqual(0)
+        expect(f.breakupProgress).toBeGreaterThanOrEqual(lastBreakup)
+        lastBreakup = f.breakupProgress
       }
+      expect(run.durationSeconds).toBeGreaterThan(3)
+      expect(run.durationSeconds).toBeLessThan(26)
     }
-    const safeFps = (r.telemetry.maxSafeSpeedMph * 3.281) / 2.237
-    expect(fastestIntactFps).toBeLessThanOrEqual(safeFps * 1.01)
-    expect(fastestIntactFps).toBeGreaterThan(safeFps * 0.95)
-    expect(lastBreakupProgress).toBeGreaterThan(0.95)
-  })
-
-  test('A passing rocket speeds up through the burn, then coasts and never passes its safe speed', () => {
-    const run = new RocketRun(strategyA, 'rocket-launch')
-    const speeds: number[] = []
-    while (!run.done) {
-      run.step()
-      expect(run.frame.rocketShredded).toBe(false)
-      expect(run.frame.structuralStress).toBeLessThan(1)
-      speeds.push(run.frame.hudSpeedFps)
-    }
-    const peakAt = speeds.indexOf(Math.max(...speeds))
-    expect(speeds[0]).toBeLessThan(speeds[peakAt])
-    expect(peakAt).toBeGreaterThan(0)
-    expect(speeds[speeds.length - 1]).toBeLessThan(speeds[peakAt] * 0.1)
-  })
-
-  test('Over-budget design passes technically but exceeds $120,000 budget', () => {
-    expect(designCost(overBudgetDesign)).toBeGreaterThan(BUDGET)
-  })
-
-  test('Crosswind Finals fails standard Strategy A unless upgraded (Strategy D passes)', () => {
-    const stdInWind = evaluateRocketDesign(strategyA, 'crosswind')
-    expect(stdInWind.payloadPassed && stdInWind.rocketPassed).toBe(false)
-
-    const upgradedInWind = evaluateRocketDesign(strategyCrosswind, 'crosswind')
-    expect(upgradedInWind.rocketPassed).toBe(true)
-    expect(upgradedInWind.payloadPassed).toBe(true)
+    const run = new RocketRun(strategyMid)
+    while (!run.done) run.step()
+    expect(run.frame.phase).toBe('landed')
   })
 })
 
-describe('Rocket Team 6-Role Preference Tier List Matcher (assignRocketRoles)', () => {
-  test('gives all 6 teammates their 1st choice when all 1st choices are distinct', () => {
-    const assigned = assignRocketRoles([
-      { playerId: 'p1', playerName: 'Alice', choices: ['payload-tester', 'payload-gyro'] },
-      { playerId: 'p2', playerName: 'Bob', choices: ['payload-gyro', 'payload-motor'] },
-      { playerId: 'p3', playerName: 'Charlie', choices: ['payload-motor', 'rocket-mass'] },
-      { playerId: 'p4', playerName: 'Dana', choices: ['rocket-mass', 'rocket-material'] },
-      { playerId: 'p5', playerName: 'Eli', choices: ['rocket-material', 'rocket-tester'] },
-      { playerId: 'p6', playerName: 'Fran', choices: ['rocket-tester', 'payload-tester'] },
-    ])
-    expect(assigned.every((a) => a.choiceRank === 1)).toBe(true)
-    expect(assigned.find((a) => a.roleId === 'payload-tester')?.playerId).toBe('p1')
-    expect(assigned.find((a) => a.roleId === 'rocket-tester')?.playerId).toBe('p6')
+describe('RocketScript', () => {
+  test('every starting program arrives broken, and its clean version compiles', () => {
+    const sources = new Set<string>()
+    for (let seed = 1; seed <= 300; seed++) {
+      const s = starterProgram(seed)
+      const buggy = compile(s.source)
+      expect(buggy.ok, `seed ${seed}`).toBe(false)
+      expect(buggy.errors.length).toBeGreaterThanOrEqual(2)
+      expect(buggy.errors.length).toBeLessThanOrEqual(BUG_COUNT + 2)
+      expect(compile(s.clean).ok, `clean seed ${seed}`).toBe(true)
+      sources.add(s.source)
+    }
+    expect(sources.size).toBeGreaterThan(250)
   })
 
-  test('resolves collisions using 2nd choice tier list when two players both want Tester 1st', () => {
-    // Both p1 and p2 want 'payload-tester' 1st, but p1 ranked 'payload-gyro' 2nd while p2 only wants 'payload-tester'
-    const assigned = assignRocketRoles([
-      { playerId: 'p1', playerName: 'Alice', choices: ['payload-tester', 'payload-gyro'] },
-      { playerId: 'p2', playerName: 'Bob', choices: ['payload-tester', 'rocket-tester'] },
-      { playerId: 'p3', playerName: 'Charlie', choices: ['rocket-tester', 'rocket-mass'] },
+  test('errors say where and what, never what to type', () => {
+    const r = compile('SET throtle = 70\nON launch:\n  IGNTIE engine\n  LOG "hi\n')
+    expect(r.ok).toBe(false)
+    const lines = r.errors.map((e) => e.line)
+    expect(lines).toEqual(expect.arrayContaining([1, 2, 3, 4]))
+    for (const e of r.errors) expect(e.message.toLowerCase()).not.toMatch(/did you mean|try |should/)
+  })
+
+  test('settings are range checked', () => {
+    expect(compile('SET throttle = 140').ok).toBe(false)
+    expect(compile('SET throttle = 100').ok).toBe(true)
+  })
+})
+
+describe('Breadboard', () => {
+  test('every generated board has a full-board solution and no trivial wires', () => {
+    for (let seed = 1; seed <= 120; seed++) {
+      const b = generateBoard(seed)
+      const cells = new Set<number>()
+      for (const c of CIRCUITS) {
+        const path = b.solution[c.id]
+        expect(wireConnected(b, c.id, path), `seed ${seed} ${c.id}`).toBe(true)
+        path.forEach((p) => cells.add(p))
+      }
+      expect(cells.size).toBe(b.rows * b.cols)
+      const status = boardStatus({ id: 'station:electrical', kind: 'electrical', seed, paths: b.solution, updatedAt: 0 })
+      expect(status.complete).toBe(true)
+    }
+  })
+})
+
+describe('Business', () => {
+  test('sponsors accept up to their limit, make a final offer a bit over, and walk away far over', () => {
+    const ceiling = sponsorCeiling(9, 'ridgeline')
+    expect(Math.abs(ceiling - SPONSOR_BY_ID.ridgeline.ceiling)).toBeLessThanOrEqual(5)
+    expect(counterReply(9, 'ridgeline', ceiling)).toEqual({ kind: 'accepted', amount: ceiling })
+    expect(counterReply(9, 'ridgeline', ceiling + 5).kind).toBe('final-offer')
+    expect(counterReply(9, 'ridgeline', ceiling * 3).kind).toBe('walked-away')
+  })
+
+  test('more effort pays more', () => {
+    const low = effortScore({ strokes: 2, colorsUsed: 1, stickers: 0, texts: 0, coverage: 0.01, promptWords: 3 })
+    const high = effortScore({ strokes: 40, colorsUsed: 6, stickers: 6, texts: 3, coverage: 0.3, promptWords: 20 })
+    expect(high).toBeGreaterThan(low)
+    expect(high).toBeCloseTo(1, 5)
+    expect(payoutFor(50, high)).toBe(75)
+    expect(payoutFor(50, 0)).toBe(25)
+  })
+
+  test('vibe prompts shape the flyer', () => {
+    const f = vibeFlyer('a bold red and black poster with a rocket that says "Fly with Byte Burger"', 'byte-burger')
+    expect(f.headline).toBe('Fly with Byte Burger')
+    expect(f.motif).toBe('rocket')
+    expect(f.palette[0]).toBe('#d33a2c')
+  })
+})
+
+describe('Role matcher', () => {
+  test('four players with distinct first picks all get them', () => {
+    const a = assignRocketRoles([
+      { playerId: 'a', playerName: 'A', choices: ['electrical', 'software'] },
+      { playerId: 'b', playerName: 'B', choices: ['mechanical', 'business'] },
+      { playerId: 'c', playerName: 'C', choices: ['software', 'electrical'] },
+      { playerId: 'd', playerName: 'D', choices: ['business', 'mechanical'] },
     ])
-    const p1Role = assigned.find((a) => a.playerId === 'p1')!
-    const p2Role = assigned.find((a) => a.playerId === 'p2')!
-    const p3Role = assigned.find((a) => a.playerId === 'p3')!
-    // Everyone gets either their 1st or 2nd choice!
-    expect([1, 2]).toContain(p1Role.choiceRank)
-    expect([1, 2]).toContain(p2Role.choiceRank)
-    expect([1, 2]).toContain(p3Role.choiceRank)
+    expect(a.every((x) => x.choiceRank === 1)).toBe(true)
+  })
+
+  test('collisions fall back to second picks', () => {
+    const a = assignRocketRoles([
+      { playerId: 'a', playerName: 'A', choices: ['software', 'electrical'] },
+      { playerId: 'b', playerName: 'B', choices: ['software', 'business'] },
+    ])
+    expect(a.filter((x) => x.playerId).every((x) => x.choiceRank > 0)).toBe(true)
   })
 })

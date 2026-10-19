@@ -1,46 +1,36 @@
-# Scenario 3 — Rocket Team (IREC Challenge Spec)
+# Scenario 3 — Rocket Team
 
-Aerospace, mechanical, and mechatronics engineering challenge showcasing the **International Rocketry Engineering Competition (IREC)**.
+A team of **4** builds a hobby rocket on almost no money. Each seat is a different kind of engineering, and the rocket only flies when all four have done their part.
 
-Each team has **6 players**, split into **2 sub-teams of 3**:
-1. **Payload Sub-Team (3 roles):**
-   - **Role 1 — Gyroscope Engineer (`payload-gyro`):** Calibrates the 3-axis (Roll, Pitch, Yaw) reaction-wheel gyroscope via an interactive timing-ring click game.
-   - **Role 2 — Payload Motor Engineer (`payload-motor`):** Selects the reaction stabilization motor from 5 motor specs balancing torque against weight.
-   - **Role 3 — Payload Drop Tester (`payload-tester`):** Configures the drop-test rig (drop altitude, armed parachute altitude, upwind drift lead angle, canopy size) while waiting, triggers the parachute live during the 3D drop, and tests landing on the bullseye target pad.
-2. **Rocket Sub-Team (3 roles):**
-   - **Role 4 — Weight Distribution Engineer (`rocket-mass`):** Orders the 6 internal rocket bays from Nose to Tail via drag-and-drop so the Center of Gravity ($CG$) sits safely ahead of the Center of Pressure ($CP$) with the nozzle at the tail.
-   - **Role 5 — Airframe & Materials Engineer (`rocket-material`):** Chooses the airframe structural material, nose cone aerodynamic profile, and fin geometry to survive Max-Q dynamic pressure and minimize drag.
-   - **Role 6 — Rocket Flight Tester (`rocket-tester`):** Configures launch rail angle, motor impulse class, and nose-cone ballast trim to reach the 10,000 ft IREC target apogee window.
-
----
-
-## 1. Role Preference Tier List (1st & 2nd Choice)
-
-Players can rank up to **2 preferred roles** (`1st Choice` and `2nd Choice`, e.g., wanting to be a Tester 1st and Gyroscope or Weight Distribution 2nd).
-The deterministic role matcher (`assignRocketRoles` in `src/scenarios/rocket/roles.ts`) computes the global optimum assignment across the 6 roles so the maximum number of teammates receive their 1st or 2nd choice.
-
----
-
-## 2. Requirements (always visible)
-
-| Requirement | Target | Definition |
+| Role | Station | What they do |
 | :--- | :--- | :--- |
-| Rocket Apogee (10,000 ft) | `10,000 ± 850 ft` | Peak altitude reached during stable, structurally intact ascent |
-| Payload Target Landing | `Intact, ≤ 50 ft` | Payload lands intact (no splatter or spin-out) within 50 ft of bullseye center |
-| Project Cost | `≤ $120,000` | Sum of configured payload & rocket hardware plus active team programs |
+| **Electrical** | Breadboard | A "Flow"-style puzzle: draw a wire between the two pins of each circuit (power, igniter, ejection charge, altimeter, radio). Wires can't cross, and a finished board uses every hole. Pins come from a seed, so every team's board differs. |
+| **Mechanical** | SurplusBay + Workbench | Shop a made-up online marketplace (used/new/handmade listings, seller ratings, specs) for a nose cone, body tube, fin set, motor and parachute. Parcels arrive after a few seconds; then drag every part (plus the kit's shock cord and avionics bay) onto its slot on the blueprint. |
+| **Software** | Laptop + flight computer | Drag the USB plug into the flight computer (green light), then fix the RocketScript program: each team gets a different set of typos and syntax slips. The top `SET` lines (`throttle`, `burn_time`, `deploy_altitude`) are called out as theirs to tune. Upload to the rocket. |
+| **Business** | Sponsor inbox + flyer studio | Open sponsor emails, accept or counter once (sponsors have hidden limits: a little over gets a final offer, far over ends the talks), describe a flyer in words to generate it, decorate it in a paint editor, and send it in. Payout is 50–150 % of the deal, rising with effort (strokes, colors, stickers, text, prompt detail). |
 
----
+Each station shows a **checklist** of its steps across the top. It describes what to do, never how to make the rocket work. Anyone can launch from the **Launch Pad** at any time.
 
-## 3. Physics & Failure Modes
+## Requirements
 
-### Payload Sub-Team Outcomes
-- **Motor Too Heavy (`splatter`):** Selecting the 9.8 kg *Industrial Cast-Iron Drive 950W* (or deploying the parachute below 550 ft) causes excessive terminal velocity (`> 27.5 ft/s`). On impact, the payload **comedically splatters into 32 colorful flying pieces** across the desert floor.
-- **Motor Too Light / Weak (`spin-motor-weak`):** Selecting a motor with insufficient stabilization torque (`< 2.2 N·m` in standard conditions or `< 3.8 N·m` in unreefed crosswind) causes the payload to **spin wildly out of control** during descent.
-- **Gyroscope Out of Calibration (`spin-gyro-uncalibrated`):** If the 3-axis gyroscope calibration averages below `75%`, the payload loses attitude lock and **spins out of control** during descent.
-- **Bullseye Target Landing (`target-landed`):** With a calibrated gyroscope (`≥ 75%`), a balanced reaction motor (*Aerospace Torque Drive 260W* or *Carbon-Pro Twin Gimbal 380W*), proper parachute deployment altitude (`~1,200 ft`), and upwind lead angle, the payload descends steadily under its canopy and touches down inside the 50 ft bullseye target ring.
+| Requirement | Target |
+| :--- | :--- |
+| Apogee | 1,500 ± 150 ft |
+| Safe landing | ≤ 20 ft/s touchdown |
+| Money | Parts spent ≤ $40 seed money + sponsor payouts |
 
-### Rocket Sub-Team Outcomes
-- **Nozzle Misplaced (`pad-stall`):** If the *Booster Casing & Graphite Nozzle* is not placed at the tail slot (`Slot 6`), the rocket stalls near the pad (`420 ft`).
-- **Aerodynamic Instability (`unstable-tumble`):** If heavy bays are placed too far aft so the stability margin $\frac{CP - CG}{D} < 1.1\text{ calibers}$, the rocket cartwheels out of control after leaving the launch rail.
-- **Structural Shred at Max-Q (`structural-shred`):** If peak dynamic pressure exceeds the airframe material's structural limit (e.g., *Phenolic Kraft Cardboard* under *N-Class* or *O-Class* thrust), the airframe breaks apart at ~4,350 ft.
-- **Nominal Apogee (`nominal-apogee`):** Properly balanced weight order (`1.5–3.0 calibers`), composite/metallic airframe, and tuned motor impulse reach the `10,000 ± 850 ft` IREC target window.
+Going over budget never blocks a purchase; it only fails the money requirement.
+
+## How the parts of the system connect
+
+- **Ignition** needs: body tube and avionics bay installed, a working uploaded program that runs `IGNITE engine`, the power and igniter circuits, and a motor in the motor mount.
+- **Climb**: thrust (motor × throttle) against weight and drag (nose cone, fins). Fuel lasts longer at lower throttle. A missing fin set makes the rocket tumble; a warped fin corkscrews it; no nose cone adds a lot of drag.
+- **Speed limit**: the body tube and fins have rated speeds. Passing the lower one tears the rocket apart.
+- **Recovery**: `ON falling` only runs with the altimeter circuit. `DEPLOY parachute` needs the ejection circuit and a parachute in its slot. Opening faster than the canopy's rated speed rips it; with no shock cord it flies off on its own. Canopy size and rocket mass set the touchdown speed.
+- **Radio** only carries live telemetry (the HUD shows "no radio signal" without it).
+
+## Strategies that pass (see `sim/strategies.ts`)
+
+- **Mid parts**, one or two sponsors, throttle ≈ 55 %, ~3 s burn, chute at ~1,300 ft.
+- **Thrifty parts** (cardboard tube, rated 210 mph): one sponsor, careful throttle ≈ 52 % with a long burn.
+- **Premium parts** (fiberglass, pro motor, big chute): three sponsors, low throttle on a big motor.

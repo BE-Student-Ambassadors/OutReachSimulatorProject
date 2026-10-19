@@ -1,200 +1,130 @@
-import { IDEAL_BAY_ORDER } from '../config'
-import type { RocketObject } from '../types'
+import { CIRCUITS } from '../config'
+import type { BusinessObject, CircuitId, Deal, ElectricalObject, MechanicalObject, RocketObject, SlotId, SoftwareObject, SponsorId } from '../types'
+import { generateBoard } from './board'
+import { payoutFor } from './business'
+import { starterProgram, withSettings } from './rocketScript'
 
 /**
- * Reference strategies for Rocket Team (IREC Challenge):
- * - Empty / Default: Uncalibrated gyro, weak motor, scrambled rocket bay order -> fails both sub-teams
- * - Strategy A (Standard Composite IREC): S-Glass Fiberglass + Ogive + Trapezoidal + N-Class + Aero-Torque Motor + Calibrated Gyro
- * - Strategy B (Ultralight Carbon Precision): Carbon Fiber + Von Karman + Clipped Delta + M-Class + Ballast Trim + Carbon-Twin Motor
- * - Strategy C (Heavy-Duty Aluminum + O-Class): 6061 Aluminum + Conical + Clipped Delta + O-Class + Reefing + Aero-Torque Motor
- * - Strategy D (Crosswind Finals Winner): Strategy A + Carbon-Twin Motor + Wind Sonde + Reefing + 82° Rail + 15° Wind Lead
- * - Failure Fixtures:
- *   - heavyMotorSplatter: Uses 9.8 kg Heavy-Iron motor -> comedic splatter!
- *   - weakMotorSpin: Uses 0.6 kg Micro-Gimbal motor -> spins out of control!
- *   - uncalibratedGyroSpin: Uses uncalibrated gyro (30%) -> spins out of control!
- *   - unstableRocketWeights: Places heavy motor/fuel at the top -> CG behind CP, unstable tumble!
- *   - overBudgetEverything: All top-end components + all programs -> exceeds $120k budget!
+ * Reference designs for balancing tests: a whole team's work, built the way students would build it.
  */
+
+export interface TeamPlan {
+  parts: { nose: string; body: string; fins: string; motor: string; parachute: string }
+  /** Overrides where parts go (default: every part in its own slot, kit parts included). */
+  placements?: Partial<Record<SlotId, string | null>>
+  circuits?: CircuitId[]
+  /** 'clean' = bugs fixed; 'buggy' = uploaded as it came; null = nothing uploaded. */
+  program?: 'clean' | 'buggy' | null
+  settings?: { throttle?: number; burn_time?: number; deploy_altitude?: number }
+  /** Replace the whole uploaded program. */
+  source?: string
+  deals?: { sponsor: SponsorId; agreed: number; effort: number }[]
+}
+
+const SEED = 4242
+
+export function teamDesign(plan: TeamPlan): RocketObject[] {
+  const board = generateBoard(SEED)
+  const circuits = plan.circuits ?? CIRCUITS.map((c) => c.id)
+  const electrical: ElectricalObject = {
+    id: 'station:electrical',
+    kind: 'electrical',
+    seed: SEED,
+    paths: Object.fromEntries(circuits.map((c) => [c, board.solution[c]])),
+    updatedAt: 1,
+  }
+
+  const p = plan.parts
+  const orders = (['nose', 'body', 'fins', 'motor', 'parachute'] as const).map((cat, i) => ({
+    id: `order-${cat}`,
+    listingId: p[cat],
+    orderedAt: i,
+    returned: false,
+  }))
+  const placements: Partial<Record<SlotId, string>> = {
+    nose: 'order-nose',
+    parachute: 'order-parachute',
+    shockCord: 'kit:shock-cord',
+    avionics: 'kit:avionics-bay',
+    body: 'order-body',
+    motor: 'order-motor',
+    fins: 'order-fins',
+  }
+  for (const [slot, item] of Object.entries(plan.placements ?? {}) as [SlotId, string | null][]) {
+    if (item === null) delete placements[slot]
+    else placements[slot] = item
+  }
+  const mechanical: MechanicalObject = { id: 'station:mechanical', kind: 'mechanical', orders, placements, updatedAt: 1 }
+
+  const starter = starterProgram(SEED)
+  const mode = plan.program === undefined ? 'clean' : plan.program
+  const base = mode === 'buggy' ? starter.source : starter.clean
+  const uploaded = plan.source ?? (mode === null ? null : withSettings(base, plan.settings ?? {}))
+  const software: SoftwareObject = {
+    id: 'station:software',
+    kind: 'software',
+    seed: SEED,
+    pluggedIn: true,
+    source: uploaded ?? starter.source,
+    uploadedSource: uploaded,
+    updatedAt: 1,
+  }
+
+  const deals: Deal[] = (plan.deals ?? []).map((d) => ({
+    sponsorId: d.sponsor,
+    stage: 'paid',
+    agreed: d.agreed,
+    offer: d.agreed,
+    countered: false,
+    flyer: null,
+    effort: d.effort,
+    payout: payoutFor(d.agreed, d.effort),
+  }))
+  const business: BusinessObject = { id: 'station:business', kind: 'business', seed: SEED, deals, updatedAt: 1 }
+
+  return [electrical, mechanical, software, business]
+}
+
+const MID_PARTS = { nose: 'nose-ogive', body: 'body-phenolic', fins: 'fins-plywood', motor: 'motor-standard', parachute: 'chute-nylon' }
+const CHEAP_PARTS = { nose: 'nose-blunt', body: 'body-cardboard', fins: 'fins-plywood', motor: 'motor-mini', parachute: 'chute-nylon' }
+const PREMIUM_PARTS = { nose: 'nose-vk', body: 'body-fiberglass', fins: 'fins-g10', motor: 'motor-pro', parachute: 'chute-ripstop' }
+
+const TWO_DEALS = [
+  { sponsor: 'summit-solar' as const, agreed: 55, effort: 0.6 },
+  { sponsor: 'ridgeline' as const, agreed: 40, effort: 0.6 },
+]
 
 export const emptyDesign: RocketObject[] = []
 
-/** Strategy A: Balanced S-Glass Fiberglass IREC standard build ($84k) */
-export const strategyA: RocketObject[] = [
-  { id: 'station:payload-gyro', kind: 'gyro', rollScore: 88, pitchScore: 90, yawScore: 86, updatedAt: 1 },
-  { id: 'station:payload-motor', kind: 'payloadMotor', motorId: 'aero-torque', updatedAt: 1 },
-  {
-    id: 'station:payload-tester',
-    kind: 'payloadTest',
-    dropAltitudeFt: 4000,
-    armedChuteAltFt: 1200,
-    windLeadDeg: 8,
-    chuteSize: 'main-standard',
-    updatedAt: 1,
-  },
-  { id: 'station:rocket-mass', kind: 'weightDist', bayOrder: [...IDEAL_BAY_ORDER], updatedAt: 1 },
-  {
-    id: 'station:rocket-material',
-    kind: 'airframe',
-    materialId: 'fiberglass',
-    noseConeId: 'ogive',
-    finProfileId: 'trapezoidal',
-    updatedAt: 1,
-  },
-  {
-    id: 'station:rocket-tester',
-    kind: 'launchSetup',
-    railAngleDeg: 86,
-    impulseId: 'n-class',
-    ballastTrimKg: 0.5,
-    updatedAt: 1,
-  },
-]
+/** As it arrives: starter program uploaded with its bugs, untouched numbers. */
+export const untouchedProgram = teamDesign({ parts: MID_PARTS, program: 'buggy', deals: TWO_DEALS })
 
-/** Strategy B: Ultralight Carbon Fiber + M-Class efficient build ($105k) */
-export const strategyB: RocketObject[] = [
-  { id: 'station:payload-gyro', kind: 'gyro', rollScore: 92, pitchScore: 85, yawScore: 89, updatedAt: 1 },
-  { id: 'station:payload-motor', kind: 'payloadMotor', motorId: 'aero-torque', updatedAt: 1 },
-  {
-    id: 'station:payload-tester',
-    kind: 'payloadTest',
-    dropAltitudeFt: 3500,
-    armedChuteAltFt: 1150,
-    windLeadDeg: 7,
-    chuteSize: 'main-standard',
-    updatedAt: 1,
-  },
-  { id: 'station:rocket-mass', kind: 'weightDist', bayOrder: [...IDEAL_BAY_ORDER], updatedAt: 1 },
-  {
-    id: 'station:rocket-material',
-    kind: 'airframe',
-    materialId: 'carbon',
-    noseConeId: 'von-karman',
-    finProfileId: 'clipped-delta',
-    updatedAt: 1,
-  },
-  {
-    id: 'station:rocket-tester',
-    kind: 'launchSetup',
-    railAngleDeg: 86,
-    impulseId: 'm-class',
-    ballastTrimKg: 0.0,
-    updatedAt: 1,
-  },
-]
+/** Bugs fixed but the starting numbers left alone. */
+export const defaultNumbers = teamDesign({ parts: MID_PARTS, deals: TWO_DEALS })
 
-/** Strategy C: Heavy-Duty 6061 Aluminum + O-Class high-thrust build ($98k) */
-export const strategyC: RocketObject[] = [
-  { id: 'station:payload-gyro', kind: 'gyro', rollScore: 82, pitchScore: 84, yawScore: 80, updatedAt: 1 },
-  { id: 'station:payload-motor', kind: 'payloadMotor', motorId: 'aero-torque', updatedAt: 1 },
-  {
-    id: 'station:payload-tester',
-    kind: 'payloadTest',
-    dropAltitudeFt: 4500,
-    armedChuteAltFt: 1250,
-    windLeadDeg: 9,
-    chuteSize: 'main-standard',
-    updatedAt: 1,
-  },
-  { id: 'station:rocket-mass', kind: 'weightDist', bayOrder: [...IDEAL_BAY_ORDER], updatedAt: 1 },
-  {
-    id: 'station:rocket-material',
-    kind: 'airframe',
-    materialId: 'aluminum',
-    noseConeId: 'blunt',
-    finProfileId: 'clipped-delta',
-    updatedAt: 1,
-  },
-  {
-    id: 'station:rocket-tester',
-    kind: 'launchSetup',
-    railAngleDeg: 85,
-    impulseId: 'o-class',
-    ballastTrimKg: 2.5,
-    updatedAt: 1,
-  },
-  { id: 'prog:reefing', kind: 'program', program: 'reefing', updatedAt: 1 },
-]
+/** Strategy A: middle-of-the-shop parts, moderate throttle. */
+export const strategyMid = teamDesign({
+  parts: MID_PARTS,
+  settings: { throttle: 55, burn_time: 3, deploy_altitude: 1300 },
+  deals: TWO_DEALS,
+})
 
-/** Strategy D: High-Wind Desert Crosswind Finals build ($109k) */
-export const strategyCrosswind: RocketObject[] = [
-  { id: 'station:payload-gyro', kind: 'gyro', rollScore: 94, pitchScore: 92, yawScore: 95, updatedAt: 1 },
-  { id: 'station:payload-motor', kind: 'payloadMotor', motorId: 'carbon-twin', updatedAt: 1 },
-  {
-    id: 'station:payload-tester',
-    kind: 'payloadTest',
-    dropAltitudeFt: 4000,
-    armedChuteAltFt: 1200,
-    windLeadDeg: 14,
-    chuteSize: 'main-standard',
-    updatedAt: 1,
-  },
-  { id: 'station:rocket-mass', kind: 'weightDist', bayOrder: [...IDEAL_BAY_ORDER], updatedAt: 1 },
-  {
-    id: 'station:rocket-material',
-    kind: 'airframe',
-    materialId: 'fiberglass',
-    noseConeId: 'ogive',
-    finProfileId: 'trapezoidal',
-    updatedAt: 1,
-  },
-  {
-    id: 'station:rocket-tester',
-    kind: 'launchSetup',
-    railAngleDeg: 82,
-    impulseId: 'n-class',
-    ballastTrimKg: 0.0,
-    updatedAt: 1,
-  },
-  { id: 'prog:reefing', kind: 'program', program: 'reefing', updatedAt: 1 },
-  { id: 'prog:windSonde', kind: 'program', program: 'windSonde', updatedAt: 1 },
-]
+/** Strategy B: cheapest parts that can still work, one sponsor, careful numbers. */
+export const strategyThrifty = teamDesign({
+  parts: CHEAP_PARTS,
+  settings: { throttle: 52, burn_time: 4.5, deploy_altitude: 1200 },
+  deals: [{ sponsor: 'tidewater', agreed: 40, effort: 0.4 }],
+})
 
-/** Failure Fixture 1: Motor too heavy -> Payload splatters into pieces! */
-export const heavyMotorSplatterDesign: RocketObject[] = strategyA.map((o) =>
-  o.kind === 'payloadMotor' ? { ...o, motorId: 'heavy-iron' } : o,
-)
+/** Strategy C: premium parts, lots of fundraising, low throttle on a big motor. */
+export const strategyPremium = teamDesign({
+  parts: PREMIUM_PARTS,
+  settings: { throttle: 50, burn_time: 2.5, deploy_altitude: 1000 },
+  deals: [
+    { sponsor: 'summit-solar', agreed: 65, effort: 0.9 },
+    { sponsor: 'tidewater', agreed: 55, effort: 0.9 },
+    { sponsor: 'ridgeline', agreed: 50, effort: 0.8 },
+  ],
+})
 
-/** Failure Fixture 2: Motor too light/weak -> Payload spins out of control! */
-export const weakMotorSpinDesign: RocketObject[] = strategyA.map((o) =>
-  o.kind === 'payloadMotor' ? { ...o, motorId: 'micro-gimbal' } : o,
-)
-
-/** Failure Fixture 3: Gyroscope out of calibration -> Payload spins out of control! */
-export const uncalibratedGyroSpinDesign: RocketObject[] = strategyA.map((o) =>
-  o.kind === 'gyro' ? { ...o, rollScore: 30, pitchScore: 40, yawScore: 25 } : o,
-)
-
-/** Failure Fixture 4: Over-budget max spec build (> $120,000) */
-export const overBudgetDesign: RocketObject[] = [
-  { id: 'station:payload-gyro', kind: 'gyro', rollScore: 95, pitchScore: 95, yawScore: 95, updatedAt: 1 },
-  { id: 'station:payload-motor', kind: 'payloadMotor', motorId: 'carbon-twin', updatedAt: 1 },
-  {
-    id: 'station:payload-tester',
-    kind: 'payloadTest',
-    dropAltitudeFt: 4000,
-    armedChuteAltFt: 1200,
-    windLeadDeg: 8,
-    chuteSize: 'tandem-large',
-    updatedAt: 1,
-  },
-  { id: 'station:rocket-mass', kind: 'weightDist', bayOrder: [...IDEAL_BAY_ORDER], updatedAt: 1 },
-  {
-    id: 'station:rocket-material',
-    kind: 'airframe',
-    materialId: 'carbon',
-    noseConeId: 'von-karman',
-    finProfileId: 'clipped-delta',
-    updatedAt: 1,
-  },
-  {
-    id: 'station:rocket-tester',
-    kind: 'launchSetup',
-    railAngleDeg: 86,
-    impulseId: 'o-class',
-    ballastTrimKg: 2.0,
-    updatedAt: 1,
-  },
-  { id: 'prog:reefing', kind: 'program', program: 'reefing', updatedAt: 1 },
-  { id: 'prog:carbonFins', kind: 'program', program: 'carbonFins', updatedAt: 1 },
-  { id: 'prog:windSonde', kind: 'program', program: 'windSonde', updatedAt: 1 },
-]
+export const STRATEGY_PARTS = { MID_PARTS, CHEAP_PARTS, PREMIUM_PARTS, TWO_DEALS }

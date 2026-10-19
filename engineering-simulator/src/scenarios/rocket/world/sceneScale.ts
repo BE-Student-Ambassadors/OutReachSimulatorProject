@@ -1,8 +1,8 @@
-/** World feet → scene units. Altitude is squashed harder than ground distance so 10,000 ft fits. */
-export const ALT_SCALE = 1 / 38
+/** World feet → scene units. Altitude is squashed harder than ground distance so the whole climb fits. */
+export const ALT_SCALE = 1 / 8
 export const DIST_SCALE = 1 / 4.5
 /** Launch tower x position in scene units. */
-export const PAD_X = -28
+export const PAD_X = 0
 /** Scene height of the rocket's center when it sits on the pad. */
 export const PAD_Y = 6.2
 

@@ -96,18 +96,22 @@ Civil & transportation engineering challenge: get $\ge 95\%$ of 1,800 students t
 | [`world/Agents.tsx`](./src/scenarios/traffic/world/Agents.tsx) | High-performance `InstancedMesh` renderer for cars (with brake lights), buses, pedestrians, bikes, and live red `!` unsafe-crossing flashes. |
 | [`world/Streets.tsx`](./src/scenarios/traffic/world/Streets.tsx), [`Placed.tsx`](./src/scenarios/traffic/world/Placed.tsx), [`DelayMap.tsx`](./src/scenarios/traffic/world/DelayMap.tsx) | 3D road geometry, placed traffic control meshes, and post-run diagnostic delay heatmap + unsafe-crossing pins. |
 
-#### Scenario 3: Rocket Team — IREC (`src/scenarios/rocket/`)
-Aerospace, mechanical, and mechatronics challenge for a 6-person team split into two 3-person sub-teams (**Payload Sub-Team** and **Rocket Sub-Team**), targeting a 10,000 ft apogee and bullseye payload recovery within a \$120,000 budget.
+#### Scenario 3: Rocket Team (`src/scenarios/rocket/`)
+A 4-person team (Electrical, Mechanical, Software, Business) builds a hobby rocket on a tiny budget: reach 1,500 ± 150 ft, land at ≤ 20 ft/s, and spend no more than the team raises. Spec: [`docs/specs/rocket-team.md`](../docs/specs/rocket-team.md).
 
 | File | Purpose |
 | :--- | :--- |
-| [`index.ts`](./src/scenarios/rocket/index.ts) | Exports `rocketScenario` implementing `Scenario<RocketObject, RocketResult>`, defining the 6 role station tools, team programs, variants (`Full IREC Mission`, `Payload Drop Test`, `Rocket Flight Test`, `Desert Crosswind Finals`), factual observations, and summary stats. |
-| [`roles.ts`](./src/scenarios/rocket/roles.ts) | Defines the 6 sub-team roles (`payload-gyro`, `payload-motor`, `payload-tester`, `rocket-mass`, `rocket-material`, `rocket-tester`) and the deterministic 1st/2nd choice **Role Preference Tier List** assignment algorithm (`assignRocketRoles`). |
-| [`config.ts`](./src/scenarios/rocket/config.ts) & [`types.ts`](./src/scenarios/rocket/types.ts) | Specs and tunable constants for the 5 payload motors, 3-axis gyroscope calibration, parachute sizes, 6 internal rocket bays, 5 airframe materials, nose cones, fin profiles, and solid motor impulse classes. |
-| [`sim/engine.ts`](./src/scenarios/rocket/sim/engine.ts) | **Headless Rocket & Payload Simulation Engine.** Computes $CG$/$CP$ stability in calibers, structural Max-Q limits, apogee altitude, and payload descent physics (`target-landed`, comedic `splatter` when motor is too heavy/chute too late, and `spin-motor-weak` / `spin-gyro-uncalibrated` when out of control), plus live `deployParachute()` triggering. |
-| [`sim/strategies.ts`](./src/scenarios/rocket/sim/strategies.ts), [`sim/engine.test.ts`](./src/scenarios/rocket/sim/engine.test.ts), [`sim/tune.test.ts`](./src/scenarios/rocket/sim/tune.test.ts) | Reference passing strategies (Strategies A–D), failure fixtures, role-matching unit tests, and the `TUNE=1` balancing table. |
-| [`world/RocketWorld.tsx`](./src/scenarios/rocket/world/RocketWorld.tsx) & [`world/RocketScene.tsx`](./src/scenarios/rocket/world/RocketScene.tsx) | 3D Spaceport America launch/drop range with dynamic chase camera following the rocket to apogee and tracking the falling payload to the bullseye pad (including 32-piece comedic splatter debris and out-of-control spin visuals). |
-| [`world/PayloadStations.tsx`](./src/scenarios/rocket/world/PayloadStations.tsx), [`world/RocketStations.tsx`](./src/scenarios/rocket/world/RocketStations.tsx), [`world/RoleTierModal.tsx`](./src/scenarios/rocket/world/RoleTierModal.tsx) | Interactive workstations for the 6 roles (timing-ring gyroscope game, motor selector, drop test rig, drag-and-drop weight bay stack, airframe material selector, launch pad setup) and the 2-choice Role Preference Tier List modal. |
+| [`index.ts`](./src/scenarios/rocket/index.ts) | Exports `rocketScenario`: requirements, factual observations, stats. |
+| [`config.ts`](./src/scenarios/rocket/config.ts) & [`types.ts`](./src/scenarios/rocket/types.ts) | Circuits, SurplusBay part listings, blueprint slots, sponsors, money, and the four station objects. |
+| [`roles.ts`](./src/scenarios/rocket/roles.ts) | The 4 roles and the 1st/2nd-choice role matcher (`assignRocketRoles`). |
+| [`sim/engine.ts`](./src/scenarios/rocket/sim/engine.ts) | **Headless flight engine.** Integrates thrust, drag, gravity and parachute drag while interpreting the team's uploaded RocketScript; wiring and assembly gate ignition and deployment. `RocketRun` plays it back for the 3D scene. |
+| [`sim/board.ts`](./src/scenarios/rocket/sim/board.ts) | Seeded breadboard ("Flow") puzzles, generated from a random path through every hole so each board has a full solution. |
+| [`sim/rocketScript.ts`](./src/scenarios/rocket/sim/rocketScript.ts) | The RocketScript compiler (line-numbered errors, never fix suggestions) and the seeded starter program with injected bugs. |
+| [`sim/business.ts`](./src/scenarios/rocket/sim/business.ts) & [`sim/build.ts`](./src/scenarios/rocket/sim/build.ts) | Sponsor negotiation, vibe-prompt → flyer, effort → payout; blueprint resolution and parts spending. |
+| [`sim/strategies.ts`](./src/scenarios/rocket/sim/strategies.ts), [`sim/engine.test.ts`](./src/scenarios/rocket/sim/engine.test.ts), [`sim/tune.test.ts`](./src/scenarios/rocket/sim/tune.test.ts) | Whole-team reference designs (three passing strategies), failure fixtures and the `TUNE=1` table. |
+| [`world/RocketWorld.tsx`](./src/scenarios/rocket/world/RocketWorld.tsx) | Station tabs, per-role checklist bar, Launch Pad and flight HUD. |
+| [`world/ElectricalStation.tsx`](./src/scenarios/rocket/world/ElectricalStation.tsx), [`MechanicalStation.tsx`](./src/scenarios/rocket/world/MechanicalStation.tsx), [`SoftwareStation.tsx`](./src/scenarios/rocket/world/SoftwareStation.tsx), [`BusinessStation.tsx`](./src/scenarios/rocket/world/BusinessStation.tsx) | Breadboard, shop + blueprint workbench, USB plug-in + IDE, sponsor inbox + flyer studio with paint editor. |
+| [`world/RocketScene.tsx`](./src/scenarios/rocket/world/RocketScene.tsx) & [`world/RocketFx.tsx`](./src/scenarios/rocket/world/RocketFx.tsx) | 3D pad and flight: the rocket is drawn from the installed parts, with smoke, breakup debris and the parachute descent. |
 
 ---
 
