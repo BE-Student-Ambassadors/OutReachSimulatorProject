@@ -207,6 +207,20 @@ export type AppScreen =
 
 export type TeamRole = 'mechanical' | 'electrical' | 'software' | 'project-lead';
 
+export type PartCondition = 'new' | 'refurbished' | 'used';
+
+export interface PurchasedMechanicalPart {
+  category: ComponentCategory;
+  partId: string;
+  condition: PartCondition;
+  costUsd: number;
+  weightLb: number;
+  name: string;
+  assembled?: boolean;
+}
+
+export type MechanicalWorkflowStage = 'marketplace' | 'delivery' | 'workbench' | 'inspection';
+
 export interface MechanicalConfiguration {
   chassisId: ChassisId;
   driveId: DriveId;
@@ -217,6 +231,12 @@ export interface MechanicalConfiguration {
   utilityId: UtilityId;
   accentColor: string;
   isCompleted: boolean;
+  // Dynamic Mechanical Workflow state
+  purchasedParts?: Record<string, PurchasedMechanicalPart>;
+  assembledParts?: string[];
+  workflowStage?: MechanicalWorkflowStage;
+  partsDelivered?: boolean;
+  inspectionPassed?: boolean;
 }
 
 export type BatteryType = BatteryId;
