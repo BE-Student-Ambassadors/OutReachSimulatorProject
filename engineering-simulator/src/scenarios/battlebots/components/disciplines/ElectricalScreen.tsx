@@ -248,12 +248,12 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
       if (currentLevel === 1) {
         hintData = {
           title: 'HINT 1 — CONCEPTUAL',
-          text: 'The autonomous sensor suite needs a data path back to the Robot Computer.',
+          text: 'The sensor suite needs a data path back to the Robot Computer.',
         };
       } else if (currentLevel === 2) {
         hintData = {
           title: 'HINT 2 — SUBSYSTEM',
-          text: 'Sensors feed telemetry directly into the robot microcontroller so autonomous decision rules can function.',
+          text: 'Sensors feed telemetry directly into the robot microcontroller so telemetry and diagnostics can function.',
         };
       } else {
         hintData = {

@@ -124,7 +124,7 @@ export const BossIntroScreen: React.FC<BossIntroScreenProps> = ({
             </h1>
 
             <p className="text-slate-300 text-sm sm:text-base leading-relaxed mb-6 max-w-lg mx-auto">
-              Engineer an autonomous combat robot under a strict{' '}
+              Design, build, program, and drive a 30 lb combat robot to defeat The Bull under a strict{' '}
               <strong className="text-cyan-300">30.0 lb weight constraint</strong>. Ascend the Boss Ladder
               by analyzing mechanical tradeoffs in weapon energy, armor, traction, and drive agility.
             </p>
