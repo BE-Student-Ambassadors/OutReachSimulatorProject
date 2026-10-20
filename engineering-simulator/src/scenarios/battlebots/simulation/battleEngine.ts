@@ -16,6 +16,7 @@ import {
   type CombatImpactEvent,
   type ImpactSeverity,
   type WedgeTelemetry,
+  type WedgeCondition,
 } from '../types/robot';
 
 import {
@@ -100,6 +101,11 @@ export interface LiveBattleSimulation {
   wedgeTimerSec: number;
   lastWedgeTelemetry?: WedgeTelemetry | null;
 
+  // Bull Pushing Fatigue & Attack Patterns (Gameplay Balance)
+  bullPushSustainedSec: number;
+  bullAttackPattern: 'direct' | 'angled' | 'shove' | 'stalk';
+  bullPatternTimerSec: number;
+
   // Hitbox Developer Debug Data
   debugHitboxes?: {
     playerChassis: BoxCollider2D;
@@ -110,6 +116,13 @@ export interface LiveBattleSimulation {
     contactNormal: [number, number] | null;
     hasContact: boolean;
   };
+}
+
+export function getWedgeCondition(frontArmorPct: number): WedgeCondition {
+  if (frontArmorPct >= 75) return 'healthy';
+  if (frontArmorPct >= 45) return 'damaged';
+  if (frontArmorPct >= 20) return 'heavily-damaged';
+  return 'critical';
 }
 
 function normalizeAngle(angle: number): number {
@@ -131,7 +144,11 @@ export function createCombatImpactEvent(
   weaponEnergyJ = 0,
   targetDeltaV?: number,
   targetDeltaOmega?: number,
-  tractionBreakDurationSec?: number
+  tractionBreakDurationSec?: number,
+  hitSector?: 'front' | 'corner' | 'side' | 'rear',
+  rawDamage?: number,
+  armorMitigation?: number,
+  finalDamage?: number
 ): CombatImpactEvent {
   let severityScore = (impulse / 190) * 0.45 + (relativeVelocity / 8.5) * 0.25;
   if (type === 'weapon' && weaponEnergyJ > 0) {
@@ -176,6 +193,10 @@ export function createCombatImpactEvent(
     targetDeltaV: targetDeltaV !== undefined ? Number(targetDeltaV.toFixed(2)) : undefined,
     targetDeltaOmega: targetDeltaOmega !== undefined ? Number(targetDeltaOmega.toFixed(2)) : undefined,
     tractionBreakDurationSec: tractionBreakDurationSec !== undefined ? Number(tractionBreakDurationSec.toFixed(3)) : undefined,
+    hitSector,
+    rawDamage: rawDamage !== undefined ? Number(rawDamage.toFixed(1)) : undefined,
+    armorMitigation: armorMitigation !== undefined ? Number(armorMitigation.toFixed(2)) : undefined,
+    finalDamage: finalDamage !== undefined ? Number(finalDamage.toFixed(1)) : undefined,
   };
 
   if (severity !== 'tiny' || !sim.lastImpactEvent || sim.timeSec - sim.lastImpactEvent.timeSec > 0.25) {
@@ -267,46 +288,90 @@ function applyCombatDamage(
   targetBot: CombatantTelemetry,
   isPlayerBot: boolean,
   rawDamage: number,
-  sector: 'front' | 'side' | 'rear',
+  sector: 'front' | 'corner' | 'side' | 'rear',
   isKineticStrike: boolean
-): void {
+): { finalHullDmg: number; finalArmorDmg: number; effectiveMitigation: number } {
   const stats = isPlayerBot ? sim.playerStats : sim.bossStats;
   const effectiveArmor =
-    sector === 'front' ? stats.frontArmorScore : sector === 'side' ? stats.sideArmorScore : stats.rearArmorScore;
-  const armorMitigation = Math.max(0.45, effectiveArmor / 65);
+    sector === 'front' || sector === 'corner'
+      ? stats.frontArmorScore
+      : sector === 'side'
+      ? stats.sideArmorScore
+      : stats.rearArmorScore;
 
-  if (sector === 'front') {
-    const frontArmorDmg = (rawDamage * 1.05) / armorMitigation;
-    targetBot.frontArmorPct = Math.max(0, targetBot.frontArmorPct - frontArmorDmg);
+  // Progressive wedge durability degradation (Wedge Condition)
+  const currentCondition = getWedgeCondition(targetBot.frontArmorPct);
+  let mitigationMult = 1.0;
+  let hullPassThroughRatio = 0.50;
+
+  if (currentCondition === 'healthy') {
+    mitigationMult = 1.0;
+    hullPassThroughRatio = 0.45;
+  } else if (currentCondition === 'damaged') {
+    mitigationMult = 0.85;
+    hullPassThroughRatio = 0.65;
+  } else if (currentCondition === 'heavily-damaged') {
+    mitigationMult = 0.68;
+    hullPassThroughRatio = 0.90;
+  } else {
+    // critical
+    mitigationMult = 0.50;
+    hullPassThroughRatio = 1.25;
+  }
+
+  const effectiveMitigation = Math.max(0.40, (effectiveArmor / 65) * mitigationMult);
+
+  let finalArmorDmg = 0;
+  let finalHullDmg = 0;
+
+  if (sector === 'front' || sector === 'corner') {
+    const isCorner = sector === 'corner';
+    const armorWearMult = isCorner ? 1.15 : 1.05;
+    finalArmorDmg = (rawDamage * armorWearMult) / effectiveMitigation;
+    targetBot.frontArmorPct = Math.max(0, targetBot.frontArmorPct - finalArmorDmg);
+
     if (targetBot.frontArmorPct < 35 || isKineticStrike) {
-      const weaponDmg = (rawDamage * 0.35) / armorMitigation;
+      const weaponDmg = (rawDamage * 0.45) / effectiveMitigation;
       targetBot.weaponHealthPct = Math.max(0, targetBot.weaponHealthPct - weaponDmg);
     }
-    const hullDmg = (rawDamage * 0.55) / armorMitigation;
-    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - hullDmg);
+
+    finalHullDmg = (rawDamage * hullPassThroughRatio * (isCorner ? 0.90 : 1.0)) / effectiveMitigation;
+    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - finalHullDmg);
+
+    // Update wedge condition & physical deformation
+    targetBot.wedgeCondition = getWedgeCondition(targetBot.frontArmorPct);
+    const lostArmor = 100 - targetBot.frontArmorPct;
+    targetBot.wedgeDeformationMm = Math.min(35, lostArmor * 0.35);
   } else if (sector === 'side') {
-    const sideArmorDmg = (rawDamage * 1.25) / armorMitigation;
-    targetBot.sideArmorPct = Math.max(0, targetBot.sideArmorPct - sideArmorDmg);
+    finalArmorDmg = (rawDamage * 1.35) / effectiveMitigation;
+    targetBot.sideArmorPct = Math.max(0, targetBot.sideArmorPct - finalArmorDmg);
+
     if (!stats.wheelsProtected) {
-      const driveDmg = (rawDamage * 0.95) / armorMitigation;
+      const driveDmg = (rawDamage * 1.1) / effectiveMitigation;
       targetBot.leftDriveHealthPct = Math.max(0, targetBot.leftDriveHealthPct - driveDmg);
       targetBot.rightDriveHealthPct = Math.max(0, targetBot.rightDriveHealthPct - driveDmg);
     } else {
-      const driveDmg = (rawDamage * 0.22) / armorMitigation;
+      const driveDmg = (rawDamage * 0.28) / effectiveMitigation;
       targetBot.leftDriveHealthPct = Math.max(0, targetBot.leftDriveHealthPct - driveDmg);
       targetBot.rightDriveHealthPct = Math.max(0, targetBot.rightDriveHealthPct - driveDmg);
     }
-    const hullDmg = (rawDamage * 0.85) / armorMitigation;
-    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - hullDmg);
+
+    finalHullDmg = (rawDamage * 1.05) / effectiveMitigation;
+    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - finalHullDmg);
   } else {
-    const rearArmorDmg = (rawDamage * 1.35) / armorMitigation;
-    targetBot.rearArmorPct = Math.max(0, targetBot.rearArmorPct - rearArmorDmg);
-    const elecDmg = (rawDamage * 0.45) / armorMitigation;
-    targetBot.batteryPct = Math.max(0, targetBot.batteryPct - elecDmg * 0.2);
+    // rear
+    finalArmorDmg = (rawDamage * 1.55) / effectiveMitigation;
+    targetBot.rearArmorPct = Math.max(0, targetBot.rearArmorPct - finalArmorDmg);
+
+    const elecDmg = (rawDamage * 0.65) / effectiveMitigation;
+    targetBot.batteryPct = Math.max(0, targetBot.batteryPct - elecDmg * 0.25);
     targetBot.electricalHealthPct = Math.max(0, targetBot.electricalHealthPct - elecDmg);
-    const hullDmg = (rawDamage * 1.1) / armorMitigation;
-    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - hullDmg);
+
+    finalHullDmg = (rawDamage * 1.45) / effectiveMitigation;
+    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - finalHullDmg);
   }
+
+  return { finalHullDmg, finalArmorDmg, effectiveMitigation };
 }
 
 function addEvent(
@@ -370,6 +435,8 @@ export function createBattleSimulation(
     skidVz: 0,
     tractionBreakTimerSec: 0,
     impactFlashIntensity: 0,
+    wedgeCondition: 'healthy',
+    wedgeDeformationMm: 0,
     aiStateLabel: 'SENSE',
   };
 
@@ -401,6 +468,8 @@ export function createBattleSimulation(
     skidVz: 0,
     tractionBreakTimerSec: 0,
     impactFlashIntensity: 0,
+    wedgeCondition: 'healthy',
+    wedgeDeformationMm: 0,
     aiStateLabel: 'SENSE',
   };
 
@@ -432,6 +501,9 @@ export function createBattleSimulation(
     bossChargeCooldownSec: bossId === 'bull' ? 1.2 : 2.5,
     bossChargeActiveSec: 0,
     bossRepositionTimerSec: 0,
+    bullPushSustainedSec: 0,
+    bullAttackPattern: 'direct',
+    bullPatternTimerSec: 3.5,
     weaponAtSpeedAnnounced: false,
     tempWarningAnnounced: false,
     powerLimitAnnounced: false,
@@ -761,8 +833,10 @@ export function stepBattleSimulation(
         player.aiStateLabel = 'PUSH';
       } else {
         // Post-impact traction break dampens driver steering & throttle authority
-        const pAuthority = player.tractionBreakTimerSec > 0 ? 0.08 : 1.0;
-        const pSteerAuthority = player.tractionBreakTimerSec > 0 ? 0.18 : 1.0;
+        // BUT preserve reverse escape authority (0.72) and lateral steering authority (0.65) to escape wedge pins
+        const isReversing = input.throttle < 0;
+        const pAuthority = player.tractionBreakTimerSec > 0 ? (isReversing ? 0.72 : 0.22) : 1.0;
+        const pSteerAuthority = player.tractionBreakTimerSec > 0 ? 0.65 : 1.0;
 
         // A. Differential Steering: Turn left (negative) or right (positive)
         // Turning right increases headingRad (clockwise), turning left decreases it
@@ -917,9 +991,9 @@ export function stepBattleSimulation(
         player.aiStateLabel = dist < 1.4 ? 'ENGAGE' : 'APPROACH';
       }
 
-      const pAuthority = player.tractionBreakTimerSec > 0 ? 0.08 : 1.0;
+      const pAuthority = player.tractionBreakTimerSec > 0 ? 0.35 : 1.0;
       const headingDiff = normalizeAngle(desiredPlayerHeading - player.headingRad);
-      const maxTurn = playerTurnRate * dt * (player.tractionBreakTimerSec > 0 ? 0.15 : 1.0);
+      const maxTurn = playerTurnRate * dt * (player.tractionBreakTimerSec > 0 ? 0.45 : 1.0);
       player.headingRad = normalizeAngle(player.headingRad + Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), maxTurn));
 
       const alignFactor = Math.max(0, Math.cos(headingDiff));
@@ -955,42 +1029,73 @@ export function stepBattleSimulation(
         const headingDiff = normalizeAngle(angleBossToPlayer - boss.headingRad);
         const nearWall = Math.abs(boss.x) > ARENA_HALF_SIZE - 1.2 || Math.abs(boss.z) > ARENA_HALF_SIZE - 1.2;
 
+        // Periodic Attack Pattern Selection (direct, angled, shove, stalk)
+        sim.bullPatternTimerSec -= dt;
+        if (sim.bullPatternTimerSec <= 0) {
+          sim.bullPatternTimerSec = 3.5 + Math.random() * 2.0;
+          const patterns: ('direct' | 'angled' | 'shove' | 'stalk')[] = ['direct', 'angled', 'shove', 'stalk'];
+          sim.bullAttackPattern = patterns[Math.floor(Math.random() * patterns.length)];
+        }
+
         if (sim.bossRepositionTimerSec > 0) {
-          // DISENGAGE / REPOSITION: Bull creates 2.5 - 3.5m of open arena space before charging again
+          // DISENGAGE / REPOSITION / MISSED-CHARGE BRAKING RECOVERY
           boss.aiStateLabel = 'REPOSITION';
           if (nearWall) {
             // Maneuver back toward center of arena
             const centerAngle = Math.atan2(-boss.x, -boss.z);
             desiredBossHeading = centerAngle;
-            desiredBossSpeed = bossMaxSpeed * 0.95;
+            desiredBossSpeed = bossMaxSpeed * 0.90;
           } else {
-            // Reverse away from player while keeping horns oriented
+            // Forward momentum carries Bull while braking and turning back
             desiredBossHeading = angleBossToPlayer;
-            desiredBossSpeed = -bossMaxSpeed * 0.85;
+            desiredBossSpeed = -bossMaxSpeed * 0.65;
           }
         } else if (dist < 1.6 && sim.bossChargeActiveSec <= 0) {
-          // Too close and not in an active charge: disengage immediately to break the pushing match!
+          // Too close and not in an active charge: disengage immediately to break the pushing match and create charge distance!
           sim.bossRepositionTimerSec = 0.9 + Math.random() * 0.4;
           boss.aiStateLabel = 'REPOSITION';
           desiredBossHeading = angleBossToPlayer;
           desiredBossSpeed = -bossMaxSpeed * 0.85;
         } else if (sim.bossChargeActiveSec > 0) {
           // Active high-speed charge!
-          desiredBossHeading = angleBossToPlayer;
-          desiredBossSpeed = bossMaxSpeed * 1.35;
           boss.aiStateLabel = 'CHARGE';
+          desiredBossSpeed = bossMaxSpeed * 1.35;
 
-          // Abort charge if player completely dodges laterally
-          if (Math.abs(headingDiff) > 0.65 && dist > 2.0) {
+          // Charge Commitment: in final 2.8m, commit straight forward on heading!
+          if (dist < 2.8) {
+            desiredBossHeading = boss.headingRad;
+          } else {
+            desiredBossHeading = angleBossToPlayer;
+          }
+
+          // Check if player dodged or Bull overshot past the player
+          const bFwdX = Math.sin(boss.headingRad);
+          const bFwdZ = Math.cos(boss.headingRad);
+          const relFwd = (player.x - boss.x) * bFwdX + (player.z - boss.z) * bFwdZ;
+          const isPlayerPassed = relFwd < -0.3; // Player is behind Bull's plow line!
+          const isDodgedLaterally = Math.abs(headingDiff) > 0.48 && dist < 3.5;
+
+          if (isPlayerPassed || isDodgedLaterally) {
+            // MISSED CHARGE! Bull overshoots and enters an exposed recovery braking window (~1.35s)
             sim.bossChargeActiveSec = 0;
-            sim.bossRepositionTimerSec = 0.6;
+            sim.bossRepositionTimerSec = 1.35;
+            boss.aiStateLabel = 'REPOSITION';
+            addEvent(sim, 'BULL MISSED CHARGE — OVERLOAD BRAKING WINDOW!', 'info');
           }
         } else if (sim.bossChargeCooldownSec <= 0 && dist >= 2.0 && dist <= 5.5) {
-          // Ready to charge: align horns first!
-          if (Math.abs(headingDiff) < 0.32) {
-            sim.bossChargeActiveSec = 1.2;
+          // Ready to initiate attack pattern
+          if (sim.bullAttackPattern === 'stalk' && dist > 2.8) {
+            // Stalk / circle player to look for an opening
+            desiredBossHeading = normalizeAngle(angleBossToPlayer + 0.75 * Math.sign(dx || 1));
+            desiredBossSpeed = bossMaxSpeed * 0.75;
+            boss.aiStateLabel = 'APPROACH';
+          } else if (Math.abs(headingDiff) < 0.32) {
+            // Aligned and launching charge!
+            const chargeDuration = sim.bullAttackPattern === 'shove' ? 0.75 : 1.25;
+            sim.bossChargeActiveSec = chargeDuration;
             sim.bossChargeCooldownSec = 2.4;
-            desiredBossHeading = angleBossToPlayer;
+            const targetOffset = sim.bullAttackPattern === 'angled' ? 0.38 * Math.sign(dx || 1) : 0;
+            desiredBossHeading = normalizeAngle(angleBossToPlayer + targetOffset);
             desiredBossSpeed = bossMaxSpeed * 1.35;
             boss.aiStateLabel = 'CHARGE';
           } else {
@@ -1057,7 +1162,8 @@ export function stepBattleSimulation(
     const bSteerAuthority = boss.tractionBreakTimerSec > 0 ? 0.12 : 1.0;
 
     const bossHeadingDiff = normalizeAngle(desiredBossHeading - boss.headingRad);
-    const maxBossTurn = bossTurnRate * dt * (sim.bossChargeActiveSec > 0 ? 0.45 : 1.0) * bSteerAuthority;
+    const chargeSteerMult = sim.bossChargeActiveSec > 0 ? (dist < 2.8 ? 0.06 : 0.25) : 1.0;
+    const maxBossTurn = bossTurnRate * dt * chargeSteerMult * bSteerAuthority;
     boss.headingRad = normalizeAngle(boss.headingRad + Math.sign(bossHeadingDiff) * Math.min(Math.abs(bossHeadingDiff), maxBossTurn));
 
     const alignFactor = Math.max(0, Math.cos(bossHeadingDiff));
@@ -1283,7 +1389,7 @@ export function stepBattleSimulation(
       const vPlayerApproach = -(player.vx * bFwdX + player.vz * bFwdZ);
       const vBullFwd = boss.vx * bFwdX + boss.vz * bFwdZ;
       const vClose = vBullFwd + vPlayerApproach;
-      const isDynamicWedgeImpact = vClose > 0.65 || sim.bossChargeActiveSec > 0 || Math.abs(vPlayerApproach) > 1.2;
+      const isDynamicWedgeImpact = vClose > 0.65 || (sim.bossChargeActiveSec > 0 && vClose > 0.35) || Math.abs(vPlayerApproach) > 1.2;
 
       if (
         sim.wedgePhase === 'riding' ||
@@ -1416,12 +1522,31 @@ export function stepBattleSimulation(
         const pPushDir = pFwdX * nx + pFwdZ * nz;
         const bPushDir = bFwdX * (-nx) + bFwdZ * (-nz);
 
+        // Pushing fatigue tracking (wheel slip & motor thermal load on sustained push)
+        if (bossId === 'bull' && bPushDir > 0.45) {
+          sim.bullPushSustainedSec += subDt;
+        } else {
+          sim.bullPushSustainedSec = Math.max(0, sim.bullPushSustainedSec - subDt * 1.5);
+        }
+
+        // After 1.5s of sustained pushing, wheel slip and high motor load drop pushing force down to 45% by 3.5s
+        const pushFatigueFactor = Math.max(0.45, 1.0 - Math.max(0, sim.bullPushSustainedSec - 1.5) * 0.28);
+
+        // Progressive wedge condition modifies front plow leverage bonus
+        const bWedgeCond = getWedgeCondition(boss.frontArmorPct);
+        const wedgeLeverageBonus =
+          bWedgeCond === 'healthy' ? 1.25 :
+          bWedgeCond === 'damaged' ? 1.10 :
+          bWedgeCond === 'heavily-damaged' ? 0.95 : 0.70;
+
+        const bossDriveHealth = (boss.leftDriveHealthPct + boss.rightDriveHealthPct) * 0.005;
         const pDriveForce = playerStats.pushingForceN * Math.max(0, pPushDir);
-        let bDriveForce = bossStats.pushingForceN * Math.max(0, bPushDir);
+        let bDriveForce = bossStats.pushingForceN * Math.max(0, bPushDir) * bossDriveHealth;
         // The Bull bronze wedge leverage bonus during active charge or front plow contact
         if (bossId === 'bull' && (sim.bossChargeActiveSec > 0 || bPushDir > 0.6)) {
-          bDriveForce *= 1.25;
+          bDriveForce *= wedgeLeverageBonus;
         }
+        bDriveForce *= pushFatigueFactor;
 
         const netPushForce = pDriveForce - bDriveForce; // > 0 moves along +normal (player pushes boss)
         const aPush = netPushForce / (m1 + m2);
@@ -1443,9 +1568,20 @@ export function stepBattleSimulation(
         } else if (netPushForce < -20) {
           sim.bossPushTimeSec += subDt;
           sim.bullPushTimeSec += subDt;
+          if (bossId === 'bull') {
+            sim.bullPushSustainedSec += subDt;
+          }
         }
       }
     }
+  }
+
+  // Bull Sustained Pushing Fatigue Tracker
+  const bPushingContact = sim.contactActive && (sim.bossChargeActiveSec > 0 || sim.bossPushTimeSec > 0 || sim.bullPushTimeSec > 0);
+  if (bossId === 'bull' && bPushingContact) {
+    sim.bullPushSustainedSec += dt;
+  } else if (!sim.contactActive) {
+    sim.bullPushSustainedSec = Math.max(0, sim.bullPushSustainedSec - dt * 1.5);
   }
 
   // 6. CHECK KNOCKOUT / WIN CONDITIONS
@@ -1631,11 +1767,55 @@ function resolveBullWedgeInteraction(
   // =========================================================================
 
   function triggerLiftedWeaponCounter(): boolean {
+    if (playerStats.weaponTypeCategory === 'hammer') {
+      sim.impactsDelivered++;
+      const rawHammerDmg = 26 + (playerStats.weaponEnergyJ / 120);
+      const hitDmgResult = applyCombatDamage(sim, boss, false, rawHammerDmg, 'rear', true);
+
+      sim.bossStunTimerSec = 0.75;
+      sim.bossRepositionTimerSec = 1.25;
+      sim.bossChargeActiveSec = 0;
+      boss.tractionBreakTimerSec = 0.45;
+      boss.pitchRad = 0.35;
+
+      const shoveSpeed = 3.2;
+      boss.vx -= fBx * shoveSpeed;
+      boss.vz -= fBz * shoveSpeed;
+
+      player.pitchRad = 0.04;
+      player.isFlipped = false;
+
+      createCombatImpactEvent(
+        sim,
+        [cx, cz],
+        [fBx, fBz],
+        shoveSpeed,
+        140,
+        'weapon',
+        'player',
+        'boss',
+        playerStats.weaponEnergyJ,
+        shoveSpeed,
+        0,
+        0.45,
+        'rear',
+        rawHammerDmg,
+        hitDmgResult.effectiveMitigation,
+        hitDmgResult.finalHullDmg
+      );
+
+      addEvent(sim, `HAMMER CRUSHED ${sim.bossDossier.name.toUpperCase()} TOP DECK!`, 'impact');
+      sim.contactCooldownSec = 0.65;
+      sim.wedgePhase = 'none';
+      return true;
+    }
+
     const spinFrac = Math.pow(weaponSpin / 100, 2);
     const rawKineticEnergyJ = Math.max(400, playerStats.weaponEnergyJ * spinFrac);
     sim.impactsDelivered++;
 
-    applyCombatDamage(sim, boss, false, Math.max(12, rawKineticEnergyJ / 100), 'front', true);
+    const rawKineticDmg = Math.max(12, rawKineticEnergyJ / 55);
+    const hitDmgResult = applyCombatDamage(sim, boss, false, rawKineticDmg, 'front', true);
 
     const baseImpulse = Math.sqrt(2 * ((m1 * m2) / (m1 + m2)) * rawKineticEnergyJ);
     const impulse = baseImpulse * WEAPON_IMPACT_RESPONSE_SCALE;
@@ -1689,7 +1869,11 @@ function resolveBullWedgeInteraction(
       rawKineticEnergyJ,
       knockbackSpeed,
       Math.abs(boss.angularVelocityRad),
-      0.45
+      0.45,
+      'front',
+      rawKineticDmg,
+      hitDmgResult.effectiveMitigation,
+      hitDmgResult.finalHullDmg
     );
 
     addEvent(sim, 'LIFTED WEAPON COUNTER — SPINNER STRUCK BULL UPPER DECK!', 'impact');
@@ -1774,6 +1958,7 @@ function resolveBullWedgeInteraction(
     addEvent(sim, 'DEFLECTED OFF WEDGE — GLANCING IMPACT', 'warning');
     sim.bossRepositionTimerSec = 0.9;
     sim.bossChargeActiveSec = 0;
+    boss.aiStateLabel = 'REPOSITION';
     sim.wedgePhase = 'none';
 
     sim.lastWedgeTelemetry = {
@@ -1885,6 +2070,7 @@ function resolveBullWedgeInteraction(
 
     sim.bossRepositionTimerSec = 1.1;
     sim.bossChargeActiveSec = 0;
+    boss.aiStateLabel = 'REPOSITION';
 
     createCombatImpactEvent(
       sim,
@@ -1931,6 +2117,8 @@ function resolveBullWedgeInteraction(
   boss.vx -= fBx * 0.8;
   boss.vz -= fBz * 0.8;
 
+  sim.bullPushSustainedSec += subDt * 2.0;
+
   player.pitchRad = 0.44 + Math.min(0.12, vClose * 0.02);
   player.isFlipped = false; // Guarantees staying on wheels!
   player.tractionBreakTimerSec = 0.28;
@@ -1941,6 +2129,7 @@ function resolveBullWedgeInteraction(
 
   sim.bossRepositionTimerSec = 1.0;
   sim.bossChargeActiveSec = 0;
+  boss.aiStateLabel = 'REPOSITION';
 
   createCombatImpactEvent(
     sim,
@@ -2124,18 +2313,34 @@ function resolveEngagementImpact(
       const rawKineticEnergyJ = playerStats.weaponEnergyJ * spinFraction;
       sim.impactsDelivered++;
 
-      const sector = bossHitOnFront ? 'front' : bossHitOnSide ? 'side' : 'rear';
+      // Bull local lateral contact coordinate to detect corner hits
+      const rBx = Math.cos(boss.headingRad);
+      const rBz = -Math.sin(boss.headingRad);
+      const bossLatOffset = r2x * rBx + r2z * rBz;
+      const isCornerHit = bossHitOnFront && Math.abs(bossLatOffset) > 0.32;
+      const sector: 'front' | 'corner' | 'side' | 'rear' =
+        isCornerHit ? 'corner' : bossHitOnFront ? 'front' : bossHitOnSide ? 'side' : 'rear';
       const recoilRatio = playerStats.weaponRecoilScore / 100;
+
+      // Charge interruption on solid kinetic strike
+      if (rawKineticEnergyJ > 800) {
+        sim.bossChargeActiveSec = 0;
+        sim.bossStunTimerSec = 0.65;
+        boss.tractionBreakTimerSec = 0.45;
+      }
 
       let knockbackSpeed: number;
       let deliveredEnergyJ: number;
       let playerRecoilSpeed: number;
+      let hitDmgResult: { finalHullDmg: number; finalArmorDmg: number; effectiveMitigation: number };
 
       if (bossHitOnFront) {
-        // Front plow hit: armor mitigates penetration damage, but physical momentum accelerates Bull backward!
-        const deflectionFactor = bossStats.frontArmorScore >= 100 ? 0.55 : 0.75;
+        // Front plow or corner hit: progressive armor wear and momentum transfer
+        const isCorner = sector === 'corner';
+        const deflectionFactor = isCorner ? 0.80 : (bossStats.frontArmorScore >= 100 ? 0.65 : 0.85);
         deliveredEnergyJ = rawKineticEnergyJ * deflectionFactor;
-        applyCombatDamage(sim, boss, false, deliveredEnergyJ / 115, 'front', true);
+        const rawDmg = deliveredEnergyJ / 55;
+        hitDmgResult = applyCombatDamage(sim, boss, false, rawDmg, sector, true);
 
         // Scaled physical knockback on Bull (~2 to 4 robot lengths)
         knockbackSpeed = THREE.MathUtils.clamp(
@@ -2145,7 +2350,7 @@ function resolveEngagementImpact(
         );
         boss.vx = nx * knockbackSpeed;
         boss.vz = nz * knockbackSpeed;
-        sim.bossStunTimerSec = 0.40;
+        sim.bossStunTimerSec = Math.max(sim.bossStunTimerSec, isCorner ? 0.75 : 0.50);
 
         // Player recoil (~0.5 to 1.5 robot lengths)
         playerRecoilSpeed = THREE.MathUtils.clamp(
@@ -2157,11 +2362,16 @@ function resolveEngagementImpact(
         player.vz = -nz * playerRecoilSpeed;
 
         player.weaponSpinPct = Math.min(10, player.weaponSpinPct * 0.12);
-        addEvent(sim, `HIGH-ENERGY CLASH WITH ${sim.bossDossier.name.toUpperCase()} FRONT PLOW!`, 'warning');
+        if (isCorner) {
+          addEvent(sim, `CLIPPED ${sim.bossDossier.name.toUpperCase()} WEDGE CORNER — DEFLECTION YAW!`, 'impact');
+        } else {
+          addEvent(sim, `HIGH-ENERGY CLASH WITH ${sim.bossDossier.name.toUpperCase()} FRONT PLOW!`, 'warning');
+        }
       } else {
         // Flank or Rear strike: catastrophic kinetic breach
         deliveredEnergyJ = rawKineticEnergyJ;
-        applyCombatDamage(sim, boss, false, deliveredEnergyJ / 70, sector, true);
+        const rawDmg = deliveredEnergyJ / 45;
+        hitDmgResult = applyCombatDamage(sim, boss, false, rawDmg, sector, true);
 
         // Huge knockback on struck flank/rear (~3 to 5+ robot lengths)
         knockbackSpeed = THREE.MathUtils.clamp(
@@ -2189,7 +2399,9 @@ function resolveEngagementImpact(
       const impulseMag = m2 * knockbackSpeed;
 
       // Angular yaw torque on BOTH bots from off-center weapon contact
-      const tauBoss = (r2x * (nz * impulseMag) - r2z * (nx * impulseMag)) * ANGULAR_IMPULSE_SCALE;
+      // Corner strike delivers amplified yaw moment
+      const cornerTorqueMult = sector === 'corner' ? 1.6 : 1.0;
+      const tauBoss = (r2x * (nz * impulseMag) - r2z * (nx * impulseMag)) * ANGULAR_IMPULSE_SCALE * cornerTorqueMult;
       const deltaOmegaBoss = THREE.MathUtils.clamp(tauBoss / I2, -36, 36);
       boss.angularVelocityRad += deltaOmegaBoss;
 
@@ -2234,7 +2446,11 @@ function resolveEngagementImpact(
         rawKineticEnergyJ,
         knockbackSpeed,
         Math.abs(deltaOmegaBoss),
-        tBreakBoss
+        tBreakBoss,
+        sector,
+        deliveredEnergyJ / (bossHitOnFront ? 55 : 45),
+        hitDmgResult.effectiveMitigation,
+        hitDmgResult.finalHullDmg
       );
 
       // Vertical spinner overturn check
@@ -2249,7 +2465,55 @@ function resolveEngagementImpact(
       return;
     }
 
-    // 2. LIFTER ENGAGEMENT
+    // 2. HAMMER ENGAGEMENT (Overhead pneumatic spike bypasses frontal plow)
+    if (wType === 'hammer') {
+      sim.impactsDelivered++;
+      const sep = SEPARATION_BUFFER_METERS * 0.8;
+      player.x -= nx * sep * w1;
+      player.z -= nz * sep * w1;
+      boss.x += nx * sep * w2;
+      boss.z += nz * sep * w2;
+
+      // Overhead strike directly penetrates top armor / deck
+      const rawHammerDmg = 26 + (playerStats.weaponEnergyJ / 120);
+      const hitDmgResult = applyCombatDamage(sim, boss, false, rawHammerDmg, 'rear', true);
+
+      // Disrupt Bull charge & stun
+      sim.bossChargeActiveSec = 0;
+      sim.bossStunTimerSec = 0.75;
+      boss.tractionBreakTimerSec = 0.40;
+      boss.pitchRad = 0.45; // Overhead blow drives Bull's front into the floor
+      sim.bossRepositionTimerSec = 1.1;
+
+      const shoveVel = 2.8 * WEAPON_IMPACT_RESPONSE_SCALE * 0.6;
+      boss.vx = nx * shoveVel;
+      boss.vz = nz * shoveVel;
+
+      createCombatImpactEvent(
+        sim,
+        [midX, midZ],
+        [nx, nz],
+        shoveVel,
+        140,
+        'weapon',
+        'player',
+        'boss',
+        playerStats.weaponEnergyJ,
+        shoveVel,
+        0,
+        0.40,
+        'rear',
+        rawHammerDmg,
+        hitDmgResult.effectiveMitigation,
+        hitDmgResult.finalHullDmg
+      );
+
+      addEvent(sim, `HAMMER CRUSHED ${sim.bossDossier.name.toUpperCase()} TOP DECK!`, 'impact');
+      sim.contactCooldownSec = 0.68;
+      return;
+    }
+
+    // 3. LIFTER ENGAGEMENT
     if (wType === 'lifter') {
       sim.impactsDelivered++;
       const sep = SEPARATION_BUFFER_METERS;

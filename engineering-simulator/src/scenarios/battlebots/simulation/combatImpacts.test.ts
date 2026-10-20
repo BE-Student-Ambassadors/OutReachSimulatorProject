@@ -629,5 +629,158 @@ describe('BATTLEBOT COMBAT IMPACTS & GAME FEEL SYSTEM', () => {
       expect(maxPitch).toBeLessThan(1.0);
     });
   });
+
+  describe('COMBAT BALANCE PASS — THE BULL FAIR & COMPETITIVE MATCHES', () => {
+    it('progressively degrades wedge condition and increases pass-through damage', () => {
+      const spinnerConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        weaponId: 'horizontal-spinner',
+      };
+      const sim = createBattleSimulation(spinnerConfig, 'control', 'bull');
+      expect(sim.boss.frontArmorPct).toBe(100);
+      expect(sim.boss.wedgeCondition).toBe('healthy');
+
+      // Deliver heavy weapon impacts to Bull's front
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 1.2;
+      sim.player.weaponSpinPct = 100;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -3.0;
+
+      stepBattleSimulation(sim, 0.02);
+
+      // Bull front armor takes meaningful wear
+      expect(sim.boss.frontArmorPct).toBeLessThan(100);
+      expect(sim.boss.wedgeDeformationMm).toBeGreaterThan(0);
+      expect(sim.recentImpactEvents.length).toBeGreaterThan(0);
+      const lastHit = sim.recentImpactEvents[sim.recentImpactEvents.length - 1];
+      expect(lastHit.rawDamage).toBeGreaterThan(0);
+      expect(lastHit.finalDamage).toBeGreaterThan(0);
+    });
+
+    it('interrupts Bull charge on solid kinetic weapon strike', () => {
+      const spinnerConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        weaponId: 'vertical-spinner',
+      };
+      const sim = createBattleSimulation(spinnerConfig, 'control', 'bull');
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 1.2;
+      sim.player.weaponSpinPct = 100;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.bossChargeActiveSec = 1.0;
+      sim.boss.vz = -3.5;
+
+      stepBattleSimulation(sim, 0.02);
+
+      // Charge is interrupted, Bull stunned and traction broken
+      expect(sim.bossChargeActiveSec).toBe(0);
+      expect(sim.bossStunTimerSec).toBeGreaterThan(0);
+      expect(sim.boss.tractionBreakTimerSec).toBeGreaterThan(0);
+    });
+
+    it('amplifies Bull angular yaw on wedge corner strike', () => {
+      const spinnerConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        weaponId: 'horizontal-spinner',
+      };
+      const sim = createBattleSimulation(spinnerConfig, 'control', 'bull');
+      // Contact offset laterally toward Bull's left/right wedge corner
+      sim.player.x = 0.40;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 1.2;
+      sim.player.weaponSpinPct = 100;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -3.0;
+
+      stepBattleSimulation(sim, 0.02);
+
+      // Corner hit generates significant angular yaw rotation on Bull
+      expect(Math.abs(sim.boss.angularVelocityRad)).toBeGreaterThan(4.0);
+      const lastHit = sim.recentImpactEvents[sim.recentImpactEvents.length - 1];
+      expect(lastHit.type).toBe('weapon');
+    });
+
+    it('degrades Bull pushing force during sustained contact past 1.5s', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull', undefined, 0, 0, true);
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.boss.x = 0;
+      sim.boss.z = 0.5;
+      sim.contactActive = true;
+      sim.bossChargeActiveSec = 3.0;
+
+      for (let f = 0; f < 80; f++) {
+        sim.contactActive = true;
+        sim.bossChargeActiveSec = 3.0;
+        stepBattleSimulation(sim, 0.02);
+      }
+
+      // Bull pushing sustained timer accumulated past 1.0s
+      expect(sim.bullPushSustainedSec).toBeGreaterThan(1.0);
+    });
+
+    it('allows hammer overhead strike to bypass wedge and stun Bull', () => {
+      const hammerConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        weaponId: 'hammer',
+      };
+      const sim = createBattleSimulation(hammerConfig, 'control', 'bull');
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 1.2;
+      sim.player.weaponActuationPhase = 0.5;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -3.0;
+      sim.bossChargeActiveSec = 0.8;
+
+      stepBattleSimulation(sim, 0.02);
+
+      expect(sim.bossChargeActiveSec).toBe(0);
+      expect(sim.bossStunTimerSec).toBeGreaterThan(0.5);
+      expect(sim.boss.hullIntegrityPct).toBeLessThan(100);
+      const lastHit = sim.recentImpactEvents[sim.recentImpactEvents.length - 1];
+      expect(lastHit.type).toBe('weapon');
+      expect(lastHit.rawDamage).toBeGreaterThan(20);
+    });
+
+    it('triggers missed-charge overshoot recovery when player dodges laterally', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull');
+      sim.bossChargeActiveSec = 1.0;
+      sim.boss.headingRad = Math.PI; // Heading -z toward player
+      sim.boss.x = 0;
+      sim.boss.z = 1.5;
+      sim.boss.vz = -4.5;
+
+      // Player has dodged far to the right (laterally offset)
+      sim.player.x = 1.8;
+      sim.player.z = 0.2;
+
+      stepBattleSimulation(sim, 0.02);
+
+      // Charge aborted due to lateral dodge, Bull enters reposition/braking recovery
+      expect(sim.bossChargeActiveSec).toBe(0);
+      expect(sim.bossRepositionTimerSec).toBeGreaterThan(0.5);
+      expect(sim.boss.aiStateLabel).toBe('REPOSITION');
+    });
+  });
 });
 

@@ -867,20 +867,58 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
               {hudLastImpact ? hudLastImpact.severity : 'STANDBY'}
             </span>
           </div>
+          {/* Bull Combat Balance Telemetry (Section 22) */}
+          <div className="mb-2 pb-2 border-b border-amber-500/30">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                BULL COMBAT STATUS
+              </span>
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                hudBull.wedgeCondition === 'critical' || hudBull.frontArmorPct < 20
+                  ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                  : hudBull.wedgeCondition === 'heavily-damaged' || hudBull.frontArmorPct < 45
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : hudBull.wedgeCondition === 'damaged' || hudBull.frontArmorPct < 75
+                  ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40'
+                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+              }`}>
+                WEDGE: {hudBull.wedgeCondition ?? (hudBull.frontArmorPct >= 75 ? 'HEALTHY' : hudBull.frontArmorPct >= 45 ? 'DAMAGED' : hudBull.frontArmorPct >= 20 ? 'HEAVILY DAMAGED' : 'CRITICAL')}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+              <span className="text-slate-400">Total Health:</span>
+              <span className="text-white font-bold">{bullOverallCondition}% (Hull: {hudBull.hullIntegrityPct.toFixed(0)}%)</span>
+              <span className="text-slate-400">Wedge Armor:</span>
+              <span className="text-amber-300 font-bold">{hudBull.frontArmorPct.toFixed(0)}% (Deform: {(hudBull.wedgeDeformationMm ?? (100 - hudBull.frontArmorPct) * 0.35).toFixed(0)}mm)</span>
+              <span className="text-slate-400">Drive Condition:</span>
+              <span className="text-cyan-300">L: {hudBull.leftDriveHealthPct.toFixed(0)}% | R: {hudBull.rightDriveHealthPct.toFixed(0)}%</span>
+              <span className="text-slate-400">Traction:</span>
+              <span className={hudBull.tractionBreakTimerSec > 0 ? "text-rose-400 font-bold animate-pulse" : "text-emerald-400 font-bold"}>
+                {hudBull.tractionBreakTimerSec > 0 ? `SLIP (${(hudBull.tractionBreakTimerSec * 1000).toFixed(0)}ms)` : 'NOMINAL 100%'}
+              </span>
+            </div>
+          </div>
+
           {hudLastImpact ? (
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-slate-400">Hit Sector:</span>
+              <span className="text-emerald-300 font-bold uppercase">{hudLastImpact.hitSector ?? 'FRONT'}</span>
               <span className="text-slate-400">Type:</span>
               <span className="text-white font-bold uppercase">{hudLastImpact.type} ({hudLastImpact.sourceRobot} → {hudLastImpact.targetRobot})</span>
+              <span className="text-slate-400">Weapon Energy:</span>
+              <span className="text-amber-300 font-bold">{hudLastImpact.weaponEnergyJ ? `${hudLastImpact.weaponEnergyJ.toFixed(0)} J` : 'N/A'}</span>
+              <span className="text-slate-400">Raw Damage:</span>
+              <span className="text-amber-400 font-bold">{hudLastImpact.rawDamage !== undefined ? hudLastImpact.rawDamage.toFixed(1) : 'N/A'}</span>
+              <span className="text-slate-400">Armor Mitigation:</span>
+              <span className="text-cyan-300 font-bold">{hudLastImpact.armorMitigation !== undefined ? `${hudLastImpact.armorMitigation.toFixed(2)}x` : 'N/A'}</span>
+              <span className="text-slate-400">Final Damage:</span>
+              <span className="text-rose-400 font-bold">{hudLastImpact.finalDamage !== undefined ? `${hudLastImpact.finalDamage.toFixed(1)}%` : 'N/A'}</span>
+              <span className="text-slate-400">Linear Impulse:</span>
+              <span className="text-cyan-300 font-bold">{hudLastImpact.impulse.toFixed(1)} N·s</span>
+              <span className="text-slate-400">Angular Impulse:</span>
+              <span className="text-purple-300 font-bold">{hudLastImpact.targetDeltaOmega !== undefined ? `${(hudLastImpact.targetDeltaOmega * (180 / Math.PI)).toFixed(0)}°/s` : '0°/s'}</span>
               <span className="text-slate-400">Rel Speed:</span>
               <span className="text-white font-bold">{hudLastImpact.relativeVelocity.toFixed(2)} m/s</span>
-              <span className="text-slate-400">Impulse:</span>
-              <span className="text-cyan-300 font-bold">{hudLastImpact.impulse.toFixed(1)} N·s</span>
-              <span className="text-slate-400">Weapon Energy:</span>
-              <span className="text-amber-300 font-bold">{hudLastImpact.weaponEnergyJ ? `${hudLastImpact.weaponEnergyJ} J` : 'N/A'}</span>
-              <span className="text-slate-400">Target Δv:</span>
-              <span className="text-emerald-400 font-bold">{hudLastImpact.targetDeltaV !== undefined ? `${hudLastImpact.targetDeltaV.toFixed(2)} m/s` : `${hudLastImpact.relativeVelocity.toFixed(2)} m/s`}</span>
-              <span className="text-slate-400">Target Δω:</span>
-              <span className="text-purple-300 font-bold">{hudLastImpact.targetDeltaOmega !== undefined ? `${(hudLastImpact.targetDeltaOmega * (180 / Math.PI)).toFixed(0)}°/s` : '0°/s'}</span>
               <span className="text-slate-400">Traction Break:</span>
               <span className="text-rose-400 font-bold">{hudLastImpact.tractionBreakDurationSec !== undefined ? `${Math.round(hudLastImpact.tractionBreakDurationSec * 1000)} ms` : '0 ms'}</span>
             </div>

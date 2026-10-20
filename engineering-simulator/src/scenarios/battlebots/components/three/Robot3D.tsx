@@ -397,6 +397,33 @@ export const Robot3D: React.FC<Robot3DProps> = ({
   const frontDamaged = (damageState?.frontArmorPct ?? 100) < 45;
   const sideDamaged = (damageState?.sideArmorPct ?? 100) < 45;
 
+  // Bull Wedge Durability & Procedural Deformation
+  const bFrontArmor = damageState?.frontArmorPct ?? 100;
+  const wedgeColor =
+    bFrontArmor >= 75 ? '#b45309' :
+    bFrontArmor >= 45 ? '#854d0e' :
+    bFrontArmor >= 20 ? '#573a08' : '#292524';
+  const wedgeRoughness =
+    bFrontArmor >= 75 ? 0.28 :
+    bFrontArmor >= 45 ? 0.52 :
+    bFrontArmor >= 20 ? 0.72 : 0.88;
+  const steelLipColor =
+    bFrontArmor >= 75 ? '#e7e5e4' :
+    bFrontArmor >= 45 ? '#cbd5e1' :
+    bFrontArmor >= 20 ? '#94a3b8' : '#475569';
+  const wedgePitchOffset =
+    bFrontArmor >= 75 ? 0 :
+    bFrontArmor >= 45 ? 0.03 :
+    bFrontArmor >= 20 ? 0.07 : 0.12;
+  const wedgeYawOffset =
+    bFrontArmor >= 75 ? 0 :
+    bFrontArmor >= 45 ? 0.015 :
+    bFrontArmor >= 20 ? -0.04 : 0.065;
+  const wedgeYOffset =
+    bFrontArmor >= 75 ? 0 :
+    bFrontArmor >= 45 ? -0.01 :
+    bFrontArmor >= 20 ? -0.022 : -0.035;
+
   // Lifter / Hammer / Grabber angles
   const lifterAngle = -Math.sin(weaponActuationPhase * Math.PI) * 0.72;
   const hammerAngle = Math.sin(weaponActuationPhase * Math.PI) * 1.65;
@@ -798,40 +825,58 @@ export const Robot3D: React.FC<Robot3DProps> = ({
           onClick={(e) => handlePartClick('weapon', e)}
         >
         {effectiveBossId === 'bull' ? (
-          // 01 THE BULL'S SIGNATURE HEAVY BRONZE & STEEL BULL-PLOW + HORNS
-          <group position={[0, -0.04, 0.18]}>
+          // 01 THE BULL'S SIGNATURE HEAVY BRONZE & STEEL BULL-PLOW + HORNS (With Procedural Combat Degradation)
+          <group position={[0, -0.04 + wedgeYOffset, 0.18]}>
             {/* Massive sloped front dozer blade */}
-            <mesh castShadow receiveShadow rotation={[0.42, 0, 0]} position={[0, 0.02, 0.12]}>
+            <mesh castShadow receiveShadow rotation={[0.42 + wedgePitchOffset, wedgeYawOffset, 0]} position={[0, 0.02, 0.12]}>
               <boxGeometry args={[cW * 1.16, 0.14, 0.62]} />
-              <meshStandardMaterial color="#b45309" metalness={0.88} roughness={0.28} />
+              <meshStandardMaterial color={wedgeColor} metalness={0.88} roughness={wedgeRoughness} />
             </mesh>
             {/* Lower ground-scraping steel lip */}
-            <mesh castShadow position={[0, -0.14, 0.34]} rotation={[0.18, 0, 0]}>
+            <mesh castShadow position={[0, -0.14, 0.34]} rotation={[0.18 + wedgePitchOffset * 0.5, wedgeYawOffset * 0.5, 0]}>
               <boxGeometry args={[cW * 1.18, 0.06, 0.28]} />
-              <meshStandardMaterial color="#e7e5e4" metalness={0.92} roughness={0.2} />
+              <meshStandardMaterial color={steelLipColor} metalness={0.92} roughness={Math.min(0.85, wedgeRoughness + 0.1)} />
             </mesh>
             {/* Left & Right menacing metallic bull horns */}
-            {[-1, 1].map((side) => (
-              <group
-                key={side}
-                position={[side * (cW * 0.44), 0.18, 0.08]}
-                rotation={[-0.35, side * -0.28, side * 0.2]}
-              >
-                <mesh castShadow>
-                  <coneGeometry args={[0.11, 0.68, 12]} />
-                  <meshStandardMaterial color="#f59e0b" metalness={0.9} roughness={0.18} />
-                </mesh>
-              </group>
-            ))}
+            {[-1, 1].map((side) => {
+              const hornPitchTweak = side === -1 && bFrontArmor < 45 ? 0.12 : 0;
+              const hornYawTweak = side === 1 && bFrontArmor < 20 ? 0.22 : 0;
+              return (
+                <group
+                  key={side}
+                  position={[side * (cW * 0.44), 0.18, 0.08]}
+                  rotation={[-0.35 + hornPitchTweak, side * -0.28 + hornYawTweak, side * 0.2]}
+                >
+                  <mesh castShadow>
+                    <coneGeometry args={[0.11, 0.68, 12]} />
+                    <meshStandardMaterial color={bFrontArmor < 30 ? "#78350f" : "#f59e0b"} metalness={0.9} roughness={wedgeRoughness} />
+                  </mesh>
+                </group>
+              );
+            })}
             {/* Glowing red optic visor */}
             <mesh position={[0, 0.2, -0.05]}>
               <boxGeometry args={[0.75, 0.06, 0.08]} />
               <meshStandardMaterial
                 color="#ef4444"
                 emissive="#ef4444"
-                emissiveIntensity={1.6}
+                emissiveIntensity={bFrontArmor < 20 ? 0.8 : 1.6}
               />
             </mesh>
+
+            {/* Battle Damage Scars / Impact Gouges on Front Plow */}
+            {bFrontArmor < 55 && (
+              <mesh position={[0.18, 0.06, 0.24]} rotation={[0.42, 0.2, 0.1]}>
+                <boxGeometry args={[0.16, 0.03, 0.14]} />
+                <meshStandardMaterial color="#0f172a" roughness={0.95} />
+              </mesh>
+            )}
+            {bFrontArmor < 25 && (
+              <mesh position={[-0.22, 0.08, 0.22]} rotation={[0.45, -0.25, -0.15]}>
+                <boxGeometry args={[0.22, 0.04, 0.18]} />
+                <meshStandardMaterial color="#09090b" roughness={1.0} />
+              </mesh>
+            )}
           </group>
         ) : effectiveBossId === 'scorpion' ? (
           // 02 THE SCORPION: Dual forward serrated clamping pincers + overhead articulated stinger tail

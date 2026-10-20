@@ -394,6 +394,8 @@ export interface WedgeTelemetry {
   outcome: WedgeOutcomeType;
 }
 
+export type WedgeCondition = 'healthy' | 'damaged' | 'heavily-damaged' | 'critical';
+
 export interface CombatImpactEvent {
   id: number;
   timeSec: number;
@@ -411,6 +413,10 @@ export interface CombatImpactEvent {
   targetDeltaV?: number;
   targetDeltaOmega?: number;
   tractionBreakDurationSec?: number;
+  hitSector?: 'front' | 'corner' | 'side' | 'rear';
+  rawDamage?: number;
+  armorMitigation?: number;
+  finalDamage?: number;
 }
 
 export interface CombatantTelemetry {
@@ -443,6 +449,9 @@ export interface CombatantTelemetry {
   rightDriveHealthPct: number;
   weaponHealthPct: number;
   electricalHealthPct: number;
+
+  wedgeCondition?: WedgeCondition;
+  wedgeDeformationMm?: number;
 
   aiStateLabel: 'SENSE' | 'APPROACH' | 'FLANK' | 'ENGAGE' | 'RECOVER' | 'EVADE' | 'PUSH' | 'CHARGE' | 'ACQUIRE' | 'REPOSITION';
 }
