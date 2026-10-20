@@ -1,14 +1,13 @@
 import {
+  Briefcase,
+  Code2,
+  Lock,
+  RotateCcw,
+  Swords,
   Wrench,
   Zap,
-  Code2,
-  Briefcase,
-  Swords,
-  Users,
-  CheckCircle2,
-  Circle,
-  RotateCcw,
 } from 'lucide-react';
+import React from 'react';
 import { money } from '../../../core/format';
 import { soundEngine } from '../audio/soundEngine';
 import {
@@ -36,21 +35,10 @@ interface BattlebotShellProps {
   children: React.ReactNode;
 }
 
-interface RoleNavTab {
-  id: AppScreen;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  accent: string;
-  roleId?: TeamRole;
-  isDone?: boolean;
-}
-
 export const BattlebotShell: React.FC<BattlebotShellProps> = ({
   project,
   activeScreen,
   onNavigate,
-  onResetTask,
-  resetTaskLabel,
   onResetGame,
   checklistSteps,
   spentUsd,
@@ -59,59 +47,92 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
 }) => {
   const isOverBudget = spentUsd > availableUsd;
 
-  const tabs: RoleNavTab[] = [
+  const allRolesComplete =
+    project.mechanical.isCompleted &&
+    project.electrical.isCompleted &&
+    project.software.isCompleted &&
+    project.projectLead.isCompleted;
+
+  const getRoleStatus = (role: TeamRole): 'done' | 'progress' | 'not-started' => {
+    switch (role) {
+      case 'mechanical':
+        if (project.mechanical.isCompleted) return 'done';
+        if (
+          Object.keys(project.mechanical.purchasedParts || {}).length > 0 ||
+          (project.mechanical.assembledParts || []).length > 0
+        )
+          return 'progress';
+        return 'not-started';
+
+      case 'electrical':
+        if (project.electrical.isCompleted) return 'done';
+        if ((project.electrical.wires || []).length > 0 || project.electrical.wiringVerified)
+          return 'progress';
+        return 'not-started';
+
+      case 'software':
+        if (project.software.isCompleted) return 'done';
+        if (
+          project.software.computerConnected ||
+          project.software.bugsFixed ||
+          project.software.softwareUploaded
+        )
+          return 'progress';
+        return 'not-started';
+
+      case 'project-lead':
+        if (project.projectLead.isCompleted) return 'done';
+        if (Boolean(project.projectLead.adPrompt?.trim()) || project.projectLead.sponsorTier !== 'None')
+          return 'progress';
+        return 'not-started';
+    }
+  };
+
+  const navTabs: {
+    id: AppScreen;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    roleId?: TeamRole;
+    isArena?: boolean;
+  }[] = [
     {
       id: 'mechanical',
       label: 'Mechanical',
       icon: Wrench,
-      accent: '#0891b2', // cyan-600
       roleId: 'mechanical',
-      isDone: project.mechanical.isCompleted,
     },
     {
       id: 'electrical',
       label: 'Electrical',
       icon: Zap,
-      accent: '#d97706', // amber-600
       roleId: 'electrical',
-      isDone: project.electrical.isCompleted,
     },
     {
       id: 'software',
       label: 'Software',
       icon: Code2,
-      accent: '#6366f1', // indigo-500
       roleId: 'software',
-      isDone: project.software.isCompleted,
     },
     {
       id: 'project-lead',
       label: 'Business',
       icon: Briefcase,
-      accent: '#059669', // emerald-600
       roleId: 'project-lead',
-      isDone: project.projectLead.isCompleted,
-    },
-    {
-      id: 'team-dashboard',
-      label: 'Systems & Team',
-      icon: Users,
-      accent: '#475569', // slate-600
     },
     {
       id: 'arena',
-      label: 'Combat Arena',
+      label: 'Arena',
       icon: Swords,
-      accent: '#b91c1c', // red-700
+      isArena: true,
     },
   ];
 
   return (
     <div className="relative flex h-full w-full flex-col bg-slate-100 text-slate-800 font-sans select-none overflow-hidden">
       {/* 1. Global BESA Engineering Lab Header & Role Navigation Strip */}
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3.5 py-2 z-30 shadow-xs">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 z-30 shadow-xs">
         {/* Left: Lab branding & Station Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto min-w-0">
+        <div className="flex items-center gap-3 overflow-x-auto min-w-0">
           {/* Lab title */}
           <button
             type="button"
@@ -125,90 +146,79 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
               🤖
             </span>
             <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-600">
-                  BESA Lab
-                </span>
-                <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
-              </div>
-              <span className="block font-display text-sm font-extrabold text-slate-900 truncate max-w-[130px] sm:max-w-[180px]">
-                {project.teamName || 'BattleBot Team'}
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-700 block leading-tight">
+                BESA Engineering Lab
+              </span>
+              <span className="block font-display text-sm font-extrabold text-slate-900 tracking-tight leading-tight">
+                BattleBot Incubator
               </span>
             </div>
           </button>
 
-          {/* Navigation Tabs */}
-          <nav className="flex items-center gap-1.5 shrink-0" aria-label="Discipline Stations">
-            {tabs.map((t) => {
+          {/* Clean 5-Tab Navigation Strip: [ Mechanical ] [ Electrical ] [ Software ] [ Business ] [ Arena ] */}
+          <nav className="flex items-center gap-1.5 shrink-0" aria-label="Role Navigation">
+            {navTabs.map((t) => {
               const active = t.id === activeScreen;
-              const Icon = t.icon;
+              const status = t.roleId ? getRoleStatus(t.roleId) : null;
+              const isLockedArena = t.isArena && !allRolesComplete;
+
               return (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => {
+                    if (isLockedArena) {
+                      soundEngine.playWarning();
+                      onNavigate('team-dashboard');
+                      return;
+                    }
                     soundEngine.playClick();
                     onNavigate(t.id);
                   }}
-                  className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-left transition font-display text-xs font-bold ${
+                  className={`cursor-pointer px-3 py-1.5 rounded-xl font-display text-xs font-bold transition flex items-center gap-1.5 ${
                     active
                       ? 'bg-slate-900 text-white shadow-xs'
-                      : 'hover:bg-slate-100 text-slate-600'
+                      : isLockedArena
+                      ? 'text-slate-400 hover:bg-slate-50 opacity-70'
+                      : 'text-slate-600 hover:bg-slate-100'
                   }`}
+                  title={
+                    isLockedArena
+                      ? 'Arena Locked — Complete all 4 roles to enter'
+                      : t.label
+                  }
                 >
-                  <span
-                    className="grid size-6 place-items-center rounded-lg text-white"
-                    style={{ backgroundColor: active ? '#ffffff22' : t.accent }}
-                  >
-                    <Icon className="size-3.5" />
-                  </span>
-                  <span className="leading-tight">
-                    <span className="block">{t.label}</span>
-                    {t.isDone !== undefined && (
-                      <span
-                        className={`block text-[10px] font-normal ${
-                          active
-                            ? 'text-white/70'
-                            : t.isDone
-                            ? 'text-emerald-600 font-semibold'
-                            : 'text-slate-400'
-                        }`}
-                      >
-                        {t.isDone ? 'done ✓' : 'in progress'}
-                      </span>
-                    )}
-                  </span>
+                  {isLockedArena && <Lock className="size-3 text-slate-400" />}
+                  <span>{t.label}</span>
+
+                  {/* Tiny state indicator: ○ Not started, ● In progress, ✓ Done */}
+                  {status && (
+                    <span className="ml-0.5 font-mono text-[11px] leading-none">
+                      {status === 'done' ? (
+                        <span className="text-emerald-500 font-bold" title="Done">✓</span>
+                      ) : status === 'progress' ? (
+                        <span className="text-cyan-500 font-bold" title="In progress">●</span>
+                      ) : (
+                        <span className="text-slate-300 font-normal" title="Not started">○</span>
+                      )}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </nav>
         </div>
 
-        {/* Right: Team Budget + Individual Reset Control */}
+        {/* Right: Single Primary Budget Indicator + Reset Game */}
         <div className="ml-auto flex shrink-0 items-center gap-3">
           <div className="text-right leading-tight hidden sm:block">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Team money
-            </div>
-            <div className="font-mono text-xs font-bold">
-              <span className={isOverBudget ? 'text-rose-600' : 'text-slate-900'}>
-                {money(spentUsd)}
-              </span>
-              <span className="text-slate-400"> spent / {money(availableUsd)}</span>
-            </div>
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 block">
+              Budget
+            </span>
+            <span className={`font-mono text-xs font-bold ${isOverBudget ? 'text-rose-600' : 'text-slate-800'}`}>
+              {money(spentUsd)} <span className="text-slate-400 font-normal">/ {money(availableUsd)}</span>
+            </span>
           </div>
-
-          {onResetTask && (
-            <button
-              type="button"
-              onClick={onResetTask}
-              title={resetTaskLabel || 'Reset this task'}
-              className="cursor-pointer flex items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-1.5 font-display text-xs font-bold text-slate-600 ring-1 ring-slate-200 hover:bg-rose-50 hover:text-rose-600 hover:ring-rose-200 transition"
-            >
-              <RotateCcw className="size-3.5 text-slate-400 group-hover:text-rose-500" />
-              <span className="hidden md:inline">{resetTaskLabel || 'Reset'}</span>
-            </button>
-          )}
 
           {onResetGame && (
             <button
@@ -224,51 +234,34 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
         </div>
       </header>
 
-      {/* 2. Persistent Horizontal Checklist Strip */}
-      {checklistSteps.length > 0 && (
+      {/* 2. ONE Small Objective Strip (Only rendered on Role Screens, never on Home or Arena) */}
+      {activeScreen !== 'team-dashboard' && activeScreen !== 'arena' && checklistSteps.length > 0 && (
         <nav
-          aria-label="Discipline checklist"
-          className="flex shrink-0 flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-slate-200 bg-emerald-50/70 px-4 py-2 z-20 overflow-x-auto"
+          aria-label="Role objective"
+          className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-1.5 z-20 overflow-x-auto text-xs"
         >
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-800/80 mr-2 shrink-0 hidden sm:inline">
-            OBJECTIVES:
-          </span>
-          <ol className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {checklistSteps.map((s, i) => (
-              <li key={s.label} className="flex items-center">
-                {i > 0 && <span className="mx-1 h-px w-3 bg-emerald-700/25 shrink-0" />}
+              <React.Fragment key={s.label}>
+                {i > 0 && <span className="text-slate-300 mx-1 font-bold">→</span>}
                 <span
-                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold shrink-0 transition ${
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold transition ${
                     s.done
-                      ? 'bg-emerald-700 text-white shadow-xs'
-                      : 'bg-white text-slate-700 ring-1 ring-slate-200'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                      : 'bg-slate-50 text-slate-600 border border-slate-200'
                   }`}
                 >
-                  {s.done ? (
-                    <CheckCircle2 className="size-3.5 text-white" />
-                  ) : (
-                    <Circle className="size-3.5 text-slate-300" />
-                  )}
-                  <span>
-                    {i + 1}. {s.label}
-                  </span>
-                  {s.detail && (
-                    <span
-                      className={`font-mono text-[11px] ${
-                        s.done ? 'text-emerald-100' : 'text-slate-400'
-                      }`}
-                    >
-                      {s.detail}
-                    </span>
-                  )}
+                  <span className="font-mono text-[10px] text-slate-400">{i + 1}</span>
+                  <span>{s.label}</span>
+                  {s.done && <span className="text-emerald-600 font-bold">✓</span>}
                 </span>
-              </li>
+              </React.Fragment>
             ))}
-          </ol>
+          </div>
         </nav>
       )}
 
-      {/* 3. Main Station Workspace */}
+      {/* 3. Main Workspace */}
       <main className="min-h-0 flex-1 relative overflow-hidden bg-slate-50">
         {children}
       </main>

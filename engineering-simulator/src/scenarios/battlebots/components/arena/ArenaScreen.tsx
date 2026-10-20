@@ -914,7 +914,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
                   AUTONOMOUS COMBAT PROTOCOL
                 </div>
                 <h2 className="font-display text-2xl md:text-3xl font-black text-white">
-                  CHOOSE AUTONOMOUS STRATEGY
+                  {(teamProject?.teamName || playerConfig.name || 'TITAN').toUpperCase()} VS THE BULL
                 </h2>
               </div>
               <button

@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  BookOpen,
   CheckCircle2,
   Lightbulb,
   Power,
@@ -49,7 +48,6 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
   const [selectedPortId, setSelectedPortId] = useState<string | null>(null);
   const [isPoweringOn, setIsPoweringOn] = useState(false);
   const [powerOnComplete, setPowerOnComplete] = useState(elec.wiringVerified);
-  const [showReference, setShowReference] = useState(true);
   const [diagnosticReport, setDiagnosticReport] = useState<string[]>([]);
   const [hintsUsed, setHintsUsed] = useState(0);
   const [hintStage, setHintStage] = useState<Record<string, number>>({});
@@ -79,6 +77,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
       ...elec,
       wires: nextWires,
       wiringVerified: verified,
+      isCompleted: verified ? true : elec.isCompleted,
     });
   };
 
@@ -97,7 +96,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
     return validateSimplifiedElectrical(wires);
   }, [wires]);
 
-  // Handle port click - all ports neutral, no giveaway hints
+  // Handle port click
   const handlePortClick = (portId: string) => {
     soundEngine.playClick();
     if (!selectedPortId) {
@@ -167,7 +166,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
     if (targetSubsystem === 'complete') {
       setActiveHint({
         title: 'ALL SUBSYSTEMS WIRED',
-        text: 'All required robot circuits appear connected! Click [POWER ON] to verify voltages and boot the system.',
+        text: 'All required robot circuits appear connected! Click [POWER ON ROBOT] to verify voltages and boot the system.',
       });
       return;
     }
@@ -246,7 +245,6 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
         };
       }
     } else {
-      // sensorNetwork
       if (currentLevel === 1) {
         hintData = {
           title: 'HINT 1 — CONCEPTUAL',
@@ -297,7 +295,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
             : ['System check failed: Harness incomplete or circuit short detected. Check connections.']
         );
       }
-    }, 1100);
+    }, 900);
   };
 
   // Port coordinates on the 1000x480 canvas
@@ -351,7 +349,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
 
   return (
     <div className="relative w-full h-full bg-slate-50 text-slate-800 overflow-y-auto flex flex-col justify-between p-4 md:p-5 font-sans">
-      {/* Optional Top Sub-Header */}
+      {/* Optional Top Sub-Header (when not inside global shell) */}
       {!hideHeader && (
         <div className="flex items-center justify-between pb-3 border-b border-slate-200">
           <div className="flex items-center gap-3">
@@ -373,42 +371,13 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
                   Discipline 02 • Electrical
                 </span>
               </div>
-              <h2 className="font-display font-black text-lg text-slate-900 leading-tight">Wiring Harness & Electronics</h2>
+              <h2 className="font-display font-black text-lg text-slate-900 leading-tight">
+                Connect each robot system to the correct port.
+              </h2>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5">
-            <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playClick();
-                  setActiveTab('wiring');
-                }}
-                className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                  activeTab === 'wiring'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Wiring Harness
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playClick();
-                  setActiveTab('specs');
-                }}
-                className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                  activeTab === 'specs'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Power Specs
-              </button>
-            </div>
-
             <button
               type="button"
               onClick={() => setShowResetModal(true)}
@@ -438,9 +407,21 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
         </div>
       )}
 
-      {/* Sub-tab switcher when header is hidden */}
-      {hideHeader && (
-        <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-200">
+      {/* Primary Instruction & Action Header */}
+      <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-200 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <p className="text-sm font-semibold text-slate-800">
+            Connect each robot system to the correct port.
+          </p>
+          {powerOnComplete && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+              <CheckCircle2 className="w-3.5 h-3.5" /> All Systems Online
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Sub-tab Switcher: Wiring (dominant) vs Specs */}
           <div className="flex rounded-xl bg-slate-200/70 p-1 text-xs">
             <button
               type="button"
@@ -472,25 +453,54 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={toggleComplete}
-              disabled={!powerOnComplete}
-              className={`cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-display font-bold transition-all ${
-                !powerOnComplete
-                  ? 'opacity-40 cursor-not-allowed bg-slate-200 text-slate-500'
-                  : elec.isCompleted
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-amber-600 text-white hover:bg-amber-500 shadow-xs'
-              }`}
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{elec.isCompleted ? 'Wiring Verified ✓' : 'Mark Complete'}</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleGetHint}
+            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-sans font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors shadow-xs"
+          >
+            <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
+            <span>Get Hint</span>
+            {hintsUsed > 0 && (
+              <span className="ml-1 px-1.5 py-0.2 bg-amber-200 text-amber-900 text-[10px] font-mono rounded-full font-bold">
+                {hintsUsed}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleClearWires}
+            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-sans font-semibold bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-colors shadow-xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Clear Board</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowResetModal(true)}
+            title="Reset Electrical task progress"
+            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-rose-600 bg-white border border-slate-200 hover:border-rose-200 transition-colors shadow-xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>↻ Reset Task</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePowerOn}
+            disabled={isPoweringOn}
+            className={`cursor-pointer inline-flex items-center gap-2 px-5 py-2 rounded-xl font-display font-black text-xs uppercase transition-all shadow-md active:scale-98 ${
+              powerOnComplete
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'
+            }`}
+          >
+            <Power className="w-4 h-4" />
+            <span>{isPoweringOn ? 'Energizing...' : powerOnComplete ? 'System Online ✓' : '⚡ Power On Robot'}</span>
+          </button>
         </div>
-      )}
+      </div>
 
       <ResetTaskModal
         isOpen={showResetModal}
@@ -501,22 +511,48 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
       />
 
       {activeTab === 'wiring' ? (
-        /* ==========================================
-           TAB 1: 14-WIRE EXPANDED WIRING HARNESS BOARD
-           ========================================== */
-        <div className="flex-1 flex flex-col lg:flex-row gap-4 mt-2 min-h-[500px]">
-          {/* Main Visual Board (Dominant Breadboard Workstation) */}
-          <div className="flex-1 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden shadow-xs">
-            {/* Top Toolbar */}
-            <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 z-10 text-xs font-mono flex-wrap gap-2">
+        /* ============================================================
+           100% FULL-WIDTH DOMINANT WIRING HARNESS BOARD WORKSTATION
+           ============================================================ */
+        <div className="flex-1 w-full flex flex-col justify-between min-h-[520px]">
+          {/* Active Hint Banner */}
+          {activeHint && (
+            <div className="mb-2 p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-start justify-between gap-3 text-xs font-sans z-10 animate-in fade-in">
+              <div className="flex items-start gap-2.5">
+                <Lightbulb className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-amber-900 block text-[11px] tracking-wide uppercase">
+                    {activeHint.title}
+                  </span>
+                  <p className="text-amber-950 mt-0.5 leading-relaxed">{activeHint.text}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveHint(null)}
+                className="cursor-pointer text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-amber-100/50 transition-colors shrink-0"
+                title="Dismiss hint"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Diagnostic Failure Banner */}
+          {diagnosticReport.length > 0 && !powerOnComplete && (
+            <div className="mb-2 p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2.5 text-xs text-rose-800">
+              <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+              <span className="font-mono">{diagnosticReport[0]}</span>
+            </div>
+          )}
+
+          {/* Full-Width SVG Breadboard Workspace */}
+          <div className="flex-1 w-full bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden shadow-xs">
+            {/* Status bar inside board */}
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 text-xs font-mono">
               <div className="flex items-center gap-3">
                 <span className="text-slate-500">
                   Harness Connections: <strong className="text-amber-700 font-bold">{wires.length} / 14</strong>
-                </span>
-                <span className="text-slate-300">•</span>
-                <span className="text-slate-500 flex items-center gap-1.5 font-sans">
-                  <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
-                  Hints used: <strong className={hintsUsed > 0 ? 'text-amber-700 font-mono' : 'text-slate-400 font-mono'}>{hintsUsed}</strong>
                 </span>
                 {selectedPortId && (
                   <span className="text-amber-900 bg-amber-50 border border-amber-300 px-2.5 py-0.5 rounded-full animate-pulse text-[11px] font-sans">
@@ -524,71 +560,15 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
                   </span>
                 )}
               </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowReference(!showReference)}
-                  className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-sans font-semibold border transition-colors ${
-                    showReference
-                      ? 'bg-amber-50 border-amber-300 text-amber-900'
-                      : 'bg-white border-slate-200 text-slate-600'
-                  }`}
-                >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  <span>Reference</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGetHint}
-                  className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-sans font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors"
-                >
-                  <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Get Hint</span>
-                  {hintsUsed > 0 && (
-                    <span className="ml-1 px-1.5 py-0.2 bg-amber-200 text-amber-900 text-[10px] font-mono rounded-full font-bold">
-                      {hintsUsed}
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearWires}
-                  className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-sans font-semibold bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-colors"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Clear Board</span>
-                </button>
-              </div>
+              <span className="text-slate-400 font-sans text-[11px]">
+                Click port to route wire • Click ✕ to disconnect
+              </span>
             </div>
 
-            {/* Active Hint Banner */}
-            {activeHint && (
-              <div className="mt-2.5 mb-1 p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-start justify-between gap-3 text-xs font-sans z-10 animate-in fade-in">
-                <div className="flex items-start gap-2.5">
-                  <Lightbulb className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-amber-900 block text-[11px] tracking-wide uppercase">
-                      {activeHint.title}
-                    </span>
-                    <p className="text-amber-950 mt-0.5 leading-relaxed">{activeHint.text}</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveHint(null)}
-                  className="cursor-pointer text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-amber-100/50 transition-colors shrink-0"
-                  title="Dismiss hint"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            {/* SVG Visual Breadboard Surface */}
-            <div className="relative flex-1 w-full h-[430px] my-1 rounded-2xl bg-[#f8fafc] border border-slate-200 overflow-hidden shadow-inner">
+            {/* SVG Interactive Canvas */}
+            <div className="relative flex-1 w-full min-h-[440px] h-[500px] rounded-2xl bg-[#f8fafc] border border-slate-200 overflow-hidden shadow-inner">
               <svg viewBox="0 0 1000 480" className="w-full h-full select-none">
-                {/* Clean Lab Grid Pattern */}
+                {/* Lab Grid Pattern */}
                 <defs>
                   <pattern id="labGrid" width="20" height="20" patternUnits="userSpaceOnUse">
                     <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e2e8f0" strokeWidth="0.8" />
@@ -596,7 +576,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
                 </defs>
                 <rect width="1000" height="480" fill="url(#labGrid)" />
 
-                {/* 1. Component Visual Blocks (Crisp Lab Module Cards) */}
+                {/* 1. Component Visual Blocks */}
                 {/* Stage 1: Battery */}
                 <g transform="translate(35, 150)">
                   <rect width="100" height="140" rx="12" fill="#ffffff" stroke="#94a3b8" strokeWidth="1.5" className="shadow-xs" />
@@ -767,7 +747,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
                   );
                 })}
 
-                {/* 3. Render Ports (Neutral Visual Interface - NO Green Giveaways) */}
+                {/* 3. Render Ports */}
                 {Object.entries(portCoordinates).map(([portId, pos]) => {
                   const isSelected = selectedPortId === portId;
 
@@ -786,7 +766,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
                         <circle r="16" fill="none" stroke="#d97706" strokeWidth="2.5" className="animate-ping" />
                       )}
 
-                      {/* Main Terminal Circle - Visually Neutral */}
+                      {/* Main Terminal Circle */}
                       <circle
                         r="7"
                         fill="#ffffff"
@@ -820,9 +800,9 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
             </div>
 
             {/* Bottom Inspect Action */}
-            <div className="pt-3 border-t border-slate-200 flex items-center justify-between z-10 text-xs">
+            <div className="pt-3 mt-1 border-t border-slate-200 flex items-center justify-between z-10 text-xs">
               <span className="text-slate-500 font-sans">
-                Click a port to start wire, then click another port to connect. Click wire junction (✕) to remove.
+                Peak Current Draw: <strong className={summary.isOverCurrent ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}>{summary.effectivePeakDemandA}A / {summary.batteryContinuousA}A</strong>
               </span>
 
               <button
@@ -832,147 +812,15 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
                 className="cursor-pointer inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-display font-black text-xs uppercase transition-all shadow-md bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20 active:scale-98"
               >
                 <Power className="w-4 h-4" />
-                <span>{isPoweringOn ? 'Energizing Rails...' : powerOnComplete ? 'System Online ✓' : 'Power On Robot'}</span>
+                <span>{isPoweringOn ? 'Energizing Rails...' : powerOnComplete ? 'System Online ✓' : '⚡ Power On Robot'}</span>
               </button>
-            </div>
-          </div>
-
-          {/* Right Column: Reference Diagram & Subsystem Checklist */}
-          <div className="w-full lg:w-80 flex flex-col gap-3 shrink-0">
-            {/* Wiring Reference (Schematic) */}
-            {showReference && (
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 text-xs font-sans shadow-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200 mb-2.5">
-                  <span className="font-bold text-amber-800 flex items-center gap-1.5">
-                    <BookOpen className="w-3.5 h-3.5" />
-                    Wiring Reference Clues
-                  </span>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono font-bold">Schematic</span>
-                </div>
-                <div className="space-y-1.5 text-[11px] text-slate-700 leading-relaxed font-mono">
-                  <div className="p-1.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <strong className="text-sky-700 font-bold">BATTERY (+, -)</strong> → <span className="text-slate-900">MAIN SWITCH (+, -)</span>
-                  </div>
-                  <div className="p-1.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <strong className="text-slate-900 font-bold">MAIN SWITCH (+, -)</strong> → <span className="text-amber-800">PDB BUS (+, -)</span>
-                  </div>
-                  <div className="p-1.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <strong className="text-amber-800 font-bold">PDB BUS</strong> →
-                    <div className="pl-3 text-[10px] text-slate-600 space-y-0.5 mt-0.5 font-sans">
-                      <div>• DRIVE PWR → DRIVE ESC [POWER IN]</div>
-                      <div>• WEAPON PWR → WEAPON ESC [POWER IN]</div>
-                      <div>• 5V REG PWR → 5V REGULATOR [12V IN]</div>
-                    </div>
-                  </div>
-                  <div className="p-1.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <strong className="text-emerald-700 font-bold">5V REGULATOR</strong> → <span className="text-purple-700">ROBOT COMPUTER [5V POWER]</span>
-                  </div>
-                  <div className="p-1.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <strong className="text-purple-700 font-bold">ROBOT COMPUTER</strong> →
-                    <div className="pl-3 text-[10px] text-slate-600 space-y-0.5 mt-0.5 font-sans">
-                      <div>• DRIVE SIG → DRIVE ESC [SIGNAL]</div>
-                      <div>• WEAPON SIG → WEAPON ESC [SIGNAL]</div>
-                      <div>• SENSOR DATA ← SENSOR [TELEMETRY]</div>
-                    </div>
-                  </div>
-                  <div className="p-1.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <strong className="text-cyan-800 font-bold">CONTROLLER OUTPUTS</strong> →
-                    <div className="pl-3 text-[10px] text-slate-600 space-y-0.5 mt-0.5 font-sans">
-                      <div>• DRIVE ESC [L, R] → LEFT & RIGHT MOTORS</div>
-                      <div>• WEAPON ESC [OUT] → WEAPON MOTOR</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Electrical Checklist & Status Panel */}
-            <div className="flex-1 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs">
-              <div>
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-amber-600" />
-                    <h3 className="font-display font-bold text-sm text-slate-900">Electrical Checklist</h3>
-                  </div>
-                </div>
-
-                {/* Subsystem-Level Checklist */}
-                <div className="mt-4 space-y-2">
-                  {[
-                    { label: 'Main power online', complete: sub.mainPower },
-                    { label: 'Drive system online', complete: sub.driveSystem },
-                    { label: 'Weapon system online', complete: sub.weaponSystem },
-                    { label: 'Robot computer online', complete: sub.robotComputer },
-                    { label: 'Sensor network online', complete: sub.sensorNetwork },
-                  ].map((item, idx) => (
-                    <div
-                      key={idx}
-                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-xs font-sans transition-all ${
-                        item.complete
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                          : 'bg-slate-50 border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      <div
-                        className={`size-4 rounded-md flex items-center justify-center text-[10px] font-bold ${
-                          item.complete ? 'bg-emerald-600 text-white' : 'border border-slate-300 bg-white'
-                        }`}
-                      >
-                        {item.complete ? '✓' : ''}
-                      </div>
-                      <span className={item.complete ? 'font-bold' : ''}>{item.label}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Startup Diagnostics */}
-                <div className="mt-4">
-                  {powerOnComplete ? (
-                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-sans space-y-1">
-                      <div className="flex items-center gap-1.5 font-bold mb-1 text-emerald-800">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        Electrical System Verified
-                      </div>
-                      <div className="text-[11px] font-mono text-emerald-950">
-                        MAIN POWER............ONLINE<br />
-                        DRIVE CONTROLLER......ONLINE<br />
-                        WEAPON CONTROLLER.....ONLINE<br />
-                        ROBOT COMPUTER........ONLINE<br />
-                        SENSOR NETWORK........ONLINE
-                      </div>
-                    </div>
-                  ) : diagnosticReport.length > 0 ? (
-                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs font-sans space-y-1">
-                      <div className="flex items-center gap-1.5 font-bold text-rose-800">
-                        <ShieldAlert className="w-4 h-4 text-rose-600" />
-                        Diagnostic Fault Report:
-                      </div>
-                      <div className="text-[11px] text-rose-900 leading-relaxed font-mono">
-                        {diagnosticReport[0]}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-sans">
-                      Wire all components using the diagram, then click <strong>[Power On Robot]</strong> to test continuity.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Quick Summary Bar */}
-              <div className="pt-3 border-t border-slate-200 text-xs font-sans text-slate-500 flex justify-between font-mono">
-                <span>Peak Current:</span>
-                <strong className={summary.isOverCurrent ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}>
-                  {summary.effectivePeakDemandA}A / {summary.batteryContinuousA}A
-                </strong>
-              </div>
             </div>
           </div>
         </div>
       ) : (
-        /* ==========================================
+        /* ============================================================
            TAB 2: POWER HARDWARE SPECIFICATIONS
-           ========================================== */
+           ============================================================ */
         <div className="flex-1 my-3 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
             <h3 className="font-display font-bold text-sm text-slate-900 mb-3">Battery Capacity Selection</h3>

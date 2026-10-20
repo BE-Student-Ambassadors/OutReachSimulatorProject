@@ -26,6 +26,7 @@ import { CompareModal } from './components/workshop/CompareModal';
 import { EngineeringDetailsDrawer } from './components/workshop/EngineeringDetailsDrawer';
 import { TeamMissionScreen } from './components/team/TeamMissionScreen';
 import { TeamDashboardScreen } from './components/team/TeamDashboardScreen';
+import { SystemsTeamScreen } from './components/team/SystemsTeamScreen';
 import { MechanicalScreen } from './components/disciplines/MechanicalScreen';
 import { ElectricalScreen } from './components/disciplines/ElectricalScreen';
 import { SoftwareScreen } from './components/disciplines/SoftwareScreen';
@@ -554,21 +555,15 @@ export function BattlebotApp() {
         const assembledCount = (project.mechanical.assembledParts || []).length;
         return [
           {
-            label: 'Buy parts on BotBay',
-            detail: `${purchasedCount}/5`,
+            label: 'Buy Parts',
             done: purchasedCount >= 5,
           },
           {
-            label: 'Receive delivery',
-            done: Boolean(project.mechanical.partsDelivered || project.mechanical.isCompleted),
-          },
-          {
-            label: 'Assemble on blueprint',
-            detail: `${assembledCount}/5`,
+            label: 'Assemble',
             done: assembledCount >= 5,
           },
           {
-            label: 'Mechanical inspection',
+            label: 'Inspect',
             done: Boolean(project.mechanical.inspectionPassed || project.mechanical.isCompleted),
           },
         ];
@@ -577,16 +572,15 @@ export function BattlebotApp() {
         const wireCount = project.electrical.wires?.length || 0;
         return [
           {
-            label: 'Route power harness',
-            detail: `${wireCount}/14 wires`,
-            done: wireCount >= 14,
+            label: 'Connect',
+            done: Boolean(wireCount > 0 || project.electrical.wiringVerified),
           },
           {
-            label: 'Power on robot',
+            label: 'Wire',
             done: Boolean(project.electrical.wiringVerified),
           },
           {
-            label: 'Verify subsystems',
+            label: 'Test',
             done: Boolean(project.electrical.isCompleted),
           },
         ];
@@ -594,75 +588,39 @@ export function BattlebotApp() {
       case 'software': {
         return [
           {
-            label: 'Connect computer to robot',
+            label: 'Connect',
             done: Boolean(project.software.computerConnected || project.software.softwareUploaded),
           },
           {
-            label: 'Fix syntax bugs',
+            label: 'Debug',
             done: Boolean(project.software.bugsFixed || project.software.softwareUploaded),
           },
           {
-            label: 'Upload program',
-            done: Boolean(project.software.softwareUploaded),
-          },
-          {
-            label: 'Run behavior test',
+            label: 'Test',
             done: Boolean(project.software.testPassed || project.software.softwareUploaded),
           },
           {
-            label: 'Fix logic issue',
-            done: Boolean(project.software.bugsFixed && project.software.softwareUploaded),
-          },
-          {
-            label: 'Verify software',
-            done: Boolean(project.software.isCompleted),
+            label: 'Upload',
+            done: Boolean(project.software.softwareUploaded && project.software.isCompleted),
           },
         ];
       }
       case 'project-lead': {
-        const hasPrompt = Boolean(project.projectLead.adPrompt?.trim());
-        const hasSponsor = project.projectLead.sponsorTier !== 'None';
         return [
           {
-            label: 'Compose sponsor pitch',
-            done: hasPrompt,
+            label: 'Create Ad',
+            done: Boolean(project.projectLead.adPrompt?.trim() || project.projectLead.campaignScore > 0),
           },
           {
-            label: 'Evaluate campaign flyer',
-            done: Boolean(project.projectLead.campaignScore > 0),
-          },
-          {
-            label: 'Secure sponsorship funds',
-            detail: hasSponsor ? `+$${project.projectLead.sponsorshipUsd}` : undefined,
-            done: hasSponsor && Boolean(project.projectLead.isCompleted),
+            label: 'Earn Sponsor',
+            done: Boolean(project.projectLead.sponsorTier !== 'None' && project.projectLead.isCompleted),
           },
         ];
       }
       case 'team-dashboard':
-      default: {
-        return [
-          {
-            label: 'Mechanical',
-            done: project.mechanical.isCompleted,
-          },
-          {
-            label: 'Electrical',
-            done: project.electrical.isCompleted,
-          },
-          {
-            label: 'Software',
-            done: project.software.isCompleted,
-          },
-          {
-            label: 'Business',
-            done: project.projectLead.isCompleted,
-          },
-          {
-            label: 'Systems Integration',
-            done: project.mechanical.isCompleted && project.electrical.isCompleted && project.software.isCompleted && project.projectLead.isCompleted,
-          },
-        ];
-      }
+      case 'integration':
+      default:
+        return [];
     }
   };
 
@@ -681,9 +639,19 @@ export function BattlebotApp() {
           <TeamDashboardScreen
             project={project}
             onSelectRole={(role) => setScreen(role)}
+            onCheckRobot={() => setScreen('integration')}
             onEnterArena={() => setScreen('arena')}
             onResetProject={handleResetProject}
             hideHeader={true}
+          />
+        )}
+
+        {screen === 'integration' && (
+          <SystemsTeamScreen
+            project={project}
+            onEnterArena={() => setScreen('arena')}
+            onReturnToTeam={() => setScreen('team-dashboard')}
+            onSelectRole={(role) => setScreen(role)}
           />
         )}
 
