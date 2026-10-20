@@ -15,6 +15,7 @@ import {
   type SparkBurst,
   type CombatImpactEvent,
   type ImpactSeverity,
+  type WedgeTelemetry,
 } from '../types/robot';
 
 import {
@@ -94,6 +95,11 @@ export interface LiveBattleSimulation {
   contactActive: boolean;
   lastImpactTimeSec: number;
 
+  // Bull Wedge Dynamics (Section 2 & 17)
+  wedgePhase: 'none' | 'initial' | 'riding' | 'disengaging';
+  wedgeTimerSec: number;
+  lastWedgeTelemetry?: WedgeTelemetry | null;
+
   // Hitbox Developer Debug Data
   debugHitboxes?: {
     playerChassis: BoxCollider2D;
@@ -172,7 +178,9 @@ export function createCombatImpactEvent(
     tractionBreakDurationSec: tractionBreakDurationSec !== undefined ? Number(tractionBreakDurationSec.toFixed(3)) : undefined,
   };
 
-  sim.lastImpactEvent = event;
+  if (severity !== 'tiny' || !sim.lastImpactEvent || sim.timeSec - sim.lastImpactEvent.timeSec > 0.25) {
+    sim.lastImpactEvent = event;
+  }
   sim.recentImpactEvents.unshift(event);
   if (sim.recentImpactEvents.length > 10) {
     sim.recentImpactEvents.pop();
@@ -439,6 +447,9 @@ export function createBattleSimulation(
     nextImpactEventId: 1,
     contactActive: false,
     lastImpactTimeSec: -99,
+    wedgePhase: 'none',
+    wedgeTimerSec: 0,
+    lastWedgeTelemetry: null,
     softwareRules,
     electricalLimiterA,
     coolingTempReductionC,
@@ -491,6 +502,12 @@ export function stepBattleSimulation(
   sim.bossChargeCooldownSec = Math.max(0, sim.bossChargeCooldownSec - dt);
   sim.bossChargeActiveSec = Math.max(0, sim.bossChargeActiveSec - dt);
   sim.bossRepositionTimerSec = Math.max(0, sim.bossRepositionTimerSec - dt);
+  if (sim.wedgeTimerSec > 0) {
+    sim.wedgeTimerSec = Math.max(0, sim.wedgeTimerSec - dt);
+    if (sim.wedgeTimerSec <= 0 && sim.wedgePhase === 'riding') {
+      sim.wedgePhase = 'none';
+    }
+  }
 
   for (let i = sim.sparks.length - 1; i >= 0; i--) {
     sim.sparks[i].age += dt;
@@ -1238,8 +1255,64 @@ export function stepBattleSimulation(
       hasContact: chassisTest.overlap || playerWeaponHit.hit || bossWeaponHit.hit || weaponClash.overlap,
     };
 
+    // Bull Front Wedge Dynamics Check (Sections 1-13)
+    let handledByBullWedge = false;
+    if (bossId === 'bull') {
+      const bFwdX = Math.sin(boss.headingRad);
+      const bFwdZ = Math.cos(boss.headingRad);
+      const bRightX = Math.cos(boss.headingRad);
+      const bRightZ = -Math.sin(boss.headingRad);
+
+      const contactX = chassisTest.overlap
+        ? chassisTest.contactPoint[0]
+        : bossWeaponHit.hit
+        ? bossWeaponHit.contactPoint[0]
+        : (player.x + boss.x) * 0.5;
+      const contactZ = chassisTest.overlap
+        ? chassisTest.contactPoint[1]
+        : bossWeaponHit.hit
+        ? bossWeaponHit.contactPoint[1]
+        : (player.z + boss.z) * 0.5;
+
+      const toContactFwd = (contactX - boss.x) * bFwdX + (contactZ - boss.z) * bFwdZ;
+      const toContactLat = (contactX - boss.x) * bRightX + (contactZ - boss.z) * bRightZ;
+
+      const isBullFrontWedgeContact =
+        bossWeaponHit.hit || (chassisTest.overlap && toContactFwd > 0.15 && Math.abs(toContactLat) < 1.15);
+
+      const vPlayerApproach = -(player.vx * bFwdX + player.vz * bFwdZ);
+      const vBullFwd = boss.vx * bFwdX + boss.vz * bFwdZ;
+      const vClose = vBullFwd + vPlayerApproach;
+      const isDynamicWedgeImpact = vClose > 0.65 || sim.bossChargeActiveSec > 0 || Math.abs(vPlayerApproach) > 1.2;
+
+      if (
+        sim.wedgePhase === 'riding' ||
+        (sim.contactCooldownSec <= 0 && isBullFrontWedgeContact && isDynamicWedgeImpact)
+      ) {
+        handledByBullWedge = resolveBullWedgeInteraction(
+          sim,
+          chassisTest,
+          playerWeaponHit,
+          bossWeaponHit,
+          weaponClash,
+          subDt
+        );
+      }
+    }
+
+    // Position Projection (Strict Non-Penetration Constraint for non-riding contacts)
+    if (!handledByBullWedge && chassisTest.overlap && sim.wedgePhase !== 'riding') {
+      const nx = chassisTest.normal[0];
+      const nz = chassisTest.normal[1];
+      const penetration = chassisTest.penetration;
+      player.x -= nx * penetration * w1;
+      player.z -= nz * penetration * w1;
+      boss.x += nx * penetration * w2;
+      boss.z += nz * penetration * w2;
+    }
+
     // 1. High-Level Combat Weapon Engagement (Evaluated on weapon contact before recoil deflection)
-    if (sim.contactCooldownSec <= 0 && (playerWeaponHit.hit || bossWeaponHit.hit || weaponClash.overlap)) {
+    if (!handledByBullWedge && sim.contactCooldownSec <= 0 && (playerWeaponHit.hit || bossWeaponHit.hit || weaponClash.overlap)) {
       const impactNx = chassisTest.overlap
         ? chassisTest.normal[0]
         : (boss.x - player.x) / Math.max(0.001, Math.hypot(boss.x - player.x, boss.z - player.z));
@@ -1250,16 +1323,9 @@ export function stepBattleSimulation(
     }
 
     // 2. Chassis Contact & Sustained Pushing Physics
-    if (chassisTest.overlap) {
+    if (!handledByBullWedge && chassisTest.overlap) {
       const nx = chassisTest.normal[0];
       const nz = chassisTest.normal[1];
-      const penetration = chassisTest.penetration;
-
-      // Position Projection (Strict Non-Penetration Constraint)
-      player.x -= nx * penetration * w1;
-      player.z -= nz * penetration * w1;
-      boss.x += nx * penetration * w2;
-      boss.z += nz * penetration * w2;
 
       // Relative velocity along collision normal (pointing from Player to Boss)
       const vRel = (player.vx - boss.vx) * nx + (player.vz - boss.vz) * nz;
@@ -1308,20 +1374,6 @@ export function stepBattleSimulation(
         boss.tractionBreakTimerSec = Math.max(boss.tractionBreakTimerSec, tBreakDuration);
         boss.skidVx = (nx * impulse) / m2;
         boss.skidVz = (nz * impulse) / m2;
-
-        // BULL WEDGE DYNAMICS (Section 9):
-        if (bossId === 'bull' && (sim.bossChargeActiveSec > 0 || vRel > 1.3)) {
-          // Wedge scoops front wheels of player up!
-          player.pitchRad = 0.52 + Math.min(0.20, vRel * 0.04);
-          player.tractionBreakTimerSec = Math.max(player.tractionBreakTimerSec, 0.38);
-          if (vRel > 3.6 && (playerStats.stabilityScore < 45 || playerStats.centerOfMassLabel === 'HIGH')) {
-            player.isFlipped = true;
-            sim.flipsInflicted++;
-            addEvent(sim, `${sim.bossDossier.name.toUpperCase()} WEDGE CHARGE OVERTURNED ROBOT!`, 'critical');
-          }
-          sim.bossRepositionTimerSec = 1.0 + Math.random() * 0.35;
-          sim.bossChargeActiveSec = 0;
-        }
 
         // High-speed chassis ramming damage (applied on initial impact)
         if (vRel > 1.8 && (!sim.contactActive || sim.timeSec - sim.lastImpactTimeSec > 0.20)) {
@@ -1441,6 +1493,491 @@ export function stepBattleSimulation(
       finishBattle(sim, 'boss', `Time expired — ${sim.bossDossier.name} controlled the arena and dealt greater damage.`);
     }
   }
+}
+
+/**
+ * Physical multi-outcome Bull Wedge dynamics solver.
+ * Handles:
+ * 1. LIFTED WEAPON COUNTER (Outcome C): Active spinning weapon strikes Bull plow/deck while lifted
+ * 2. SIDE DEFLECTION (Outcome D): Angled/glancing engagement slides player off wedge with yaw torque
+ * 3. RIDE OVER / PASS BEHIND BULL (Outcome B): Tangential velocity carries forward momentum up/across Bull
+ * 4. FLIP / KNOCKBACK (Outcome A): Overwhelming Bull charge overturns high-CoM/low-stability robot
+ * 5. NORMAL SEPARATION: Stable robot pushed backward onto wheels without flipping
+ */
+function resolveBullWedgeInteraction(
+  sim: LiveBattleSimulation,
+  chassisTest: { overlap: boolean; normal: [number, number]; penetration: number; contactPoint: [number, number] },
+  playerWeaponHit: { hit: boolean; contactPoint: [number, number] },
+  bossWeaponHit: { hit: boolean; contactPoint: [number, number] },
+  weaponClash: { overlap: boolean; normal: [number, number]; penetration: number; contactPoint: [number, number] },
+  subDt: number
+): boolean {
+  const { player, boss, playerStats, bossStats } = sim;
+
+  // Bull orientation unit vectors
+  const fBx = Math.sin(boss.headingRad);
+  const fBz = Math.cos(boss.headingRad);
+  const rBx = Math.cos(boss.headingRad);
+  const rBz = -Math.sin(boss.headingRad);
+
+  // Player orientation unit vectors
+  const fPx = Math.sin(player.headingRad);
+  const fPz = Math.cos(player.headingRad);
+
+  // Contact location in world space
+  const cx = chassisTest.overlap
+    ? chassisTest.contactPoint[0]
+    : weaponClash.overlap
+    ? weaponClash.contactPoint[0]
+    : playerWeaponHit.hit
+    ? playerWeaponHit.contactPoint[0]
+    : bossWeaponHit.hit
+    ? bossWeaponHit.contactPoint[0]
+    : (player.x + boss.x) * 0.5;
+  const cz = chassisTest.overlap
+    ? chassisTest.contactPoint[1]
+    : weaponClash.overlap
+    ? weaponClash.contactPoint[1]
+    : playerWeaponHit.hit
+    ? playerWeaponHit.contactPoint[1]
+    : bossWeaponHit.hit
+    ? bossWeaponHit.contactPoint[1]
+    : (player.z + boss.z) * 0.5;
+
+  const dx = cx - boss.x;
+  const dz = cz - boss.z;
+  const latOffset = dx * rBx + dz * rBz;
+  const latOffsetNorm = THREE.MathUtils.clamp(latOffset / 1.135, -1, 1);
+
+  // Approach angle (0 = head-on, PI = rear-on)
+  const angleDiff = Math.abs(normalizeAngle(player.headingRad - (boss.headingRad + Math.PI)));
+  const angleDeg = (angleDiff * 180) / Math.PI;
+
+  // Speeds & momentum
+  const vBullFwd = boss.vx * fBx + boss.vz * fBz;
+  const vPlayerApproach = -(player.vx * fBx + player.vz * fBz);
+  const vPlayerFwd = player.vx * fPx + player.vz * fPz;
+  const vClose = Math.max(0, vBullFwd + vPlayerApproach);
+  const vTangent = vPlayerApproach;
+  const vLateral = (player.vx - boss.vx) * rBx + (player.vz - boss.vz) * rBz;
+
+  const m1 = Math.max(12, playerStats.totalWeightLb);
+  const m2 = Math.max(12, bossStats.totalWeightLb);
+  const pPlayer = m1 * Math.max(0, vPlayerApproach);
+  const pBull = m2 * Math.max(0, vBullFwd);
+
+  const weaponSpin = player.weaponSpinPct;
+  const isSpinner = playerStats.weaponTypeCategory === 'spinner-vert' || playerStats.weaponTypeCategory === 'spinner-horiz';
+  const weaponActive = (weaponSpin >= 20 && isSpinner) || player.weaponActuationPhase > 0 || (sim.playerInput?.weaponActive ?? false);
+
+  // =========================================================================
+  // CONTINUED RIDING PHASE:
+  // Robot is already climbing/sliding along Bull's wedge/top deck
+  // =========================================================================
+  if (sim.wedgePhase === 'riding') {
+    sim.wedgeTimerSec -= subDt;
+
+    // Check if player's active spinning weapon clips Bull's top deck while riding
+    if (weaponActive && player.weaponHealthPct > 15 && isSpinner && weaponSpin >= 20) {
+      return triggerLiftedWeaponCounter();
+    }
+
+    // Advance player across Bull along -fB (toward Bull's rear)
+    const rideSpeed = Math.max(2.4, vTangent);
+    player.x -= fBx * rideSpeed * subDt;
+    player.z -= fBz * rideSpeed * subDt;
+
+    // Bull is weighed down and halted by player's mass riding over its deck
+    boss.vx = 0;
+    boss.vz = 0;
+    sim.bossStunTimerSec = Math.max(sim.bossStunTimerSec, 0.45);
+
+    // Settle pitch smoothly as robot balances across Bull's top deck
+    player.pitchRad = Math.max(0.08, player.pitchRad - subDt * 1.6);
+
+    // Check if player's center has passed Bull's rear edge
+    const relToBullFwd = (player.x - boss.x) * fBx + (player.z - boss.z) * fBz;
+    if (relToBullFwd < -0.15 || sim.wedgeTimerSec <= 0) {
+      // Player clears the rear of Bull and lands behind!
+      sim.wedgePhase = 'none';
+      sim.contactCooldownSec = 0.45;
+      player.pitchRad = 0.05; // Gentle landing bounce
+      player.tractionBreakTimerSec = 0.16;
+      addEvent(sim, 'RAMPED OVER THE BULL — CLEAN LANDING BEHIND!', 'info');
+
+      sim.lastWedgeTelemetry = {
+        relativeClosingSpeed: vClose,
+        playerFwdSpeed: vPlayerFwd,
+        bullFwdSpeed: vBullFwd,
+        contactAngleDeg: angleDeg,
+        contactPoint: [cx, cz],
+        contactLateralOffset: latOffset,
+        tangentialSpeed: vTangent,
+        normalSpeed: vClose,
+        playerPitchRad: player.pitchRad,
+        playerOmega: player.angularVelocityRad,
+        playerStability: playerStats.stabilityScore,
+        playerCoM: playerStats.centerOfMassLabel,
+        weaponActive,
+        weaponRpmPct: weaponSpin,
+        outcome: 'RIDE_OVER',
+      };
+    }
+    return true;
+  }
+
+  // =========================================================================
+  // INITIAL WEDGE CONTACT RESOLUTION:
+  // =========================================================================
+
+  function triggerLiftedWeaponCounter(): boolean {
+    const spinFrac = Math.pow(weaponSpin / 100, 2);
+    const rawKineticEnergyJ = Math.max(400, playerStats.weaponEnergyJ * spinFrac);
+    sim.impactsDelivered++;
+
+    applyCombatDamage(sim, boss, false, Math.max(12, rawKineticEnergyJ / 100), 'front', true);
+
+    const baseImpulse = Math.sqrt(2 * ((m1 * m2) / (m1 + m2)) * rawKineticEnergyJ);
+    const impulse = baseImpulse * WEAPON_IMPACT_RESPONSE_SCALE;
+
+    const knockbackSpeed = THREE.MathUtils.clamp(
+      (3.2 + (rawKineticEnergyJ / 750) * 2.2) * WEAPON_IMPACT_RESPONSE_SCALE * (24 / m2),
+      3.2,
+      14.0
+    );
+    boss.vx -= fBx * knockbackSpeed;
+    boss.vz -= fBz * knockbackSpeed;
+    sim.bossStunTimerSec = 0.65;
+    sim.bossRepositionTimerSec = 1.25;
+    sim.bossChargeActiveSec = 0;
+
+    const recoilRatio = playerStats.weaponRecoilScore / 100;
+    const playerRecoilSpeed = THREE.MathUtils.clamp(
+      (2.2 + (rawKineticEnergyJ / 950) * 1.5) * (recoilRatio * 0.65 + 0.35) * 1.35,
+      2.1,
+      8.5
+    );
+    player.vx += fBx * playerRecoilSpeed;
+    player.vz += fBz * playerRecoilSpeed;
+
+    // Reset pitch back onto wheels!
+    player.pitchRad = 0.04;
+    player.isFlipped = false;
+
+    // Angular yaw torque
+    const sgn = latOffset !== 0 ? Math.sign(latOffset) : 1;
+    player.angularVelocityRad += THREE.MathUtils.clamp(-sgn * 18, -28, 28);
+    boss.angularVelocityRad += THREE.MathUtils.clamp(sgn * 22, -28, 28);
+
+    player.tractionBreakTimerSec = 0.35;
+    boss.tractionBreakTimerSec = 0.45;
+    player.skidVx = player.vx * 0.65;
+    player.skidVz = player.vz * 0.65;
+    boss.skidVx = boss.vx * 0.65;
+    boss.skidVz = boss.vz * 0.65;
+    player.weaponSpinPct = Math.min(10, player.weaponSpinPct * 0.12);
+
+    createCombatImpactEvent(
+      sim,
+      [cx, cz],
+      [fBx, fBz],
+      knockbackSpeed + playerRecoilSpeed,
+      impulse,
+      'weapon',
+      'player',
+      'boss',
+      rawKineticEnergyJ,
+      knockbackSpeed,
+      Math.abs(boss.angularVelocityRad),
+      0.45
+    );
+
+    addEvent(sim, 'LIFTED WEAPON COUNTER — SPINNER STRUCK BULL UPPER DECK!', 'impact');
+    sim.contactCooldownSec = 0.65;
+    sim.wedgePhase = 'none';
+
+    sim.lastWedgeTelemetry = {
+      relativeClosingSpeed: vClose,
+      playerFwdSpeed: vPlayerFwd,
+      bullFwdSpeed: vBullFwd,
+      contactAngleDeg: angleDeg,
+      contactPoint: [cx, cz],
+      contactLateralOffset: latOffset,
+      tangentialSpeed: vTangent,
+      normalSpeed: vClose,
+      playerPitchRad: player.pitchRad,
+      playerOmega: player.angularVelocityRad,
+      playerStability: playerStats.stabilityScore,
+      playerCoM: playerStats.centerOfMassLabel,
+      weaponActive,
+      weaponRpmPct: weaponSpin,
+      outcome: 'WEAPON_COUNTER',
+    };
+    return true;
+  }
+
+  // 1. OUTCOME C: LIFTED WEAPON COUNTER
+  // If player is facing Bull with an active spinning/actuated weapon,
+  // as the wedge lifts the player, the weapon cuts directly into Bull's plow/deck!
+  if (weaponActive && player.weaponHealthPct > 15 && (isSpinner ? weaponSpin >= 20 : true) && angleDiff < 1.35) {
+    return triggerLiftedWeaponCounter();
+  }
+
+  // 2. OUTCOME D: SIDE DEFLECTION
+  // Angled or off-center engagement where the wedge face normal deflects the robot sideways
+  const isAngled = angleDiff > 0.48; // > ~28 deg
+  const isOffCenter = Math.abs(latOffsetNorm) > 0.40; // > 40% of Bull width
+  if (isAngled || isOffCenter) {
+    const sLat = latOffset !== 0 ? Math.sign(latOffset) : (vLateral !== 0 ? Math.sign(vLateral) : 1);
+
+    // Lateral deflection velocity
+    const lateralSpeed = 2.4 + Math.abs(vLateral) * 0.65 + vClose * 0.35;
+    player.vx = rBx * sLat * lateralSpeed - fBx * Math.max(0.8, vPlayerApproach * 0.60);
+    player.vz = rBz * sLat * lateralSpeed - fBz * Math.max(0.8, vPlayerApproach * 0.60);
+
+    boss.vx -= rBx * sLat * 0.65;
+    boss.vz -= rBz * sLat * 0.65;
+
+    // Strong yaw rotation on both bots
+    player.angularVelocityRad += sLat * THREE.MathUtils.clamp(12 + vClose * 2.2, 10, 28);
+    boss.angularVelocityRad -= sLat * THREE.MathUtils.clamp(6 + vClose * 1.5, 5, 20);
+
+    // Mild pitch and roll (lifted wheel, NOT a flip)
+    player.pitchRad = 0.22 + Math.min(0.12, vClose * 0.02);
+    player.rollRad = -sLat * 0.28;
+
+    player.tractionBreakTimerSec = 0.26;
+    boss.tractionBreakTimerSec = 0.20;
+    player.skidVx = player.vx * 0.65;
+    player.skidVz = player.vz * 0.65;
+    boss.skidVx = boss.vx * 0.65;
+    boss.skidVz = boss.vz * 0.65;
+
+    applyCombatDamage(sim, player, true, 4.0 + vClose * 1.1, 'side', false);
+    applyCombatDamage(sim, boss, false, 2.0, 'front', false);
+
+    createCombatImpactEvent(
+      sim,
+      [cx, cz],
+      [fBx, fBz],
+      vClose,
+      65 + vClose * 15,
+      'chassis',
+      'boss',
+      'player',
+      0,
+      lateralSpeed,
+      Math.abs(player.angularVelocityRad),
+      0.26
+    );
+
+    addEvent(sim, 'DEFLECTED OFF WEDGE — GLANCING IMPACT', 'warning');
+    sim.bossRepositionTimerSec = 0.9;
+    sim.bossChargeActiveSec = 0;
+    sim.wedgePhase = 'none';
+
+    sim.lastWedgeTelemetry = {
+      relativeClosingSpeed: vClose,
+      playerFwdSpeed: vPlayerFwd,
+      bullFwdSpeed: vBullFwd,
+      contactAngleDeg: angleDeg,
+      contactPoint: [cx, cz],
+      contactLateralOffset: latOffset,
+      tangentialSpeed: vTangent,
+      normalSpeed: vClose,
+      playerPitchRad: player.pitchRad,
+      playerOmega: player.angularVelocityRad,
+      playerStability: playerStats.stabilityScore,
+      playerCoM: playerStats.centerOfMassLabel,
+      weaponActive,
+      weaponRpmPct: weaponSpin,
+      outcome: 'SIDE_DEFLECTION',
+    };
+    return true;
+  }
+
+  // 3. OUTCOME B: RIDE OVER / PASS BEHIND BULL
+  // Player has strong forward approach speed and momentum; wedge acts as ramp
+  const hasStrongApproachSpeed = vPlayerApproach >= 1.5;
+  const hasStrongMomentum = pPlayer >= pBull * 0.45 || (vPlayerApproach >= 1.8 && vBullFwd < 2.2);
+  const isCentered = angleDiff <= 0.55 && Math.abs(latOffsetNorm) <= 0.55;
+  const isStableEnough = (playerStats.centerOfMassLabel !== 'HIGH' && playerStats.stabilityScore >= 34) || vPlayerApproach >= 2.6;
+
+  if (hasStrongApproachSpeed && hasStrongMomentum && isCentered && isStableEnough) {
+    const rampSpeed = Math.max(2.6, vTangent * 0.92);
+    // Tangential velocity carried up and across wedge along -fB
+    player.vx = -fBx * rampSpeed + rBx * (vLateral * 0.4);
+    player.vz = -fBz * rampSpeed + rBz * (vLateral * 0.4);
+
+    boss.vx -= fBx * Math.min(2.0, (pPlayer / m2) * 0.85);
+    boss.vz -= fBz * Math.min(2.0, (pPlayer / m2) * 0.85);
+
+    player.pitchRad = 0.38 + Math.min(0.12, vClose * 0.02);
+
+    // Translate slightly onto front deck
+    player.x -= fBx * 0.32;
+    player.z -= fBz * 0.32;
+
+    sim.wedgePhase = 'riding';
+    sim.wedgeTimerSec = 0.40;
+    player.skidVx = player.vx * 0.5;
+    player.skidVz = player.vz * 0.5;
+
+    createCombatImpactEvent(
+      sim,
+      [cx, cz],
+      [fBx, fBz],
+      vClose,
+      45 + vClose * 10,
+      'chassis',
+      'player',
+      'boss',
+      0,
+      rampSpeed,
+      Math.abs(player.angularVelocityRad),
+      0.16
+    );
+
+    addEvent(sim, 'ROBOT RIDING UP THE BULL WEDGE!', 'info');
+
+    sim.lastWedgeTelemetry = {
+      relativeClosingSpeed: vClose,
+      playerFwdSpeed: vPlayerFwd,
+      bullFwdSpeed: vBullFwd,
+      contactAngleDeg: angleDeg,
+      contactPoint: [cx, cz],
+      contactLateralOffset: latOffset,
+      tangentialSpeed: vTangent,
+      normalSpeed: vClose,
+      playerPitchRad: player.pitchRad,
+      playerOmega: player.angularVelocityRad,
+      playerStability: playerStats.stabilityScore,
+      playerCoM: playerStats.centerOfMassLabel,
+      weaponActive,
+      weaponRpmPct: weaponSpin,
+      outcome: 'RIDE_OVER',
+    };
+    return true;
+  }
+
+  // 4. OUTCOME A: FLIP vs NORMAL SEPARATION
+  // Bull dominates momentum, gets underneath player
+  const bullDominatedMomentum = pBull > pPlayer * 1.45 && (vBullFwd >= 2.0 || sim.bossChargeActiveSec > 0 || vClose >= 3.0);
+  const playerLowApproach = vPlayerApproach < 1.1;
+  const isVulnerableStability =
+    playerStats.stabilityScore < 36 ||
+    (playerStats.centerOfMassLabel === 'HIGH' && vClose >= 3.0) ||
+    (playerStats.stabilityScore < 48 && vClose >= 4.2);
+
+  if (bullDominatedMomentum && playerLowApproach && isVulnerableStability) {
+    // FLIP OUTCOME
+    player.pitchRad = 0.72 + Math.min(0.20, vClose * 0.03);
+    player.isFlipped = true;
+    sim.flipsInflicted++;
+
+    const vKnock = THREE.MathUtils.clamp(3.4 + vClose * 0.85, 3.2, 9.5);
+    player.vx = fBx * vKnock + rBx * (latOffsetNorm * 2.0);
+    player.vz = fBz * vKnock + rBz * (latOffsetNorm * 2.0);
+
+    player.tractionBreakTimerSec = 0.50;
+    player.skidVx = player.vx * 0.7;
+    player.skidVz = player.vz * 0.7;
+
+    sim.bossRepositionTimerSec = 1.1;
+    sim.bossChargeActiveSec = 0;
+
+    createCombatImpactEvent(
+      sim,
+      [cx, cz],
+      [fBx, fBz],
+      vClose,
+      m1 * vKnock,
+      'chassis',
+      'boss',
+      'player',
+      0,
+      vKnock,
+      Math.abs(player.angularVelocityRad),
+      0.50
+    );
+
+    addEvent(sim, `${sim.bossDossier.name.toUpperCase()} WEDGE CHARGE OVERTURNED ROBOT!`, 'critical');
+    sim.wedgePhase = 'none';
+
+    sim.lastWedgeTelemetry = {
+      relativeClosingSpeed: vClose,
+      playerFwdSpeed: vPlayerFwd,
+      bullFwdSpeed: vBullFwd,
+      contactAngleDeg: angleDeg,
+      contactPoint: [cx, cz],
+      contactLateralOffset: latOffset,
+      tangentialSpeed: vTangent,
+      normalSpeed: vClose,
+      playerPitchRad: player.pitchRad,
+      playerOmega: player.angularVelocityRad,
+      playerStability: playerStats.stabilityScore,
+      playerCoM: playerStats.centerOfMassLabel,
+      weaponActive,
+      weaponRpmPct: weaponSpin,
+      outcome: 'FLIP',
+    };
+    return true;
+  }
+
+  // 5. NORMAL SEPARATION (Player stable or low-energy contact, pushed back onto wheels)
+  const vPush = 1.8 + vClose * 0.45;
+  player.vx = fBx * vPush;
+  player.vz = fBz * vPush;
+  boss.vx -= fBx * 0.8;
+  boss.vz -= fBz * 0.8;
+
+  player.pitchRad = 0.44 + Math.min(0.12, vClose * 0.02);
+  player.isFlipped = false; // Guarantees staying on wheels!
+  player.tractionBreakTimerSec = 0.28;
+  player.skidVx = player.vx * 0.65;
+  player.skidVz = player.vz * 0.65;
+  boss.skidVx = boss.vx * 0.65;
+  boss.skidVz = boss.vz * 0.65;
+
+  sim.bossRepositionTimerSec = 1.0;
+  sim.bossChargeActiveSec = 0;
+
+  createCombatImpactEvent(
+    sim,
+    [cx, cz],
+    [fBx, fBz],
+    vClose,
+    75 + vClose * 12,
+    'chassis',
+    'boss',
+    'player',
+    0,
+    vPush,
+    Math.abs(player.angularVelocityRad),
+    0.28
+  );
+
+  addEvent(sim, `${sim.bossDossier.name.toUpperCase()} WEDGE PUSHED ROBOT BACKWARD`, 'warning');
+  sim.wedgePhase = 'none';
+
+  sim.lastWedgeTelemetry = {
+    relativeClosingSpeed: vClose,
+    playerFwdSpeed: vPlayerFwd,
+    bullFwdSpeed: vBullFwd,
+    contactAngleDeg: angleDeg,
+    contactPoint: [cx, cz],
+    contactLateralOffset: latOffset,
+    tangentialSpeed: vTangent,
+    normalSpeed: vClose,
+    playerPitchRad: player.pitchRad,
+    playerOmega: player.angularVelocityRad,
+    playerStability: playerStats.stabilityScore,
+    playerCoM: playerStats.centerOfMassLabel,
+    weaponActive,
+    weaponRpmPct: weaponSpin,
+    outcome: 'NORMAL_SEPARATION',
+  };
+  return true;
 }
 
 function resolveEngagementImpact(

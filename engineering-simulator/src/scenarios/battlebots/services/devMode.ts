@@ -1,6 +1,6 @@
-import { INITIAL_ROBOT_CONFIG } from '../data/components';
+import { INITIAL_ROBOT_CONFIG, WEAPON_CATALOG, type WeaponSpec } from '../data/components';
 import { calculateEngineeringStats } from '../simulation/engineering';
-import type { RobotConfiguration, TeamRobotProject } from '../types/robot';
+import type { EngineeringStats, RobotConfiguration, TeamRobotProject, WeaponId } from '../types/robot';
 
 /**
  * Checks whether developer/admin testing mode is enabled via the URL (?dev=true).
@@ -23,6 +23,71 @@ export function isBattlebotDevMode(): boolean {
     // ignore
   }
   return false;
+}
+
+export type DevRobotSource = 'default' | 'current';
+
+export const DEV_WEAPON_STORAGE_KEY = 'battlebot_dev_weapon';
+export const DEV_ROBOT_SOURCE_STORAGE_KEY = 'battlebot_dev_robot_source';
+
+/**
+ * Read the available weapons from the single source of truth in components.ts
+ */
+export const DEV_AVAILABLE_WEAPONS: WeaponSpec[] = Object.values(WEAPON_CATALOG);
+
+/**
+ * Formats a weapon spec into a clean display title with weight (e.g. "Vertical Spinner (6.2 lb)")
+ */
+export function formatWeaponOptionLabel(spec: WeaponSpec): string {
+  const title = spec.name
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+  return `${title} (${spec.weightLb.toFixed(1)} lb)`;
+}
+
+export function getStoredDevWeapon(): WeaponId {
+  if (typeof window === 'undefined') return 'vertical-spinner';
+  try {
+    const stored = localStorage.getItem(DEV_WEAPON_STORAGE_KEY);
+    if (stored && stored in WEAPON_CATALOG) {
+      return stored as WeaponId;
+    }
+  } catch {
+    // ignore
+  }
+  return 'vertical-spinner';
+}
+
+export function setStoredDevWeapon(weaponId: WeaponId): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(DEV_WEAPON_STORAGE_KEY, weaponId);
+  } catch {
+    // ignore
+  }
+}
+
+export function getStoredDevRobotSource(): DevRobotSource {
+  if (typeof window === 'undefined') return 'default';
+  try {
+    const stored = localStorage.getItem(DEV_ROBOT_SOURCE_STORAGE_KEY);
+    if (stored === 'default' || stored === 'current') {
+      return stored;
+    }
+  } catch {
+    // ignore
+  }
+  return 'default';
+}
+
+export function setStoredDevRobotSource(source: DevRobotSource): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(DEV_ROBOT_SOURCE_STORAGE_KEY, source);
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -50,15 +115,25 @@ export const DEV_DEFAULT_ROBOT_CONFIG: RobotConfiguration = {
   customUtility: null,
 };
 
+export interface DevLoadoutOptions {
+  robotSource?: DevRobotSource;
+  weaponId?: WeaponId;
+}
+
 /**
- * Resolves which robot configuration to load into the Arena in Developer Mode:
- * Priority 1: If user already has a customized, valid (under 30 lb) robot configuration, use it.
- * Priority 2: Otherwise use the default developer test robot.
+ * Resolves which robot configuration to load into the Arena in Developer Mode.
+ *
+ * Supports:
+ * - Choosing between Default Test Robot (baseline) and Current Robot (built in workshop)
+ * - Equipping any valid Mechanical weapon from components.ts
+ * - Recomputing real engineering stats (mass, CoM, weapon energy, RPM, collision geometry)
+ * - Tolerating overweight test configurations (> 30 lb) without forcing or silently mutating other components
  */
 export function resolveDevArenaRobot(
   currentConfig: RobotConfiguration,
-  project: TeamRobotProject
-): { config: RobotConfiguration; isDefaultTestBot: boolean } {
+  project: TeamRobotProject,
+  options?: DevLoadoutOptions
+): { config: RobotConfiguration; isDefaultTestBot: boolean; stats: EngineeringStats } {
   const isCustomized =
     Boolean(project.mechanical.isCompleted) ||
     (project.mechanical.assembledParts && project.mechanical.assembledParts.length >= 5) ||
@@ -73,12 +148,44 @@ export function resolveDevArenaRobot(
 
   const currentStats = calculateEngineeringStats(currentConfig);
 
-  // Priority 1: Use user's current configuration if customized and legally under 30 lb
-  if (isCustomized && !currentStats.isOverweight) {
-    return { config: currentConfig, isDefaultTestBot: false };
+  let isDefaultTestBot = true;
+  let baseConfig = DEV_DEFAULT_ROBOT_CONFIG;
+
+  if (options?.robotSource === 'current') {
+    isDefaultTestBot = false;
+    baseConfig = currentConfig;
+  } else if (options?.robotSource === 'default') {
+    isDefaultTestBot = true;
+    baseConfig = DEV_DEFAULT_ROBOT_CONFIG;
+  } else {
+    // Automatic fallback when no source is specified:
+    // Priority 1: Use user's current configuration if customized and legally under 30 lb
+    if (isCustomized && !currentStats.isOverweight) {
+      isDefaultTestBot = false;
+      baseConfig = currentConfig;
+    } else {
+      isDefaultTestBot = true;
+      baseConfig = DEV_DEFAULT_ROBOT_CONFIG;
+    }
   }
 
-  // Priority 2: Use default developer test robot
-  return { config: DEV_DEFAULT_ROBOT_CONFIG, isDefaultTestBot: true };
+  // Determine effective weapon: explicitly selected dev weapon takes precedence
+  const effectiveWeaponId = options?.weaponId || baseConfig.weaponId;
+
+  const resolvedConfig: RobotConfiguration = {
+    ...baseConfig,
+    weaponId: effectiveWeaponId,
+    // Clear customWeapon when using catalog weapon or default bot to ensure standard spec applies
+    customWeapon: isDefaultTestBot ? null : (effectiveWeaponId === baseConfig.weaponId ? baseConfig.customWeapon : null),
+  };
+
+  // Recompute engineering stats from the real configuration
+  const stats = calculateEngineeringStats(resolvedConfig);
+
+  return {
+    config: resolvedConfig,
+    isDefaultTestBot,
+    stats,
+  };
 }
 

@@ -406,5 +406,228 @@ describe('BATTLEBOT COMBAT IMPACTS & GAME FEEL SYSTEM', () => {
     expect(imp?.tractionBreakDurationSec).toBeGreaterThan(0);
     expect(imp?.severity).toMatch(/^(heavy|major)$/);
   });
+
+  describe('THE BULL MULTI-OUTCOME WEDGE DYNAMICS (PROMPT SECTION 18)', () => {
+    // TEST 1: Bull fast, player nearly stationary
+    it('TEST 1: Bull fast, player nearly stationary gives Bull advantage with plausible lift/knockback', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull');
+      sim.boss.x = 0;
+      sim.boss.z = 0.8;
+      sim.boss.headingRad = Math.PI; // Facing -z into Player
+      sim.boss.vz = -4.0;
+      sim.bossChargeActiveSec = 1.0;
+
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 0.1; // Nearly stationary
+
+      stepBattleSimulation(sim, 0.02);
+
+      expect(sim.lastWedgeTelemetry).toBeDefined();
+      expect(sim.lastWedgeTelemetry?.outcome).toMatch(/^(FLIP|NORMAL_SEPARATION)$/);
+      expect(sim.player.pitchRad).toBeGreaterThanOrEqual(0.40);
+      expect(sim.player.vz).toBeLessThan(0); // Knocked backward along Bull's charge
+    });
+
+    // TEST 2: Player fast, Bull slower
+    it('TEST 2: Player fast, Bull slower allows player momentum to climb and ramp across Bull to behind', () => {
+      const stableConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        chassisId: 'wide',
+        wheelsId: 'high-traction',
+        weaponId: 'wedge',
+      };
+      const sim = createBattleSimulation(stableConfig, 'control', 'bull');
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0; // Facing +z into Bull
+      sim.player.vz = 3.6; // High forward momentum
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI; // Facing -z into Player
+      sim.boss.vz = -0.6; // Slower
+
+      stepBattleSimulation(sim, 0.02);
+
+      expect(sim.lastWedgeTelemetry?.outcome).toBe('RIDE_OVER');
+      expect(sim.wedgePhase).toBe('riding');
+      expect(sim.player.pitchRad).toBeGreaterThan(0.30);
+      expect(sim.player.isFlipped).toBe(false);
+
+      // Simulate traversal across Bull's top deck
+      for (let f = 0; f < 25; f++) {
+        stepBattleSimulation(sim, 0.02);
+      }
+
+      // Player clears the rear of Bull and lands behind Bull
+      expect(sim.player.z).toBeGreaterThan(sim.boss.z);
+      expect(sim.player.isFlipped).toBe(false);
+    });
+
+    // TEST 3: Both moving fast head-on
+    it('TEST 3: Both moving fast head-on produces large dynamic collision governed by momentum', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull');
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 3.2;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -3.8;
+      sim.bossChargeActiveSec = 1.0;
+
+      stepBattleSimulation(sim, 0.02);
+
+      expect(sim.lastWedgeTelemetry).toBeDefined();
+      expect(sim.lastWedgeTelemetry!.relativeClosingSpeed).toBeGreaterThan(6.0);
+      expect(sim.lastImpactEvent?.impulse).toBeGreaterThanOrEqual(45);
+    });
+
+    // TEST 4: Player hits wedge at ~30–45°
+    it('TEST 4: Player hits wedge at an angle (30-45°) producing side deflection and pronounced yaw', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull');
+      sim.player.x = 0.25;
+      sim.player.z = 0;
+      sim.player.headingRad = 0.65; // ~37° angle
+      sim.player.vx = 1.5;
+      sim.player.vz = 2.4;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -2.2;
+
+      stepBattleSimulation(sim, 0.02);
+
+      expect(sim.lastWedgeTelemetry?.outcome).toBe('SIDE_DEFLECTION');
+      expect(Math.abs(sim.player.angularVelocityRad)).toBeGreaterThan(4.0);
+      expect(Math.abs(sim.player.vx)).toBeGreaterThan(0.6);
+      expect(sim.player.isFlipped).toBe(false);
+    });
+
+    // TEST 5: Player spinner active while Bull lifts player
+    it('TEST 5: Player active spinner during wedge engagement triggers legitimate kinetic weapon counter', () => {
+      const spinnerConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        weaponId: 'horizontal-spinner',
+      };
+      const sim = createBattleSimulation(spinnerConfig, 'control', 'bull');
+      sim.player.weaponSpinPct = 100;
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 1.2;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -3.0;
+
+      stepBattleSimulation(sim, 0.02);
+
+      expect(sim.lastWedgeTelemetry?.outcome).toBe('WEAPON_COUNTER');
+      expect(sim.boss.hullIntegrityPct).toBeLessThan(100); // Bull takes direct kinetic damage
+      expect(sim.boss.vz).toBeGreaterThan(2.0); // Bull knocked backward
+      expect(sim.player.vz).toBeLessThan(0); // Player recoils backward
+      expect(sim.player.isFlipped).toBe(false); // Player remains on wheels!
+      expect(sim.lastImpactEvent?.type).toBe('weapon');
+    });
+
+    // TEST 6: Low/stable robot vs wedge
+    it('TEST 6: Low/stable robot resists flipping against Bull charge', () => {
+      const lowStableConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        chassisId: 'wide',
+        wheelsId: 'high-traction',
+        weaponId: 'wedge',
+      };
+      const sim = createBattleSimulation(lowStableConfig, 'control', 'bull');
+      expect(sim.playerStats.stabilityScore).toBeGreaterThanOrEqual(45);
+      expect(sim.playerStats.centerOfMassLabel).not.toBe('HIGH');
+
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 0.2;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -3.4;
+
+      stepBattleSimulation(sim, 0.02);
+
+      expect(sim.player.isFlipped).toBe(false);
+      expect(sim.lastWedgeTelemetry?.outcome).not.toBe('FLIP');
+    });
+
+    // TEST 7: Higher-CoM robot vs wedge
+    it('TEST 7: Higher-CoM / lower-stability robot is susceptible to flip on Bull high-speed charge', () => {
+      const highCoMConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        chassisId: 'compact',
+        wheelsId: 'large',
+        armorThickness: 'thick',
+        weaponId: 'hammer',
+      };
+      const sim = createBattleSimulation(highCoMConfig, 'control', 'bull');
+      // Verify robot has higher CoM or lower stability threshold
+      expect(sim.playerStats.stabilityScore < 45 || sim.playerStats.centerOfMassLabel === 'HIGH').toBe(true);
+
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 0.2;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.7;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -4.2;
+      sim.bossChargeActiveSec = 1.0;
+
+      stepBattleSimulation(sim, 0.02);
+
+      expect(sim.lastWedgeTelemetry?.outcome).toBe('FLIP');
+      expect(sim.player.isFlipped).toBe(true);
+      expect(sim.flipsInflicted).toBeGreaterThan(0);
+    });
+
+    // TEST 8: Repeated sustained wedge contact
+    it('TEST 8: Repeated sustained wedge contact does NOT repeatedly apply full pitch impulses or cause guaranteed flips', () => {
+      const stableConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        chassisId: 'wide',
+        wheelsId: 'high-traction',
+        weaponId: 'wedge',
+      };
+      const sim = createBattleSimulation(stableConfig, 'control', 'bull');
+      sim.player.x = 0;
+      sim.player.z = 0;
+      sim.player.headingRad = 0;
+      sim.player.vz = 0.5;
+
+      sim.boss.x = 0;
+      sim.boss.z = 0.65;
+      sim.boss.headingRad = Math.PI;
+      sim.boss.vz = -0.5;
+
+      const pitchHistory: number[] = [];
+      for (let f = 0; f < 20; f++) {
+        stepBattleSimulation(sim, 0.02);
+        pitchHistory.push(sim.player.pitchRad);
+      }
+
+      // Robot does NOT flip automatically from continuous frame accumulation
+      expect(sim.player.isFlipped).toBe(false);
+
+      // Pitch does not continuously grow to extreme values (> 1.2 rad)
+      const maxPitch = Math.max(...pitchHistory);
+      expect(maxPitch).toBeLessThan(1.0);
+    });
+  });
 });
 

@@ -369,6 +369,31 @@ export interface BattleEventLog {
 
 export type ImpactSeverity = 'tiny' | 'normal' | 'heavy' | 'major';
 
+export type WedgeOutcomeType =
+  | 'FLIP'
+  | 'RIDE_OVER'
+  | 'WEAPON_COUNTER'
+  | 'SIDE_DEFLECTION'
+  | 'NORMAL_SEPARATION';
+
+export interface WedgeTelemetry {
+  relativeClosingSpeed: number;
+  playerFwdSpeed: number;
+  bullFwdSpeed: number;
+  contactAngleDeg: number;
+  contactPoint: [number, number];
+  contactLateralOffset: number;
+  tangentialSpeed: number;
+  normalSpeed: number;
+  playerPitchRad: number;
+  playerOmega: number;
+  playerStability: number;
+  playerCoM: 'LOW' | 'MODERATE' | 'HIGH';
+  weaponActive: boolean;
+  weaponRpmPct: number;
+  outcome: WedgeOutcomeType;
+}
+
 export interface CombatImpactEvent {
   id: number;
   timeSec: number;

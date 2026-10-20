@@ -34,8 +34,16 @@ import {
   type RobotConfiguration,
   type SparkBurst,
   type TeamRobotProject,
+  type WedgeTelemetry,
+  type WeaponId,
 } from '../../types/robot';
 import { Robot3D } from '../three/Robot3D';
+import { DevLoadoutCard } from '../dev/DevLoadoutCard';
+import {
+  DEV_AVAILABLE_WEAPONS,
+  formatWeaponOptionLabel,
+  type DevRobotSource,
+} from '../../services/devMode';
 
 interface ArenaScreenProps {
   playerConfig: RobotConfiguration;
@@ -46,6 +54,10 @@ interface ArenaScreenProps {
   onReturnToDashboard?: () => void;
   onDefeatBoss?: (bossId: BossId) => void;
   isDevMode?: boolean;
+  devRobotSource?: DevRobotSource;
+  devWeaponId?: WeaponId;
+  onDevChangeWeapon?: (weaponId: WeaponId) => void;
+  onDevChangeRobotSource?: (source: DevRobotSource) => void;
 }
 
 type SpectatorCamMode = 'director' | 'wide' | 'chase';
@@ -137,7 +149,8 @@ const Arena3DScene: React.FC<{
     timeSec: number,
     events: BattleEventLog[],
     report: BattleAnalysisReport | null,
-    lastImpact?: CombatImpactEvent | null
+    lastImpact?: CombatImpactEvent | null,
+    lastWedge?: WedgeTelemetry | null
   ) => void;
 }> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, isDevMode = false, onSyncHud }) => {
   const { camera } = useThree();
@@ -272,7 +285,7 @@ const Arena3DScene: React.FC<{
         debugHitboxes: sim.debugHitboxes ? { ...sim.debugHitboxes } : undefined,
       });
       if (battlePhase === 'fighting' && !sim.isFinished) {
-        onSyncHud({ ...sim.player }, { ...sim.bull }, sim.timeSec, [...sim.events], null, sim.lastImpactEvent);
+        onSyncHud({ ...sim.player }, { ...sim.bull }, sim.timeSec, [...sim.events], null, sim.lastImpactEvent, sim.lastWedgeTelemetry);
       }
     }
   });
@@ -653,6 +666,10 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   onReturnToDashboard,
   onDefeatBoss,
   isDevMode = false,
+  devRobotSource,
+  devWeaponId,
+  onDevChangeWeapon,
+  onDevChangeRobotSource,
 }) => {
   const [battlePhase, setBattlePhase] = useState<'tutorial' | 'countdown' | 'fighting' | 'finished'>('tutorial');
   const [countdownNumber, setCountdownNumber] = useState<number | 'FIGHT!'>(3);
@@ -687,6 +704,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   const [hudTimeSec, setHudTimeSec] = useState<number>(0);
   const [, setHudEvents] = useState<BattleEventLog[]>([]);
   const [hudLastImpact, setHudLastImpact] = useState<CombatImpactEvent | null>(null);
+  const [hudLastWedge, setHudLastWedge] = useState<WedgeTelemetry | null>(null);
   const [analysisReport, setAnalysisReport] = useState<BattleAnalysisReport | null>(null);
 
   // Setup keyboard controller
@@ -737,11 +755,29 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
     }, 1000);
   };
 
-  const handleStartBattle = () => {
+  useEffect(() => {
+    if (battlePhase === 'tutorial') {
+      const effectiveLimiter = isDevMode && !teamProject?.electrical.currentLimiterA ? 120 : teamProject?.electrical.currentLimiterA;
+      simRef.current = createBattleSimulation(
+        playerConfig,
+        'control',
+        'bull',
+        teamProject?.software.rules,
+        effectiveLimiter,
+        coolingDrop,
+        true
+      );
+      setHudPlayer(simRef.current.player);
+      setHudBull(simRef.current.bull);
+    }
+  }, [playerConfig, battlePhase, coolingDrop, isDevMode, teamProject]);
+
+  const handleStartBattle = (overrideConfig?: RobotConfiguration) => {
     soundEngine.playClick();
+    const activeCfg = overrideConfig || playerConfig;
     const effectiveLimiter = isDevMode && !teamProject?.electrical.currentLimiterA ? 120 : teamProject?.electrical.currentLimiterA;
     simRef.current = createBattleSimulation(
-      playerConfig,
+      activeCfg,
       'control',
       'bull',
       teamProject?.software.rules,
@@ -794,13 +830,16 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             bossId={bossId}
             showHitboxes={showHitboxes}
             isDevMode={isDevMode}
-            onSyncHud={(p, b, t, evs, rep, lastImp) => {
+            onSyncHud={(p, b, t, evs, rep, lastImp, lastWedge) => {
               setHudPlayer(p);
               setHudBull(b);
               setHudTimeSec(t);
               setHudEvents(evs);
               if (lastImp) {
                 setHudLastImpact(lastImp);
+              }
+              if (lastWedge) {
+                setHudLastWedge(lastWedge);
               }
               if (rep) {
                 setAnalysisReport(rep);
@@ -848,6 +887,48 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
           ) : (
             <div className="text-[11px] text-slate-500 italic py-1">
               Awaiting first collision impact...
+            </div>
+          )}
+
+          {/* Section 17 Wedge Engagement Telemetry */}
+          {hudLastWedge && (
+            <div className="mt-2.5 pt-2 border-t border-amber-500/30">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
+                  Bull Wedge Dynamics
+                </span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                  hudLastWedge.outcome === 'FLIP'
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                    : hudLastWedge.outcome === 'RIDE_OVER'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : hudLastWedge.outcome === 'WEAPON_COUNTER'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : hudLastWedge.outcome === 'SIDE_DEFLECTION'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                    : 'bg-slate-500/20 text-slate-300 border border-slate-500/40'
+                }`}>
+                  {hudLastWedge.outcome}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                <span className="text-slate-400">Closing Speed:</span>
+                <span className="text-white font-bold">{hudLastWedge.relativeClosingSpeed.toFixed(2)} m/s</span>
+                <span className="text-slate-400">Player / Bull Fwd:</span>
+                <span className="text-white">{hudLastWedge.playerFwdSpeed.toFixed(2)} / {hudLastWedge.bullFwdSpeed.toFixed(2)} m/s</span>
+                <span className="text-slate-400">Contact Angle:</span>
+                <span className="text-white">{hudLastWedge.contactAngleDeg.toFixed(0)}°</span>
+                <span className="text-slate-400">Lateral Offset:</span>
+                <span className="text-white">{hudLastWedge.contactLateralOffset.toFixed(2)} m</span>
+                <span className="text-slate-400">Tangential / Norm:</span>
+                <span className="text-cyan-300">{hudLastWedge.tangentialSpeed.toFixed(2)} / {hudLastWedge.normalSpeed.toFixed(2)}</span>
+                <span className="text-slate-400">Pitch / Yaw Rate:</span>
+                <span className="text-purple-300">{(hudLastWedge.playerPitchRad * (180 / Math.PI)).toFixed(0)}° / {(hudLastWedge.playerOmega * (180 / Math.PI)).toFixed(0)}°/s</span>
+                <span className="text-slate-400">CoM / Stability:</span>
+                <span className="text-emerald-400 font-bold">{hudLastWedge.playerCoM} ({hudLastWedge.playerStability})</span>
+                <span className="text-slate-400">Weapon State:</span>
+                <span className="text-amber-300 font-bold">{hudLastWedge.weaponActive ? `ACTIVE (${hudLastWedge.weaponRpmPct.toFixed(0)}%)` : 'IDLE'}</span>
+              </div>
             </div>
           )}
         </div>
@@ -1023,6 +1104,21 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             </div>
 
             {/* Visual Controls Schematic Card */}
+            {isDevMode && onDevChangeWeapon && onDevChangeRobotSource && (
+              <div className="mb-5">
+                <DevLoadoutCard
+                  robotSource={devRobotSource || 'default'}
+                  weaponId={devWeaponId || playerConfig.weaponId}
+                  onChangeRobotSource={onDevChangeRobotSource}
+                  onChangeWeapon={onDevChangeWeapon}
+                  totalWeightLb={playerStats.totalWeightLb}
+                  isOverweight={playerStats.isOverweight}
+                  variant="pre-fight"
+                  showEnterButton={false}
+                />
+              </div>
+            )}
+
             <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 text-center mb-6">
               <span className="text-xs font-mono uppercase tracking-widest text-slate-400 font-bold block mb-4">
                 CONTROLS
@@ -1095,7 +1191,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
 
               <button
                 type="button"
-                onClick={handleStartBattle}
+                onClick={() => handleStartBattle()}
                 className="cursor-pointer inline-flex items-center gap-3 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-display font-black text-base tracking-wide shadow-lg shadow-amber-500/25 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
               >
                 <Swords className="w-5 h-5" />
@@ -1163,18 +1259,42 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             </button>
 
             {isDevMode && (
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playClick();
-                  handleStartBattle();
-                }}
-                className="cursor-pointer px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30 flex items-center gap-1.5 shadow-sm shadow-amber-500/20"
-                title="Developer Mode: Reset battle state instantly"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-                <span>RESET TEST BATTLE</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                {onDevChangeWeapon && (
+                  <div className="flex items-center gap-1 bg-slate-900 border border-amber-500/50 rounded-lg px-2 py-0.5">
+                    <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">DEV WEAPON:</span>
+                    <select
+                      value={devWeaponId || playerConfig.weaponId}
+                      onChange={(e) => {
+                        const newWId = e.target.value as WeaponId;
+                        onDevChangeWeapon(newWId);
+                        const updatedCfg: RobotConfiguration = { ...playerConfig, weaponId: newWId, customWeapon: null };
+                        handleStartBattle(updatedCfg);
+                      }}
+                      className="cursor-pointer bg-transparent text-amber-300 font-mono font-bold text-xs focus:outline-none"
+                      title="Switch Dev Weapon and Reset Battle"
+                    >
+                      {DEV_AVAILABLE_WEAPONS.map((spec) => (
+                        <option key={spec.id} value={spec.id} className="bg-slate-900 text-amber-300">
+                          {formatWeaponOptionLabel(spec)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    handleStartBattle();
+                  }}
+                  className="cursor-pointer px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30 flex items-center gap-1.5 shadow-sm shadow-amber-500/20"
+                  title="Developer Mode: Reset battle state instantly"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                  <span>RESET TEST BATTLE</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
