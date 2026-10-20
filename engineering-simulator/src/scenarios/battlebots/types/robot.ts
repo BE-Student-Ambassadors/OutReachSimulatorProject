@@ -367,12 +367,38 @@ export interface BattleEventLog {
   type: 'info' | 'impact' | 'warning' | 'critical';
 }
 
+export type ImpactSeverity = 'tiny' | 'normal' | 'heavy' | 'major';
+
+export interface CombatImpactEvent {
+  id: number;
+  timeSec: number;
+  point: [number, number];
+  normal: [number, number];
+  relativeVelocity: number;
+  impulse: number;
+  severity: ImpactSeverity;
+  severity01: number;
+  type: 'chassis' | 'weapon' | 'wall';
+  sourceRobot: 'player' | 'boss' | 'wall';
+  targetRobot: 'player' | 'boss';
+  weaponEnergyJ?: number;
+  hitstopMs: number;
+  targetDeltaV?: number;
+  targetDeltaOmega?: number;
+  tractionBreakDurationSec?: number;
+}
+
 export interface CombatantTelemetry {
   x: number;
   z: number;
   headingRad: number;
   vx: number;
   vz: number;
+  angularVelocityRad: number;
+  skidVx: number;
+  skidVz: number;
+  tractionBreakTimerSec: number;
+  impactFlashIntensity: number;
   pitchRad: number;
   rollRad: number;
   isFlipped: boolean;
@@ -391,8 +417,9 @@ export interface CombatantTelemetry {
   leftDriveHealthPct: number;
   rightDriveHealthPct: number;
   weaponHealthPct: number;
+  electricalHealthPct: number;
 
-  aiStateLabel: 'SENSE' | 'APPROACH' | 'FLANK' | 'ENGAGE' | 'RECOVER' | 'EVADE' | 'PUSH';
+  aiStateLabel: 'SENSE' | 'APPROACH' | 'FLANK' | 'ENGAGE' | 'RECOVER' | 'EVADE' | 'PUSH' | 'CHARGE' | 'ACQUIRE' | 'REPOSITION';
 }
 
 export interface SparkBurst {
@@ -403,6 +430,11 @@ export interface SparkBurst {
   color: string;
   intensity: number;
   age: number;
+  vx?: number;
+  vy?: number;
+  vz?: number;
+  maxAge?: number;
+  isDebris?: boolean;
 }
 
 export type BossId = 'bull' | 'scorpion' | 'cyclone' | 'spider' | 'titan';

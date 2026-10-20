@@ -13,6 +13,8 @@ import {
   type EngineeringStats,
   type RobotConfiguration,
   type SparkBurst,
+  type CombatImpactEvent,
+  type ImpactSeverity,
 } from '../types/robot';
 
 import {
@@ -24,6 +26,16 @@ import {
 } from './collisionGeometry';
 
 export const ARENA_HALF_SIZE = 5.6; // 11.2m x 11.2m enclosed combat arena
+
+// ============================================================================
+// GAMEPLAY COMBAT IMPACT TUNING CONSTANTS
+// Physics quantities (mass, energy, momentum) provide the authentic foundation,
+// while these explicit gameplay multipliers amplify readable displacement & rotation.
+// ============================================================================
+export const WEAPON_IMPACT_RESPONSE_SCALE = 2.6; // Multiplier amplifying kinetic weapon knockback and recoil
+export const CHASSIS_RAM_RESPONSE_SCALE = 1.85;  // Multiplier amplifying high-speed ram impulses
+export const ANGULAR_IMPULSE_SCALE = 2.4;        // Multiplier amplifying off-center torque and yaw response
+export const SEPARATION_BUFFER_METERS = 0.35;    // Instant displacement buffer on weapon strike to prevent immediate overlap
 
 export interface LiveBattleSimulation {
   playerInput?: PlayerInput;
@@ -57,6 +69,7 @@ export interface LiveBattleSimulation {
   playerStunTimerSec: number;
   bossChargeCooldownSec: number;
   bossChargeActiveSec: number;
+  bossRepositionTimerSec: number;
   weaponAtSpeedAnnounced: boolean;
   tempWarningAnnounced: boolean;
   powerLimitAnnounced: boolean;
@@ -73,6 +86,13 @@ export interface LiveBattleSimulation {
   bullPushTimeSec: number;
   peakMotorTempC: number;
   cameraImpactShake: number;
+
+  // Authoritative Impact Pipeline
+  lastImpactEvent?: CombatImpactEvent | null;
+  recentImpactEvents: CombatImpactEvent[];
+  nextImpactEventId: number;
+  contactActive: boolean;
+  lastImpactTimeSec: number;
 
   // Hitbox Developer Debug Data
   debugHitboxes?: {
@@ -91,6 +111,194 @@ function normalizeAngle(angle: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
   return a;
+}
+
+export function createCombatImpactEvent(
+  sim: LiveBattleSimulation,
+  point: [number, number],
+  normal: [number, number],
+  relativeVelocity: number,
+  impulse: number,
+  type: 'chassis' | 'weapon' | 'wall',
+  sourceRobot: 'player' | 'boss' | 'wall',
+  targetRobot: 'player' | 'boss',
+  weaponEnergyJ = 0,
+  targetDeltaV?: number,
+  targetDeltaOmega?: number,
+  tractionBreakDurationSec?: number
+): CombatImpactEvent {
+  let severityScore = (impulse / 190) * 0.45 + (relativeVelocity / 8.5) * 0.25;
+  if (type === 'weapon' && weaponEnergyJ > 0) {
+    severityScore += Math.min(0.65, (weaponEnergyJ / 2400) * 0.55);
+  }
+  if (type === 'wall') {
+    severityScore = Math.min(1.0, (relativeVelocity / 6.0) * 0.7 + (impulse / 160) * 0.3);
+  }
+
+  const severity01 = THREE.MathUtils.clamp(severityScore, 0, 1);
+  let severity: ImpactSeverity = 'tiny';
+  let hitstopMs = 0;
+
+  if (severity01 >= 0.75) {
+    severity = 'major';
+    hitstopMs = type === 'weapon' ? 60 : 40;
+  } else if (severity01 >= 0.44) {
+    severity = 'heavy';
+    hitstopMs = type === 'weapon' ? 30 : 18;
+  } else if (severity01 >= 0.16) {
+    severity = 'normal';
+    hitstopMs = type === 'weapon' ? 12 : 0;
+  } else {
+    severity = 'tiny';
+    hitstopMs = 0;
+  }
+
+  const event: CombatImpactEvent = {
+    id: sim.nextImpactEventId++,
+    timeSec: Number(sim.timeSec.toFixed(2)),
+    point,
+    normal,
+    relativeVelocity: Number(relativeVelocity.toFixed(2)),
+    impulse: Number(impulse.toFixed(1)),
+    severity,
+    severity01: Number(severity01.toFixed(3)),
+    type,
+    sourceRobot,
+    targetRobot,
+    weaponEnergyJ: weaponEnergyJ > 0 ? Math.round(weaponEnergyJ) : undefined,
+    hitstopMs,
+    targetDeltaV: targetDeltaV !== undefined ? Number(targetDeltaV.toFixed(2)) : undefined,
+    targetDeltaOmega: targetDeltaOmega !== undefined ? Number(targetDeltaOmega.toFixed(2)) : undefined,
+    tractionBreakDurationSec: tractionBreakDurationSec !== undefined ? Number(tractionBreakDurationSec.toFixed(3)) : undefined,
+  };
+
+  sim.lastImpactEvent = event;
+  sim.recentImpactEvents.unshift(event);
+  if (sim.recentImpactEvents.length > 10) {
+    sim.recentImpactEvents.pop();
+  }
+
+  // 1. White emissive flash on struck bot
+  const target = targetRobot === 'player' ? sim.player : sim.boss;
+  if (severity === 'major') {
+    target.impactFlashIntensity = 1.0;
+  } else if (severity === 'heavy') {
+    target.impactFlashIntensity = Math.max(target.impactFlashIntensity, 0.75);
+  } else if (severity === 'normal') {
+    target.impactFlashIntensity = Math.max(target.impactFlashIntensity, 0.35);
+  }
+
+  // 2. Camera impact shake
+  const shakeContribution = severity === 'major' ? 0.95 : severity === 'heavy' ? 0.50 : severity === 'normal' ? 0.18 : 0;
+  sim.cameraImpactShake = Math.min(1.0, Math.max(sim.cameraImpactShake, shakeContribution));
+
+  // 3. Directional spark burst ejected from contact point
+  const sparkCount = severity === 'major' ? 16 : severity === 'heavy' ? 9 : severity === 'normal' ? 4 : 0;
+  if (sparkCount > 0) {
+    const sparkColor =
+      type === 'wall'
+        ? '#38bdf8'
+        : type === 'weapon'
+        ? (severity === 'major' ? '#ffffff' : '#fde047')
+        : '#fbbf24';
+
+    const baseNx = normal[0];
+    const baseNz = normal[1];
+
+    for (let i = 0; i < sparkCount; i++) {
+      const spreadAngle = (Math.random() - 0.5) * 1.1;
+      const cosA = Math.cos(spreadAngle);
+      const sinA = Math.sin(spreadAngle);
+      const dirX = baseNx * cosA - baseNz * sinA;
+      const dirZ = baseNx * sinA + baseNz * cosA;
+      const speed = (2.2 + Math.random() * 4.5) * (0.6 + severity01 * 0.8);
+
+      sim.sparks.push({
+        id: sim.nextSparkId++,
+        x: point[0] + (Math.random() - 0.5) * 0.08,
+        y: 0.25 + Math.random() * 0.15,
+        z: point[1] + (Math.random() - 0.5) * 0.08,
+        color: sparkColor,
+        intensity: 1.2 + severity01 * 2.2,
+        age: 0,
+        vx: dirX * speed,
+        vy: 1.2 + Math.random() * 2.0,
+        vz: dirZ * speed,
+        maxAge: 0.25 + Math.random() * 0.15,
+      });
+    }
+
+    if (severity === 'major') {
+      for (let d = 0; d < 3; d++) {
+        const spreadAngle = (Math.random() - 0.5) * 1.4;
+        const dirX = baseNx * Math.cos(spreadAngle) - baseNz * Math.sin(spreadAngle);
+        const dirZ = baseNx * Math.sin(spreadAngle) + baseNz * Math.cos(spreadAngle);
+        sim.sparks.push({
+          id: sim.nextSparkId++,
+          x: point[0],
+          y: 0.3,
+          z: point[1],
+          color: '#64748b',
+          intensity: 1.0,
+          age: 0,
+          vx: dirX * (1.8 + Math.random() * 2.5),
+          vy: 2.2 + Math.random() * 1.5,
+          vz: dirZ * (1.8 + Math.random() * 2.5),
+          maxAge: 0.42,
+          isDebris: true,
+        });
+      }
+    }
+  }
+
+  return event;
+}
+
+function applyCombatDamage(
+  sim: LiveBattleSimulation,
+  targetBot: CombatantTelemetry,
+  isPlayerBot: boolean,
+  rawDamage: number,
+  sector: 'front' | 'side' | 'rear',
+  isKineticStrike: boolean
+): void {
+  const stats = isPlayerBot ? sim.playerStats : sim.bossStats;
+  const effectiveArmor =
+    sector === 'front' ? stats.frontArmorScore : sector === 'side' ? stats.sideArmorScore : stats.rearArmorScore;
+  const armorMitigation = Math.max(0.45, effectiveArmor / 65);
+
+  if (sector === 'front') {
+    const frontArmorDmg = (rawDamage * 1.05) / armorMitigation;
+    targetBot.frontArmorPct = Math.max(0, targetBot.frontArmorPct - frontArmorDmg);
+    if (targetBot.frontArmorPct < 35 || isKineticStrike) {
+      const weaponDmg = (rawDamage * 0.35) / armorMitigation;
+      targetBot.weaponHealthPct = Math.max(0, targetBot.weaponHealthPct - weaponDmg);
+    }
+    const hullDmg = (rawDamage * 0.55) / armorMitigation;
+    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - hullDmg);
+  } else if (sector === 'side') {
+    const sideArmorDmg = (rawDamage * 1.25) / armorMitigation;
+    targetBot.sideArmorPct = Math.max(0, targetBot.sideArmorPct - sideArmorDmg);
+    if (!stats.wheelsProtected) {
+      const driveDmg = (rawDamage * 0.95) / armorMitigation;
+      targetBot.leftDriveHealthPct = Math.max(0, targetBot.leftDriveHealthPct - driveDmg);
+      targetBot.rightDriveHealthPct = Math.max(0, targetBot.rightDriveHealthPct - driveDmg);
+    } else {
+      const driveDmg = (rawDamage * 0.22) / armorMitigation;
+      targetBot.leftDriveHealthPct = Math.max(0, targetBot.leftDriveHealthPct - driveDmg);
+      targetBot.rightDriveHealthPct = Math.max(0, targetBot.rightDriveHealthPct - driveDmg);
+    }
+    const hullDmg = (rawDamage * 0.85) / armorMitigation;
+    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - hullDmg);
+  } else {
+    const rearArmorDmg = (rawDamage * 1.35) / armorMitigation;
+    targetBot.rearArmorPct = Math.max(0, targetBot.rearArmorPct - rearArmorDmg);
+    const elecDmg = (rawDamage * 0.45) / armorMitigation;
+    targetBot.batteryPct = Math.max(0, targetBot.batteryPct - elecDmg * 0.2);
+    targetBot.electricalHealthPct = Math.max(0, targetBot.electricalHealthPct - elecDmg);
+    const hullDmg = (rawDamage * 1.1) / armorMitigation;
+    targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - hullDmg);
+  }
 }
 
 function addEvent(
@@ -148,6 +356,12 @@ export function createBattleSimulation(
     leftDriveHealthPct: 100,
     rightDriveHealthPct: 100,
     weaponHealthPct: 100,
+    electricalHealthPct: 100,
+    angularVelocityRad: 0,
+    skidVx: 0,
+    skidVz: 0,
+    tractionBreakTimerSec: 0,
+    impactFlashIntensity: 0,
     aiStateLabel: 'SENSE',
   };
 
@@ -173,6 +387,12 @@ export function createBattleSimulation(
     leftDriveHealthPct: 100,
     rightDriveHealthPct: 100,
     weaponHealthPct: 100,
+    electricalHealthPct: 100,
+    angularVelocityRad: 0,
+    skidVx: 0,
+    skidVz: 0,
+    tractionBreakTimerSec: 0,
+    impactFlashIntensity: 0,
     aiStateLabel: 'SENSE',
   };
 
@@ -203,6 +423,7 @@ export function createBattleSimulation(
     playerStunTimerSec: 0,
     bossChargeCooldownSec: bossId === 'bull' ? 1.2 : 2.5,
     bossChargeActiveSec: 0,
+    bossRepositionTimerSec: 0,
     weaponAtSpeedAnnounced: false,
     tempWarningAnnounced: false,
     powerLimitAnnounced: false,
@@ -214,6 +435,10 @@ export function createBattleSimulation(
     bullPushTimeSec: 0,
     peakMotorTempC: 38,
     cameraImpactShake: 0,
+    recentImpactEvents: [],
+    nextImpactEventId: 1,
+    contactActive: false,
+    lastImpactTimeSec: -99,
     softwareRules,
     electricalLimiterA,
     coolingTempReductionC,
@@ -265,6 +490,7 @@ export function stepBattleSimulation(
   sim.playerStunTimerSec = Math.max(0, sim.playerStunTimerSec - dt);
   sim.bossChargeCooldownSec = Math.max(0, sim.bossChargeCooldownSec - dt);
   sim.bossChargeActiveSec = Math.max(0, sim.bossChargeActiveSec - dt);
+  sim.bossRepositionTimerSec = Math.max(0, sim.bossRepositionTimerSec - dt);
 
   for (let i = sim.sparks.length - 1; i >= 0; i--) {
     sim.sparks[i].age += dt;
@@ -281,10 +507,47 @@ export function stepBattleSimulation(
     boss.weaponActuationPhase = Math.max(0, boss.weaponActuationPhase - dt * 2.1);
   }
 
-  player.pitchRad *= Math.pow(0.04, dt);
-  player.rollRad *= Math.pow(0.04, dt);
-  boss.pitchRad *= Math.pow(0.04, dt);
-  boss.rollRad *= Math.pow(0.04, dt);
+  // Suspended pitch and roll decay (visible hops, tips, landings)
+  if (!player.isFlipped) {
+    player.pitchRad *= Math.pow(0.08, dt * 1.5);
+    player.rollRad *= Math.pow(0.08, dt * 1.5);
+  }
+  if (!boss.isFlipped) {
+    boss.pitchRad *= Math.pow(0.08, dt * 1.5);
+    boss.rollRad *= Math.pow(0.08, dt * 1.5);
+  }
+
+  // Decay impact flash intensities (~45ms)
+  player.impactFlashIntensity = Math.max(0, player.impactFlashIntensity - dt * 22);
+  boss.impactFlashIntensity = Math.max(0, boss.impactFlashIntensity - dt * 22);
+
+  // Apply angular velocity to headings and damp with wheel traction
+  player.headingRad = normalizeAngle(player.headingRad + player.angularVelocityRad * dt);
+  boss.headingRad = normalizeAngle(boss.headingRad + boss.angularVelocityRad * dt);
+
+  // Angular velocity damping: during traction break, tires have minimal grip so spin persists!
+  const pSpinDecay = player.tractionBreakTimerSec > 0 ? 0.85 : (2.4 + 3.6 * playerStats.tractionCoeff);
+  const bSpinDecay = boss.tractionBreakTimerSec > 0 ? 0.85 : (2.4 + 3.6 * bossStats.tractionCoeff);
+  player.angularVelocityRad *= Math.pow(0.15, dt * (pSpinDecay / 4));
+  boss.angularVelocityRad *= Math.pow(0.15, dt * (bSpinDecay / 4));
+
+  // Damp lateral skid velocities (traction break)
+  if (player.tractionBreakTimerSec > 0) {
+    player.tractionBreakTimerSec = Math.max(0, player.tractionBreakTimerSec - dt);
+    const skidDecay = (1.5 + 3.0 * playerStats.tractionCoeff) * dt;
+    player.skidVx *= Math.max(0, 1 - skidDecay);
+    player.skidVz *= Math.max(0, 1 - skidDecay);
+    player.vx += player.skidVx * dt * 2.5;
+    player.vz += player.skidVz * dt * 2.5;
+  }
+  if (boss.tractionBreakTimerSec > 0) {
+    boss.tractionBreakTimerSec = Math.max(0, boss.tractionBreakTimerSec - dt);
+    const skidDecay = (1.5 + 3.0 * bossStats.tractionCoeff) * dt;
+    boss.skidVx *= Math.max(0, 1 - skidDecay);
+    boss.skidVz *= Math.max(0, 1 - skidDecay);
+    boss.vx += boss.skidVx * dt * 2.5;
+    boss.vz += boss.skidVz * dt * 2.5;
+  }
 
   // 1. WEAPON SPIN-UP & BATTERY / THERMAL
   if (sim.isManual) {
@@ -480,10 +743,14 @@ export function stepBattleSimulation(
       if (sim.grabTimerSec > 0 && player.isGrabbing) {
         player.aiStateLabel = 'PUSH';
       } else {
+        // Post-impact traction break dampens driver steering & throttle authority
+        const pAuthority = player.tractionBreakTimerSec > 0 ? 0.08 : 1.0;
+        const pSteerAuthority = player.tractionBreakTimerSec > 0 ? 0.18 : 1.0;
+
         // A. Differential Steering: Turn left (negative) or right (positive)
         // Turning right increases headingRad (clockwise), turning left decreases it
         const steerDir = input.throttle < 0 ? 1 : -1;
-        const turnDelta = input.steering * steerDir * playerTurnRate * dt;
+        const turnDelta = input.steering * steerDir * playerTurnRate * dt * pSteerAuthority;
 
         // Motor damage asymmetry pulls robot toward the damaged side when driving
         const drivePull = (rightHealth - leftHealth) * 0.55 * playerTurnRate * dt * Math.sign(input.throttle || 0);
@@ -495,22 +762,29 @@ export function stepBattleSimulation(
         const targetVx = Math.sin(player.headingRad) * desiredPlayerSpeed;
         const targetVz = Math.cos(player.headingRad) * desiredPlayerSpeed;
 
-        const accelRate = 7.5 * Math.max(0.4, playerStats.accelerationMphPerSec / 8.5);
+        const accelRate = 7.5 * Math.max(0.4, playerStats.accelerationMphPerSec / 8.5) * pAuthority;
 
         if (input.throttle !== 0) {
           player.vx += (targetVx - player.vx) * Math.min(1, accelRate * dt);
           player.vz += (targetVz - player.vz) * Math.min(1, accelRate * dt);
           player.aiStateLabel = input.throttle > 0 ? 'ENGAGE' : 'EVADE';
         } else if (input.steering !== 0) {
-          const pointTurnBrake = 12.0 * dt;
+          const pointTurnBrake = 12.0 * dt * pAuthority;
           player.vx += (0 - player.vx) * Math.min(1, pointTurnBrake);
           player.vz += (0 - player.vz) * Math.min(1, pointTurnBrake);
           player.aiStateLabel = 'FLANK';
         } else {
-          const decelRate = 9.0 * Math.max(0.45, playerStats.tractionCoeff);
+          const decelRate = 9.0 * Math.max(0.45, playerStats.tractionCoeff) * pAuthority;
           player.vx += (0 - player.vx) * Math.min(1, decelRate * dt);
           player.vz += (0 - player.vz) * Math.min(1, decelRate * dt);
           player.aiStateLabel = 'SENSE';
+        }
+
+        // When skidding during traction break, smooth slide friction gradually absorbs sliding velocity
+        if (player.tractionBreakTimerSec > 0) {
+          const slideFriction = 0.9 + 1.8 * playerStats.tractionCoeff;
+          player.vx *= Math.pow(0.38, dt * slideFriction);
+          player.vz *= Math.pow(0.38, dt * slideFriction);
         }
       }
     } else {
@@ -626,16 +900,23 @@ export function stepBattleSimulation(
         player.aiStateLabel = dist < 1.4 ? 'ENGAGE' : 'APPROACH';
       }
 
+      const pAuthority = player.tractionBreakTimerSec > 0 ? 0.08 : 1.0;
       const headingDiff = normalizeAngle(desiredPlayerHeading - player.headingRad);
-      const maxTurn = playerTurnRate * dt;
+      const maxTurn = playerTurnRate * dt * (player.tractionBreakTimerSec > 0 ? 0.15 : 1.0);
       player.headingRad = normalizeAngle(player.headingRad + Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), maxTurn));
 
       const alignFactor = Math.max(0, Math.cos(headingDiff));
       const targetVx = Math.sin(player.headingRad) * desiredPlayerSpeed * alignFactor;
       const targetVz = Math.cos(player.headingRad) * desiredPlayerSpeed * alignFactor;
 
-      player.vx += (targetVx - player.vx) * Math.min(1, 7.5 * dt);
-      player.vz += (targetVz - player.vz) * Math.min(1, 7.5 * dt);
+      player.vx += (targetVx - player.vx) * Math.min(1, 7.5 * dt * pAuthority);
+      player.vz += (targetVz - player.vz) * Math.min(1, 7.5 * dt * pAuthority);
+
+      if (player.tractionBreakTimerSec > 0) {
+        const slideFriction = 0.9 + 1.8 * playerStats.tractionCoeff;
+        player.vx *= Math.pow(0.38, dt * slideFriction);
+        player.vz *= Math.pow(0.38, dt * slideFriction);
+      }
     } else {
       player.vx *= Math.pow(0.15, dt);
       player.vz *= Math.pow(0.15, dt);
@@ -655,28 +936,61 @@ export function stepBattleSimulation(
     switch (bossId) {
       case 'bull': {
         const headingDiff = normalizeAngle(angleBossToPlayer - boss.headingRad);
-        const playerNearWall = Math.abs(player.x) > ARENA_HALF_SIZE - 0.95 || Math.abs(player.z) > ARENA_HALF_SIZE - 0.95;
+        const nearWall = Math.abs(boss.x) > ARENA_HALF_SIZE - 1.2 || Math.abs(boss.z) > ARENA_HALF_SIZE - 1.2;
 
-        // Wedge Orientation Lock: Rotate aggressively to present bronze plow directly (within +-0.25 rad)
-        desiredBossHeading = angleBossToPlayer;
+        if (sim.bossRepositionTimerSec > 0) {
+          // DISENGAGE / REPOSITION: Bull creates 2.5 - 3.5m of open arena space before charging again
+          boss.aiStateLabel = 'REPOSITION';
+          if (nearWall) {
+            // Maneuver back toward center of arena
+            const centerAngle = Math.atan2(-boss.x, -boss.z);
+            desiredBossHeading = centerAngle;
+            desiredBossSpeed = bossMaxSpeed * 0.95;
+          } else {
+            // Reverse away from player while keeping horns oriented
+            desiredBossHeading = angleBossToPlayer;
+            desiredBossSpeed = -bossMaxSpeed * 0.85;
+          }
+        } else if (dist < 1.6 && sim.bossChargeActiveSec <= 0) {
+          // Too close and not in an active charge: disengage immediately to break the pushing match!
+          sim.bossRepositionTimerSec = 0.9 + Math.random() * 0.4;
+          boss.aiStateLabel = 'REPOSITION';
+          desiredBossHeading = angleBossToPlayer;
+          desiredBossSpeed = -bossMaxSpeed * 0.85;
+        } else if (sim.bossChargeActiveSec > 0) {
+          // Active high-speed charge!
+          desiredBossHeading = angleBossToPlayer;
+          desiredBossSpeed = bossMaxSpeed * 1.35;
+          boss.aiStateLabel = 'CHARGE';
 
-        // Charge trigger: initiate charge when aligned within 0.28 rad or when pinning player near perimeter wall
-        if ((Math.abs(headingDiff) < 0.28 || playerNearWall) && dist < 5.0 && sim.bossChargeCooldownSec <= 0 && sim.bossChargeActiveSec <= 0) {
-          sim.bossChargeActiveSec = 1.6;
-          sim.bossChargeCooldownSec = 3.6;
-          boss.aiStateLabel = playerNearWall ? 'PUSH' : 'ENGAGE';
-        }
-
-        // Charge Abort / Braking Recovery: If player evades and angle exceeds 0.45 rad, abort charge to avoid overshooting wall
-        if (sim.bossChargeActiveSec > 0 && Math.abs(headingDiff) > 0.45 && dist > 1.6) {
-          sim.bossChargeActiveSec = 0; // Abort charge and pivot back toward opponent
-          desiredBossSpeed = bossMaxSpeed * 0.55;
-          boss.aiStateLabel = 'APPROACH';
+          // Abort charge if player completely dodges laterally
+          if (Math.abs(headingDiff) > 0.65 && dist > 2.0) {
+            sim.bossChargeActiveSec = 0;
+            sim.bossRepositionTimerSec = 0.6;
+          }
+        } else if (sim.bossChargeCooldownSec <= 0 && dist >= 2.0 && dist <= 5.5) {
+          // Ready to charge: align horns first!
+          if (Math.abs(headingDiff) < 0.32) {
+            sim.bossChargeActiveSec = 1.2;
+            sim.bossChargeCooldownSec = 2.4;
+            desiredBossHeading = angleBossToPlayer;
+            desiredBossSpeed = bossMaxSpeed * 1.35;
+            boss.aiStateLabel = 'CHARGE';
+          } else {
+            // ACQUIRE: Turn in place to aim bronze horns at player
+            desiredBossHeading = angleBossToPlayer;
+            desiredBossSpeed = bossMaxSpeed * 0.30;
+            boss.aiStateLabel = 'ACQUIRE';
+          }
         } else {
-          const chargeBoost = sim.bossChargeActiveSec > 0 ? (playerNearWall ? 1.25 : 1.18) : 0.92;
-          desiredBossSpeed = bossMaxSpeed * chargeBoost;
-          if (sim.bossChargeActiveSec <= 0) {
-            boss.aiStateLabel = dist < 1.4 ? 'PUSH' : 'APPROACH';
+          // Maneuver to optimal charge distance
+          desiredBossHeading = angleBossToPlayer;
+          if (dist < 2.0) {
+            desiredBossSpeed = -bossMaxSpeed * 0.75;
+            boss.aiStateLabel = 'REPOSITION';
+          } else {
+            desiredBossSpeed = bossMaxSpeed * 0.85;
+            boss.aiStateLabel = 'APPROACH';
           }
         }
         break;
@@ -722,16 +1036,25 @@ export function stepBattleSimulation(
       }
     }
 
+    const bAuthority = boss.tractionBreakTimerSec > 0 ? 0.08 : 1.0;
+    const bSteerAuthority = boss.tractionBreakTimerSec > 0 ? 0.12 : 1.0;
+
     const bossHeadingDiff = normalizeAngle(desiredBossHeading - boss.headingRad);
-    const maxBossTurn = bossTurnRate * dt * (sim.bossChargeActiveSec > 0 ? 0.45 : 1.0);
+    const maxBossTurn = bossTurnRate * dt * (sim.bossChargeActiveSec > 0 ? 0.45 : 1.0) * bSteerAuthority;
     boss.headingRad = normalizeAngle(boss.headingRad + Math.sign(bossHeadingDiff) * Math.min(Math.abs(bossHeadingDiff), maxBossTurn));
 
     const alignFactor = Math.max(0, Math.cos(bossHeadingDiff));
     const bTargetVx = Math.sin(boss.headingRad) * desiredBossSpeed * alignFactor;
     const bTargetVz = Math.cos(boss.headingRad) * desiredBossSpeed * alignFactor;
 
-    boss.vx += (bTargetVx - boss.vx) * Math.min(1, 6.8 * dt);
-    boss.vz += (bTargetVz - boss.vz) * Math.min(1, 6.8 * dt);
+    boss.vx += (bTargetVx - boss.vx) * Math.min(1, 6.8 * dt * bAuthority);
+    boss.vz += (bTargetVz - boss.vz) * Math.min(1, 6.8 * dt * bAuthority);
+
+    if (boss.tractionBreakTimerSec > 0) {
+      const slideFriction = 0.9 + 1.8 * bossStats.tractionCoeff;
+      boss.vx *= Math.pow(0.38, dt * slideFriction);
+      boss.vz *= Math.pow(0.38, dt * slideFriction);
+    }
   } else if (!player.isGrabbing) {
     boss.vx *= Math.pow(0.15, dt);
     boss.vz *= Math.pow(0.15, dt);
@@ -788,44 +1111,68 @@ export function stepBattleSimulation(
       let collided = false;
       let wallNx = 0;
       let wallNz = 0;
+      let impactSpeed = 0;
 
       if (bot.x > boundLimitX) {
+        impactSpeed = Math.max(impactSpeed, Math.abs(bot.vx));
         bot.x = boundLimitX;
-        bot.vx = -Math.abs(bot.vx) * 0.35;
+        bot.vx = -Math.abs(bot.vx) * 0.52;
         collided = true;
         wallNx = -1;
       } else if (bot.x < -boundLimitX) {
+        impactSpeed = Math.max(impactSpeed, Math.abs(bot.vx));
         bot.x = -boundLimitX;
-        bot.vx = Math.abs(bot.vx) * 0.35;
+        bot.vx = Math.abs(bot.vx) * 0.52;
         collided = true;
         wallNx = 1;
       }
 
       if (bot.z > boundLimitZ) {
+        impactSpeed = Math.max(impactSpeed, Math.abs(bot.vz));
         bot.z = boundLimitZ;
-        bot.vz = -Math.abs(bot.vz) * 0.35;
+        bot.vz = -Math.abs(bot.vz) * 0.52;
         collided = true;
         wallNz = -1;
       } else if (bot.z < -boundLimitZ) {
+        impactSpeed = Math.max(impactSpeed, Math.abs(bot.vz));
         bot.z = -boundLimitZ;
-        bot.vz = Math.abs(bot.vz) * 0.35;
+        bot.vz = Math.abs(bot.vz) * 0.52;
         collided = true;
         wallNz = 1;
       }
 
       if (collided) {
-        const impactSpeed = Math.hypot(bot.vx, bot.vz);
-        if (impactSpeed > 1.2 && Math.random() < 0.25) {
-          sim.sparks.push({
-            id: sim.nextSparkId++,
-            x: bot.x + wallNx * 0.2,
-            y: 0.3,
-            z: bot.z + wallNz * 0.2,
-            color: '#38bdf8',
-            intensity: 1.5,
-            age: 0,
-          });
+        // Wall rebound angular deflection and traction break on strong hit
+        bot.angularVelocityRad += (wallNz * bot.vx - wallNx * bot.vz) * 1.8;
+        if (impactSpeed > 1.4) {
+          bot.tractionBreakTimerSec = Math.max(bot.tractionBreakTimerSec, 0.22);
         }
+
+        // Authoritative wall collision impulse & event
+        if (impactSpeed > 0.75 && sim.timeSec - sim.lastImpactTimeSec > 0.16) {
+          const botMass = isPlayerBot ? m1 : m2;
+          const wallImpulse = botMass * impactSpeed * 1.32;
+          createCombatImpactEvent(
+            sim,
+            [bot.x + wallNx * 0.15, bot.z + wallNz * 0.15],
+            [wallNx, wallNz],
+            impactSpeed,
+            wallImpulse,
+            'wall',
+            'wall',
+            isPlayerBot ? 'player' : 'boss',
+            0
+          );
+          sim.lastImpactTimeSec = sim.timeSec;
+        }
+
+        // Damage from high-energy wall smash
+        if (impactSpeed > 2.0) {
+          const wallDmg = 3.5 + (impactSpeed - 2.0) * 5.5;
+          bot.hullIntegrityPct = Math.max(0, bot.hullIntegrityPct - wallDmg * subDt * 3.5);
+          bot.frontArmorPct = Math.max(0, bot.frontArmorPct - wallDmg * subDt * 2.5);
+        }
+
         if (!isPlayerBot) {
           if (sim.bossChargeActiveSec > 0) {
             // Charging boss smashed into arena wall!
@@ -917,28 +1264,97 @@ export function stepBattleSimulation(
       // Relative velocity along collision normal (pointing from Player to Boss)
       const vRel = (player.vx - boss.vx) * nx + (player.vz - boss.vz) * nz;
 
-      if (vRel > 0.8) {
-        // High-speed collision: Semi-elastic impulse deflection
-        const restitution = 0.20;
-        const impulse = ((1 + restitution) * vRel) / (1 / m1 + 1 / m2);
+      if (vRel > 0.55) {
+        // High-speed collision: Semi-elastic impulse deflection amplified by CHASSIS_RAM_RESPONSE_SCALE
+        const restitution = 0.32;
+        const baseImpulse = ((1 + restitution) * vRel) / (1 / m1 + 1 / m2);
+        const impulse = baseImpulse * CHASSIS_RAM_RESPONSE_SCALE;
 
         player.vx -= (nx * impulse) / m1;
         player.vz -= (nz * impulse) / m1;
         boss.vx += (nx * impulse) / m2;
         boss.vz += (nz * impulse) / m2;
 
-        // Angular Torque Response on Off-Center Strikes
-        const playerForwardX = Math.sin(player.headingRad);
-        const playerForwardZ = Math.cos(player.headingRad);
-        const cross1 = playerForwardX * nz - playerForwardZ * nx;
-        player.headingRad = normalizeAngle(player.headingRad - cross1 * (impulse / m1) * 0.08);
+        // Contact offset vectors from bot centers
+        const r1x = chassisTest.contactPoint[0] - player.x;
+        const r1z = chassisTest.contactPoint[1] - player.z;
+        const r2x = chassisTest.contactPoint[0] - boss.x;
+        const r2z = chassisTest.contactPoint[1] - boss.z;
 
-        const bossForwardX = Math.sin(boss.headingRad);
-        const bossForwardZ = Math.cos(boss.headingRad);
-        const cross2 = bossForwardX * nz - bossForwardZ * nx;
-        boss.headingRad = normalizeAngle(boss.headingRad + cross2 * (impulse / m2) * 0.08);
-      } else {
-        // Sustained pushing contact (at low relative speed, no bounce!)
+        // Moment of Inertia for rectangular chassis: I = 1/12 * m * (w^2 + l^2)
+        const pW = playerModel.chassis.halfExtents[0] * 2;
+        const pL = playerModel.chassis.halfExtents[1] * 2;
+        const I1 = (1 / 12) * m1 * (pW * pW + pL * pL);
+
+        const bW = bossModel.chassis.halfExtents[0] * 2;
+        const bL = bossModel.chassis.halfExtents[1] * 2;
+        const I2 = (1 / 12) * m2 * (bW * bW + bL * bL);
+
+        // Torque impulse tau = rx * Jz - rz * Jx amplified by ANGULAR_IMPULSE_SCALE
+        const tauPlayer = (r1x * (-nz * impulse) - r1z * (-nx * impulse)) * ANGULAR_IMPULSE_SCALE;
+        const deltaOmegaPlayer = THREE.MathUtils.clamp(tauPlayer / I1, -28, 28);
+        player.angularVelocityRad += deltaOmegaPlayer;
+
+        const tauBoss = (r2x * (nz * impulse) - r2z * (nx * impulse)) * ANGULAR_IMPULSE_SCALE;
+        const deltaOmegaBoss = THREE.MathUtils.clamp(tauBoss / I2, -28, 28);
+        boss.angularVelocityRad += deltaOmegaBoss;
+
+        // Traction break on chassis collision
+        const tBreakDuration = Math.min(0.42, 0.16 + (impulse / 95) * 0.22);
+        player.tractionBreakTimerSec = Math.max(player.tractionBreakTimerSec, tBreakDuration);
+        player.skidVx = (-nx * impulse) / m1;
+        player.skidVz = (-nz * impulse) / m1;
+
+        boss.tractionBreakTimerSec = Math.max(boss.tractionBreakTimerSec, tBreakDuration);
+        boss.skidVx = (nx * impulse) / m2;
+        boss.skidVz = (nz * impulse) / m2;
+
+        // BULL WEDGE DYNAMICS (Section 9):
+        if (bossId === 'bull' && (sim.bossChargeActiveSec > 0 || vRel > 1.3)) {
+          // Wedge scoops front wheels of player up!
+          player.pitchRad = 0.52 + Math.min(0.20, vRel * 0.04);
+          player.tractionBreakTimerSec = Math.max(player.tractionBreakTimerSec, 0.38);
+          if (vRel > 3.6 && (playerStats.stabilityScore < 45 || playerStats.centerOfMassLabel === 'HIGH')) {
+            player.isFlipped = true;
+            sim.flipsInflicted++;
+            addEvent(sim, `${sim.bossDossier.name.toUpperCase()} WEDGE CHARGE OVERTURNED ROBOT!`, 'critical');
+          }
+          sim.bossRepositionTimerSec = 1.0 + Math.random() * 0.35;
+          sim.bossChargeActiveSec = 0;
+        }
+
+        // High-speed chassis ramming damage (applied on initial impact)
+        if (vRel > 1.8 && (!sim.contactActive || sim.timeSec - sim.lastImpactTimeSec > 0.20)) {
+          const ramDmg = 3.5 + (vRel - 1.8) * 4.2;
+          const pFwd = r1x * Math.sin(player.headingRad) + r1z * Math.cos(player.headingRad);
+          const pSide = r1x * Math.cos(player.headingRad) - r1z * Math.sin(player.headingRad);
+          const hitSector = Math.abs(pSide) >= Math.abs(pFwd) ? 'side' : pFwd > 0 ? 'front' : 'rear';
+          applyCombatDamage(sim, player, true, ramDmg, hitSector, false);
+          applyCombatDamage(sim, boss, false, ramDmg * 0.6, 'front', false);
+        }
+
+        // Authoritative impact event on first contact or after cooldown
+        if (!sim.contactActive || sim.timeSec - sim.lastImpactTimeSec > 0.22) {
+          createCombatImpactEvent(
+            sim,
+            chassisTest.contactPoint,
+            chassisTest.normal,
+            vRel,
+            impulse,
+            'chassis',
+            m1 > m2 ? 'player' : 'boss',
+            m1 > m2 ? 'boss' : 'player',
+            0,
+            impulse / (m1 > m2 ? m2 : m1),
+            Math.abs(m1 > m2 ? deltaOmegaBoss : deltaOmegaPlayer),
+            tBreakDuration
+          );
+          sim.lastImpactTimeSec = sim.timeSec;
+        }
+        sim.contactActive = true;
+      } else if (vRel >= 0 && sim.contactCooldownSec <= 0 && player.tractionBreakTimerSec <= 0 && boss.tractionBreakTimerSec <= 0) {
+        sim.contactActive = true;
+        // Sustained pushing contact (at low relative speed, ONLY when moving toward each other and neither is recovering from an impact!)
         const pFwdX = Math.sin(player.headingRad);
         const pFwdZ = Math.cos(player.headingRad);
         const bFwdX = Math.sin(boss.headingRad);
@@ -1038,10 +1454,9 @@ function resolveEngagementImpact(
 ): void {
   const { player, boss, playerStats, bossStats, strategy, bossId } = sim;
 
-  // Angles of contact in Three.js coordinate system (forward is [sin, cos])
   const anglePlayerToBoss = Math.atan2(nx, nz);
   const playerAttackAngle = Math.abs(normalizeAngle(player.headingRad - anglePlayerToBoss));
-  const playerPresentingFront = playerAttackAngle < 0.72 || playerHit;
+  const playerPresentingFront = playerAttackAngle < 0.75;
   const playerHitOnSide = playerAttackAngle >= 0.72 && playerAttackAngle <= 2.35;
 
   const angleBossToPlayer = Math.atan2(-nx, -nz);
@@ -1049,50 +1464,100 @@ function resolveEngagementImpact(
   const bossHitOnFront = bossHitAngle < 0.75;
   const bossHitOnSide = bossHitAngle >= 0.65 && bossHitAngle <= 2.25;
 
-  const bossEffectiveArmor = bossHitOnFront ? bossStats.frontArmorScore : bossHitOnSide ? bossStats.sideArmorScore : bossStats.rearArmorScore;
-  const playerEffectiveArmor = playerPresentingFront ? playerStats.frontArmorScore : playerHitOnSide ? playerStats.sideArmorScore : playerStats.rearArmorScore;
-
   const wType = playerStats.weaponTypeCategory;
   player.weaponActuationPhase = 1.0;
 
   const midX = (player.x + boss.x) * 0.5;
   const midZ = (player.z + boss.z) * 0.5;
 
+  const m1 = Math.max(12, playerStats.totalWeightLb);
+  const m2 = Math.max(12, bossStats.totalWeightLb);
+  const w1 = m2 / (m1 + m2);
+  const w2 = m1 / (m1 + m2);
+
+  // Rigid-body moments of inertia
+  const playerModel = getRobotCollisionModel(player.x, player.z, player.headingRad, sim.playerConfig, null);
+  const bossModel = getRobotCollisionModel(boss.x, boss.z, boss.headingRad, sim.bossDossier.config, bossId);
+  const pW = playerModel.chassis.halfExtents[0] * 2;
+  const pL = playerModel.chassis.halfExtents[1] * 2;
+  const I1 = (1 / 12) * m1 * (pW * pW + pL * pL);
+  const bW = bossModel.chassis.halfExtents[0] * 2;
+  const bL = bossModel.chassis.halfExtents[1] * 2;
+  const I2 = (1 / 12) * m2 * (bW * bW + bL * bL);
+
+  const r1x = midX - player.x;
+  const r1z = midZ - player.z;
+  const r2x = midX - boss.x;
+  const r2z = midZ - boss.z;
+
   const isKineticA = wType === 'spinner-vert' || wType === 'spinner-horiz';
   const isKineticB = bossStats.weaponTypeCategory === 'spinner-vert' || bossStats.weaponTypeCategory === 'spinner-horiz';
   const trueKineticClash = weaponClash && isKineticA && isKineticB;
 
-  // Direct Weapon Clash (Both rotating kinetic weapons collided in mid-air)
+  // 1. DIRECT WEAPON CLASH
   if (trueKineticClash) {
     sim.impactsDelivered++;
-    sim.sparks.push({
-      id: sim.nextSparkId++,
-      x: midX,
-      y: 0.35,
-      z: midZ,
-      color: '#facc15',
-      intensity: 3.2,
-      age: 0,
-    });
-    sim.cameraImpactShake = 0.85;
-
-    // Both chassis absorb kinetic shock from opposing weapon energy
     const bossEnergy = bossStats.weaponEnergyJ * (boss.weaponSpinPct / 100);
     const playerEnergy = playerStats.weaponEnergyJ * (player.weaponSpinPct / 100);
-    const shockDamageToPlayer = (bossEnergy / 125) / Math.max(0.4, playerEffectiveArmor / 65);
-    const shockDamageToBoss = (playerEnergy / 125) / Math.max(0.4, bossEffectiveArmor / 65);
+    const clashEnergy = Math.max(bossEnergy, playerEnergy);
 
-    player.hullIntegrityPct = Math.max(0, player.hullIntegrityPct - shockDamageToPlayer);
-    boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - shockDamageToBoss);
+    // Apply instant separation buffer
+    const sep = SEPARATION_BUFFER_METERS;
+    player.x -= nx * sep * w1;
+    player.z -= nz * sep * w1;
+    boss.x += nx * sep * w2;
+    boss.z += nz * sep * w2;
 
-    player.vx = -nx * 2.8;
-    player.vz = -nz * 2.8;
-    boss.vx = nx * 2.8;
-    boss.vz = nz * 2.8;
-    player.weaponSpinPct = Math.max(10, player.weaponSpinPct * 0.28);
-    boss.weaponSpinPct = Math.max(10, boss.weaponSpinPct * 0.28);
+    const baseImpulseMag = Math.sqrt(2 * ((m1 * m2) / (m1 + m2)) * Math.max(800, clashEnergy));
+    const impulseMag = baseImpulseMag * WEAPON_IMPACT_RESPONSE_SCALE;
+    player.vx = -nx * (impulseMag / m1);
+    player.vz = -nz * (impulseMag / m1);
+    boss.vx = nx * (impulseMag / m2);
+    boss.vz = nz * (impulseMag / m2);
+
+    // Off-center rotational deflection with ANGULAR_IMPULSE_SCALE
+    const tauPlayer = (r1x * (-nz * impulseMag) - r1z * (-nx * impulseMag)) * ANGULAR_IMPULSE_SCALE;
+    const deltaOmegaPlayer = THREE.MathUtils.clamp(tauPlayer / I1, -34, 34);
+    player.angularVelocityRad += deltaOmegaPlayer;
+
+    const tauBoss = (r2x * (nz * impulseMag) - r2z * (nx * impulseMag)) * ANGULAR_IMPULSE_SCALE;
+    const deltaOmegaBoss = THREE.MathUtils.clamp(tauBoss / I2, -34, 34);
+    boss.angularVelocityRad += deltaOmegaBoss;
+
+    const tBreak = 0.45;
+    player.tractionBreakTimerSec = tBreak;
+    boss.tractionBreakTimerSec = tBreak;
+    player.skidVx = player.vx * 0.6;
+    player.skidVz = player.vz * 0.6;
+    boss.skidVx = boss.vx * 0.6;
+    boss.skidVz = boss.vz * 0.6;
+
+    sim.bossRepositionTimerSec = 1.0;
+    sim.bossChargeActiveSec = 0;
+
+    applyCombatDamage(sim, player, true, bossEnergy / 110, 'front', true);
+    applyCombatDamage(sim, boss, false, playerEnergy / 110, 'front', true);
+
+    player.weaponSpinPct = Math.max(8, player.weaponSpinPct * 0.22);
+    boss.weaponSpinPct = Math.max(8, boss.weaponSpinPct * 0.22);
+
+    createCombatImpactEvent(
+      sim,
+      [midX, midZ],
+      [nx, nz],
+      Math.hypot(player.vx - boss.vx, player.vz - boss.vz),
+      impulseMag,
+      'weapon',
+      'player',
+      'boss',
+      clashEnergy,
+      impulseMag / m2,
+      Math.abs(deltaOmegaBoss),
+      tBreak
+    );
+
     addEvent(sim, 'WEAPONS CLASHED — HIGH-ENERGY DEFLECTION!', 'impact');
-    sim.contactCooldownSec = 0.45;
+    sim.contactCooldownSec = 0.55;
     return;
   }
 
@@ -1102,95 +1567,140 @@ function resolveEngagementImpact(
   if (playerPresentingFront && player.weaponHealthPct > 15 && (playerHit || weaponClash || !bossHit)) {
     // 1. SPINNER ENGAGEMENT
     if (wType === 'spinner-vert' || wType === 'spinner-horiz') {
-      // Kinetic strike requires minimum 28% spin. Below this, weapon is stalled or spinning down;
-      // continuous contact or pushing delivers only low-energy chassis scraping without kinetic shock.
       if (player.weaponSpinPct < 28) {
         sim.contactCooldownSec = 0.45;
         const scrapeRelSpeed = Math.hypot(player.vx - boss.vx, player.vz - boss.vz);
-        if (scrapeRelSpeed > 1.2) {
-          sim.sparks.push({
-            id: sim.nextSparkId++,
-            x: midX,
-            y: 0.25,
-            z: midZ,
-            color: '#fbbf24',
-            intensity: 0.8,
-            age: 0,
-          });
+        if (scrapeRelSpeed > 0.8) {
+          createCombatImpactEvent(sim, [midX, midZ], [nx, nz], scrapeRelSpeed, 25, 'chassis', 'player', 'boss', 0);
         }
         return;
       }
 
-      // Rotational Kinetic Energy: E = 0.5 * I * omega^2 (quadratic with rotational velocity)
+      // Apply instant geometric separation buffer
+      const sep = SEPARATION_BUFFER_METERS;
+      player.x -= nx * sep * w1;
+      player.z -= nz * sep * w1;
+      boss.x += nx * sep * w2;
+      boss.z += nz * sep * w2;
+
       const spinFraction = Math.pow(player.weaponSpinPct / 100, 2);
       const rawKineticEnergyJ = playerStats.weaponEnergyJ * spinFraction;
-
       sim.impactsDelivered++;
-      sim.sparks.push({
-        id: sim.nextSparkId++,
-        x: midX,
-        y: 0.35,
-        z: midZ,
-        color: '#fde047',
-        intensity: Math.min(3.5, 1.2 + rawKineticEnergyJ / 1400),
-        age: 0,
-      });
-      sim.cameraImpactShake = Math.min(1.0, rawKineticEnergyJ / 2400);
 
-      // Deflection & Armor calculation:
-      // Front wedge / plow is hardened sloped AR400 armor specifically engineered to absorb & deflect spinners.
-      // Hitting the front plow deflects substantial energy, transferring high recoil back into the spinner.
-      // Striking unarmored sides or rear delivers 100% devastating kinetic breach!
+      const sector = bossHitOnFront ? 'front' : bossHitOnSide ? 'side' : 'rear';
+      const recoilRatio = playerStats.weaponRecoilScore / 100;
+
+      let knockbackSpeed: number;
+      let deliveredEnergyJ: number;
+      let playerRecoilSpeed: number;
+
       if (bossHitOnFront) {
-        const deflectionFactor = bossStats.frontArmorScore >= 100 ? 0.32 : 0.50;
-        const deliveredEnergyJ = rawKineticEnergyJ * deflectionFactor;
-        const frontArmorDamage = (deliveredEnergyJ / 150);
-        boss.frontArmorPct = Math.max(0, boss.frontArmorPct - frontArmorDamage * 1.05);
-        boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - frontArmorDamage * 0.40);
+        // Front plow hit: armor mitigates penetration damage, but physical momentum accelerates Bull backward!
+        const deflectionFactor = bossStats.frontArmorScore >= 100 ? 0.55 : 0.75;
+        deliveredEnergyJ = rawKineticEnergyJ * deflectionFactor;
+        applyCombatDamage(sim, boss, false, deliveredEnergyJ / 115, 'front', true);
 
-        // Substantial recoil impulse thrown back onto Player Bot from striking immovable hardened wedge
-        const playerRecoilSpeed = 3.2 + (rawKineticEnergyJ / 1100) * 1.5;
-        player.vx = -nx * playerRecoilSpeed;
-        player.vz = -nz * playerRecoilSpeed;
-        player.pitchRad = 0.35;
-
-        // Boss absorbs strike through heavy plow with minimal displacement
-        boss.vx = nx * 1.2;
-        boss.vz = nz * 1.2;
-        sim.bossStunTimerSec = 0.30;
-
-        // Striking the stationary hardened plow stalls the spinner bar down to near zero
-        player.weaponSpinPct = Math.min(8, player.weaponSpinPct * 0.10);
-        addEvent(sim, `DEFLECTED BY ${sim.bossDossier.name.toUpperCase()} FRONT PLOW!`, 'warning');
-      } else {
-        // Flank or Rear strike: catastrophic kinetic breach into unprotected chassis!
-        const deliveredEnergyJ = rawKineticEnergyJ;
-        const armorMitigation = bossEffectiveArmor / 65;
-        const breachDamage = (deliveredEnergyJ / 115) / Math.max(0.5, armorMitigation);
-
-        boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - breachDamage);
-        boss.sideArmorPct = Math.max(0, boss.sideArmorPct - breachDamage * 1.35);
-        boss.leftDriveHealthPct = Math.max(0, boss.leftDriveHealthPct - breachDamage * 1.1);
-        boss.rightDriveHealthPct = Math.max(0, boss.rightDriveHealthPct - breachDamage * 1.1);
-
-        const knockbackSpeed = 2.8 + (deliveredEnergyJ / 1300) * 2.2;
+        // Scaled physical knockback on Bull (~2 to 4 robot lengths)
+        knockbackSpeed = THREE.MathUtils.clamp(
+          (3.2 + (deliveredEnergyJ / 750) * 2.2) * WEAPON_IMPACT_RESPONSE_SCALE * (24 / m2),
+          2.5,
+          14.0
+        );
         boss.vx = nx * knockbackSpeed;
         boss.vz = nz * knockbackSpeed;
-        boss.pitchRad = -0.42;
-        sim.bossStunTimerSec = 0.75;
+        sim.bossStunTimerSec = 0.40;
 
-        // Recoil on Player
-        const recoilRatio = playerStats.weaponRecoilScore / 100;
-        const playerRecoilSpeed = knockbackSpeed * recoilRatio * 0.55;
-        player.vx = -nx * (playerRecoilSpeed + 0.8);
-        player.vz = -nz * (playerRecoilSpeed + 0.8);
+        // Player recoil (~0.5 to 1.5 robot lengths)
+        playerRecoilSpeed = THREE.MathUtils.clamp(
+          (2.2 + (deliveredEnergyJ / 950) * 1.5) * (recoilRatio * 0.65 + 0.35) * 1.35,
+          1.8,
+          8.5
+        );
+        player.vx = -nx * playerRecoilSpeed;
+        player.vz = -nz * playerRecoilSpeed;
 
-        // Spinner discharges stored angular momentum on impact
-        player.weaponSpinPct = Math.min(10, player.weaponSpinPct * 0.15);
+        player.weaponSpinPct = Math.min(10, player.weaponSpinPct * 0.12);
+        addEvent(sim, `HIGH-ENERGY CLASH WITH ${sim.bossDossier.name.toUpperCase()} FRONT PLOW!`, 'warning');
+      } else {
+        // Flank or Rear strike: catastrophic kinetic breach
+        deliveredEnergyJ = rawKineticEnergyJ;
+        applyCombatDamage(sim, boss, false, deliveredEnergyJ / 70, sector, true);
+
+        // Huge knockback on struck flank/rear (~3 to 5+ robot lengths)
+        knockbackSpeed = THREE.MathUtils.clamp(
+          (3.8 + (deliveredEnergyJ / 600) * 2.6) * WEAPON_IMPACT_RESPONSE_SCALE * (24 / m2),
+          3.5,
+          16.0
+        );
+        boss.vx = nx * knockbackSpeed;
+        boss.vz = nz * knockbackSpeed;
+        sim.bossStunTimerSec = 0.85;
+
+        // Player recoil
+        playerRecoilSpeed = THREE.MathUtils.clamp(
+          (2.0 + (deliveredEnergyJ / 1100) * 1.4) * (recoilRatio * 0.60 + 0.40) * 1.25,
+          1.5,
+          7.5
+        );
+        player.vx = -nx * playerRecoilSpeed;
+        player.vz = -nz * playerRecoilSpeed;
+
+        player.weaponSpinPct = Math.min(12, player.weaponSpinPct * 0.15);
         addEvent(sim, 'KINETIC BREACH — SIDE FLANK!', 'impact');
       }
 
-      // Flip on vertical spinner hits: requires kinetic bite >= 1400 J or weakened front armor
+      const impulseMag = m2 * knockbackSpeed;
+
+      // Angular yaw torque on BOTH bots from off-center weapon contact
+      const tauBoss = (r2x * (nz * impulseMag) - r2z * (nx * impulseMag)) * ANGULAR_IMPULSE_SCALE;
+      const deltaOmegaBoss = THREE.MathUtils.clamp(tauBoss / I2, -36, 36);
+      boss.angularVelocityRad += deltaOmegaBoss;
+
+      const tauPlayer = (r1x * (-nz * impulseMag * recoilRatio) - r1z * (-nx * impulseMag * recoilRatio)) * ANGULAR_IMPULSE_SCALE;
+      const deltaOmegaPlayer = THREE.MathUtils.clamp(tauPlayer / I1, -36, 36);
+      player.angularVelocityRad += deltaOmegaPlayer;
+
+      // Post-impact traction-break state: allows collision momentum to persist
+      const tBreakBoss = Math.min(0.60, 0.25 + (rawKineticEnergyJ / 2600) * 0.35);
+      boss.tractionBreakTimerSec = tBreakBoss;
+      boss.skidVx = nx * knockbackSpeed * 0.65;
+      boss.skidVz = nz * knockbackSpeed * 0.65;
+
+      const tBreakPlayer = Math.min(0.45, 0.18 + (rawKineticEnergyJ / 3200) * 0.25);
+      player.tractionBreakTimerSec = tBreakPlayer;
+      player.skidVx = -nx * playerRecoilSpeed * 0.55;
+      player.skidVz = -nz * playerRecoilSpeed * 0.55;
+
+      // Vertical reaction (wheel lift, pitch kick, roll tilt)
+      if (wType === 'spinner-vert') {
+        boss.pitchRad = -0.65; // Uplifting vertical kick
+        player.pitchRad = 0.35;
+      } else {
+        const rollSign = Math.sign(r2x * nz - r2z * nx || 1);
+        boss.rollRad = rollSign * Math.min(0.65, 0.28 + (rawKineticEnergyJ / 2400) * 0.35);
+        player.rollRad = -rollSign * 0.26;
+      }
+
+      // Bull AI rhythmic disengage/reposition after taking a hit
+      sim.bossRepositionTimerSec = 1.0 + Math.random() * 0.4;
+      sim.bossChargeActiveSec = 0;
+
+      createCombatImpactEvent(
+        sim,
+        [midX, midZ],
+        [nx, nz],
+        knockbackSpeed + playerRecoilSpeed,
+        impulseMag,
+        'weapon',
+        'player',
+        'boss',
+        rawKineticEnergyJ,
+        knockbackSpeed,
+        Math.abs(deltaOmegaBoss),
+        tBreakBoss
+      );
+
+      // Vertical spinner overturn check
       if (wType === 'spinner-vert' && (rawKineticEnergyJ >= 1400 || boss.frontArmorPct < 65)) {
         boss.isFlipped = true;
         sim.flipsInflicted++;
@@ -1205,17 +1715,28 @@ function resolveEngagementImpact(
     // 2. LIFTER ENGAGEMENT
     if (wType === 'lifter') {
       sim.impactsDelivered++;
+      const sep = SEPARATION_BUFFER_METERS;
+      player.x -= nx * sep * w1;
+      player.z -= nz * sep * w1;
+      boss.x += nx * sep * w2;
+      boss.z += nz * sep * w2;
+
       const getsUnderneath =
         !bossHitOnFront ||
         playerStats.groundClearanceInches <= bossStats.groundClearanceInches + 0.05 ||
         strategy === 'control';
 
       if (getsUnderneath) {
-        boss.pitchRad = -0.55;
-        boss.vx = nx * 2.4;
-        boss.vz = nz * 2.4;
+        boss.pitchRad = -0.65;
+        const shoveVel = 3.6 * WEAPON_IMPACT_RESPONSE_SCALE * 0.6;
+        boss.vx = nx * shoveVel;
+        boss.vz = nz * shoveVel;
+        boss.tractionBreakTimerSec = 0.35;
         sim.bossStunTimerSec = 0.85;
-        boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - 14);
+        sim.bossRepositionTimerSec = 1.0;
+        applyCombatDamage(sim, boss, false, 18, bossHitOnFront ? 'front' : 'side', false);
+
+        createCombatImpactEvent(sim, [midX, midZ], [nx, nz], shoveVel, 115, 'weapon', 'player', 'boss', 0, shoveVel, 0, 0.35);
 
         if (!bossHitOnFront || sim.impactsDelivered >= 2 || playerStats.pushingForceN >= 135) {
           boss.isFlipped = true;
@@ -1225,8 +1746,10 @@ function resolveEngagementImpact(
           addEvent(sim, 'LIFTER SCOOPED UNDER CHASSIS', 'impact');
         }
       } else {
-        player.vx = -nx * 2.2;
-        player.vz = -nz * 2.2;
+        player.vx = -nx * 2.8;
+        player.vz = -nz * 2.8;
+        player.tractionBreakTimerSec = 0.25;
+        createCombatImpactEvent(sim, [midX, midZ], [-nx, -nz], 2.8, 95, 'chassis', 'boss', 'player', 0);
         addEvent(sim, 'IMPACT — FRONT', 'warning');
       }
       sim.contactCooldownSec = 0.62;
@@ -1235,34 +1758,37 @@ function resolveEngagementImpact(
 
     // 3. WEDGE / PUSHER ENGAGEMENT
     if (wType === 'wedge') {
+      const sep = SEPARATION_BUFFER_METERS;
+      player.x -= nx * sep * w1;
+      player.z -= nz * sep * w1;
+      boss.x += nx * sep * w2;
+      boss.z += nz * sep * w2;
+
       const playerEffectivePush = playerStats.pushingForceN + (!bossHitOnFront ? 35 : 10);
       const bossEffectivePush = bossStats.pushingForceN;
-
-      sim.sparks.push({
-        id: sim.nextSparkId++,
-        x: midX,
-        y: 0.2,
-        z: midZ,
-        color: '#f59e0b',
-        intensity: 1.4,
-        age: 0,
-      });
 
       if (playerEffectivePush >= bossEffectivePush - 5) {
         sim.impactsDelivered++;
         sim.playerPushTimeSec += 0.5;
-        const shoveVel = 2.0 + (playerEffectivePush - bossEffectivePush) * 0.015;
+        const shoveVel = (2.4 + (playerEffectivePush - bossEffectivePush) * 0.02) * WEAPON_IMPACT_RESPONSE_SCALE * 0.6;
         boss.vx = nx * shoveVel;
         boss.vz = nz * shoveVel;
-        boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - 5);
+        boss.pitchRad = -0.45;
+        boss.tractionBreakTimerSec = 0.32;
+        sim.bossRepositionTimerSec = 0.9;
+        applyCombatDamage(sim, boss, false, 10, bossHitOnFront ? 'front' : 'side', false);
         sim.bossStunTimerSec = 0.35;
-        addEvent(sim, `WEDGE SHUVED ${sim.bossDossier.name} BACKWARD`, 'impact');
+        createCombatImpactEvent(sim, [midX, midZ], [nx, nz], shoveVel, 95, 'weapon', 'player', 'boss', 0, shoveVel, 0, 0.32);
+        addEvent(sim, `WEDGE SHOVED ${sim.bossDossier.name.toUpperCase()} BACKWARD`, 'impact');
       } else {
         sim.bossPushTimeSec += 0.5;
         sim.bullPushTimeSec += 0.5;
-        player.vx = -nx * 1.8;
-        player.vz = -nz * 1.8;
-        player.hullIntegrityPct = Math.max(0, player.hullIntegrityPct - 5);
+        const shoveVel = 1.7;
+        player.vx = -nx * shoveVel;
+        player.vz = -nz * shoveVel;
+        player.tractionBreakTimerSec = 0.20;
+        applyCombatDamage(sim, player, true, 10, 'front', false);
+        createCombatImpactEvent(sim, [midX, midZ], [-nx, -nz], shoveVel, 90, 'chassis', 'boss', 'player', 0);
         addEvent(sim, `OUT-PUSHED BY ${sim.bossDossier.name}`, 'warning');
       }
       sim.contactCooldownSec = 0.45;
@@ -1279,33 +1805,21 @@ function resolveEngagementImpact(
       const playerEffectivePush = playerStats.pushingForceN + 35;
       const bossEffectivePush = bossStats.pushingForceN;
 
-      sim.sparks.push({
-        id: sim.nextSparkId++,
-        x: midX,
-        y: 0.25,
-        z: midZ,
-        color: '#38bdf8',
-        intensity: 1.8,
-        age: 0,
-      });
-
       if (playerEffectivePush >= bossEffectivePush - 20) {
         sim.playerPushTimeSec += 0.8;
         const shoveVel = 2.4 + (playerEffectivePush - bossEffectivePush) * 0.02;
         boss.vx = nx * shoveVel;
         boss.vz = nz * shoveVel;
-        const clampDamage = bossHitOnFront ? 14 : 24;
-        boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - clampDamage);
-        if (!bossHitOnFront) {
-          boss.leftDriveHealthPct = Math.max(0, boss.leftDriveHealthPct - 15);
-          boss.rightDriveHealthPct = Math.max(0, boss.rightDriveHealthPct - 15);
-        }
+        const clampDamage = bossHitOnFront ? 16 : 28;
+        applyCombatDamage(sim, boss, false, clampDamage, bossHitOnFront ? 'front' : 'side', false);
+        createCombatImpactEvent(sim, [midX, midZ], [nx, nz], shoveVel, 130, 'weapon', 'player', 'boss', 0);
         addEvent(sim, `PINNED & CRUSHED ${sim.bossDossier.name}!`, 'impact');
       } else {
         sim.bossPushTimeSec += 0.4;
         player.vx = -nx * 1.8;
         player.vz = -nz * 1.8;
-        boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - 8);
+        applyCombatDamage(sim, boss, false, 8, 'front', false);
+        createCombatImpactEvent(sim, [midX, midZ], [-nx, -nz], 1.8, 85, 'chassis', 'boss', 'player', 0);
         addEvent(sim, `CLAMP PIN BROKEN BY ${sim.bossDossier.name}`, 'warning');
       }
       sim.contactCooldownSec = 0.55;
@@ -1319,6 +1833,14 @@ function resolveEngagementImpact(
   sim.bossPushTimeSec += 0.45;
   sim.bullPushTimeSec += 0.45;
 
+  // Separation buffer
+  const sep = SEPARATION_BUFFER_METERS;
+  player.x -= nx * sep * w1;
+  player.z -= nz * sep * w1;
+  boss.x += nx * sep * w2;
+  boss.z += nz * sep * w2;
+
+  const playerHitSector = playerHitOnSide ? 'side' : playerAttackAngle > 2.35 ? 'rear' : 'front';
   if (playerHitOnSide) {
     sim.lateralImpactsTaken++;
     addEvent(sim, 'IMPACT — SIDE', 'warning');
@@ -1326,34 +1848,53 @@ function resolveEngagementImpact(
     addEvent(sim, 'IMPACT — FRONT', 'warning');
   }
 
-  sim.sparks.push({
-    id: sim.nextSparkId++,
-    x: midX,
-    y: 0.3,
-    z: midZ,
-    color: '#ef4444',
-    intensity: 2.0,
-    age: 0,
-  });
-
   const bossDamageScaling = (bossStats.weaponEnergyJ / 1400) + (bossId === 'cyclone' ? 14 : bossId === 'bull' ? 4.5 : 7);
-  const armorReduction = Math.max(0.45, playerEffectiveArmor / 78);
-  const rawDamageToPlayer = bossDamageScaling / armorReduction;
+  applyCombatDamage(sim, player, true, bossDamageScaling * 4.2, playerHitSector, isKineticB);
 
-  player.hullIntegrityPct = Math.max(0, player.hullIntegrityPct - rawDamageToPlayer);
-
-  if (playerHitOnSide) {
-    player.sideArmorPct = Math.max(0, player.sideArmorPct - rawDamageToPlayer * 1.3);
-    if (!playerStats.wheelsProtected) {
-      player.leftDriveHealthPct = Math.max(0, player.leftDriveHealthPct - rawDamageToPlayer * 1.25);
-    }
-  }
-
-  // Knockback on player
-  const bossKnockback = 2.6 + (bossStats.weaponEnergyJ / 2200) * 1.5;
+  // Scaled Knockback on player & off-center torque
+  const bossKnockback = THREE.MathUtils.clamp(
+    (3.2 + (bossStats.weaponEnergyJ / 1500) * 2.2) * WEAPON_IMPACT_RESPONSE_SCALE * (24 / m1),
+    2.8,
+    14.0
+  );
   player.vx = -nx * bossKnockback;
   player.vz = -nz * bossKnockback;
   sim.playerStunTimerSec = 0.45;
+
+  const impulseMag = m1 * bossKnockback;
+  const tauPlayer = (r1x * (-nz * impulseMag) - r1z * (-nx * impulseMag)) * ANGULAR_IMPULSE_SCALE;
+  const deltaOmegaPlayer = THREE.MathUtils.clamp(tauPlayer / I1, -32, 32);
+  player.angularVelocityRad += deltaOmegaPlayer;
+
+  const tBreakPlayer = Math.min(0.55, 0.22 + (bossStats.weaponEnergyJ / 2600) * 0.28);
+  player.tractionBreakTimerSec = tBreakPlayer;
+  player.skidVx = -nx * bossKnockback * 0.6;
+  player.skidVz = -nz * bossKnockback * 0.6;
+
+  // Vertical reaction on player
+  player.pitchRad = 0.45;
+  if (playerHitOnSide) {
+    player.rollRad = Math.sign(r1x * nz - r1z * nx || 1) * 0.42;
+  }
+
+  // Bull disengages/repositions after landing a strike
+  sim.bossRepositionTimerSec = 1.0 + Math.random() * 0.4;
+  sim.bossChargeActiveSec = 0;
+
+  createCombatImpactEvent(
+    sim,
+    [midX, midZ],
+    [-nx, -nz],
+    bossKnockback,
+    impulseMag,
+    'weapon',
+    'boss',
+    'player',
+    bossStats.weaponEnergyJ,
+    bossKnockback,
+    Math.abs(deltaOmegaPlayer),
+    tBreakPlayer
+  );
 
   if ((playerStats.centerOfMassLabel === 'HIGH' || playerStats.stabilityScore < 40) && bossStats.weaponEnergyJ >= 1800 && sim.lateralImpactsTaken >= 2) {
     player.isFlipped = true;
@@ -1470,7 +2011,7 @@ export function runFullBattleHeadless(
   const sim = createBattleSimulation(config, strategy, bossId);
   const dt = 1 / 60;
   let steps = 0;
-  while (!sim.isFinished && steps < 60 * 45) {
+  while (!sim.isFinished && steps < 60 * sim.maxDurationSec) {
     stepBattleSimulation(sim, dt);
     steps++;
   }

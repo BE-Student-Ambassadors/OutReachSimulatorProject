@@ -24,6 +24,7 @@ export interface Robot3DProps {
   chassisRollRad?: number;
   isFlipped?: boolean;
   motorTempC?: number;
+  impactFlashIntensity?: number;
   damageState?: {
     frontArmorPct: number;
     sideArmorPct: number;
@@ -254,6 +255,7 @@ export const Robot3D: React.FC<Robot3DProps> = ({
   chassisRollRad = 0,
   isFlipped = false,
   motorTempC = 45,
+  impactFlashIntensity = 0,
   damageState,
   ghostMode = false,
   activeGhostCategory = null,
@@ -402,6 +404,33 @@ export const Robot3D: React.FC<Robot3DProps> = ({
 
   return (
     <group ref={rootRef} position={[0, deckCenterY, 0]}>
+      {/* Authoritative Procedural Impact Flash Overlay */}
+      {impactFlashIntensity > 0.04 && (
+        <mesh position={[0, 0, 0]}>
+          <boxGeometry args={[cW * 1.15, cH * 1.25, cL * 1.15]} />
+          <meshBasicMaterial
+            color="#ffffff"
+            transparent
+            opacity={Math.min(0.9, impactFlashIntensity * 0.95)}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
+
+      {/* Procedural Smoke / Component Wear under heavy damage */}
+      {damageState && ((damageState.frontArmorPct + damageState.sideArmorPct + damageState.rearArmorPct) / 3 < 55 || damageState.weaponPct < 40) && (
+        <group position={[0, cH * 0.54, -cL * 0.14]}>
+          <mesh position={[0, 0.06, 0]}>
+            <sphereGeometry args={[0.07, 8, 8]} />
+            <meshStandardMaterial color="#475569" transparent opacity={0.6} roughness={0.9} />
+          </mesh>
+          <mesh position={[0.03, 0.12, 0.02]}>
+            <sphereGeometry args={[0.055, 8, 8]} />
+            <meshStandardMaterial color="#64748b" transparent opacity={0.4} roughness={0.9} />
+          </mesh>
+        </group>
+      )}
+
       {/* ============================================================
           1. CHASSIS CORE
          ============================================================ */}
@@ -593,6 +622,10 @@ export const Robot3D: React.FC<Robot3DProps> = ({
               const xPos = side * (cW * 0.5 + wheelWidth * 0.56);
               const zPos = frontBack * (cL * 0.33);
 
+              const isLeftDamaged = side === -1 && (damageState?.leftDrivePct ?? 100) < 50;
+              const isRightDamaged = side === 1 && (damageState?.rightDrivePct ?? 100) < 50;
+              const wheelCantZ = isLeftDamaged ? 0.09 : isRightDamaged ? -0.09 : 0;
+
               return (
                 <group
                   key={`${side}-${frontBack}`}
@@ -600,6 +633,7 @@ export const Robot3D: React.FC<Robot3DProps> = ({
                     wheelRefs.current[idx] = el;
                   }}
                   position={[xPos, 0, zPos]}
+                  rotation={[0, 0, wheelCantZ]}
                 >
                   {/* Main tire cylinder */}
                   <mesh castShadow receiveShadow rotation={[0, 0, Math.PI / 2]}>

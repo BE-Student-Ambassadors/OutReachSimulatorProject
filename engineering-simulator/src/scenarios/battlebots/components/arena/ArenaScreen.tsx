@@ -29,6 +29,7 @@ import {
   type BattleEventLog,
   type BossId,
   type CombatantTelemetry,
+  type CombatImpactEvent,
   type EngineeringStats,
   type RobotConfiguration,
   type SparkBurst,
@@ -129,19 +130,23 @@ const Arena3DScene: React.FC<{
   playerConfig: RobotConfiguration;
   bossId: BossId;
   showHitboxes?: boolean;
+  isDevMode?: boolean;
   onSyncHud: (
     player: CombatantTelemetry,
     bull: CombatantTelemetry,
     timeSec: number,
     events: BattleEventLog[],
-    report: BattleAnalysisReport | null
+    report: BattleAnalysisReport | null,
+    lastImpact?: CombatImpactEvent | null
   ) => void;
-}> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, onSyncHud }) => {
+}> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, isDevMode = false, onSyncHud }) => {
   const { camera } = useThree();
   const playerGroupRef = useRef<THREE.Group>(null);
   const bullGroupRef = useRef<THREE.Group>(null);
   const hudTimerRef = useRef<number>(0);
   const lastEventIdRef = useRef<number>(0);
+  const lastImpactEventIdRef = useRef<number>(0);
+  const hitstopTimerRef = useRef<number>(0);
 
   const [renderState, setRenderState] = useState<{
     player: CombatantTelemetry | null;
@@ -158,18 +163,42 @@ const Arena3DScene: React.FC<{
     const sim = simRef.current;
     if (!sim) return;
 
-    if (battlePhase === 'fighting' && !sim.isFinished) {
+    // Presentation-level hitstop freeze on heavy/major impacts
+    if (hitstopTimerRef.current > 0) {
+      hitstopTimerRef.current = Math.max(0, hitstopTimerRef.current - delta);
+    } else if (battlePhase === 'fighting' && !sim.isFinished) {
       const input = keyboardRef.current ? keyboardRef.current.getInput() : undefined;
       stepBattleSimulation(sim, delta, input);
 
-      // Play sound effects when new impact events arrive
-      const newest = sim.events[0];
-      if (newest && newest.id !== lastEventIdRef.current) {
-        lastEventIdRef.current = newest.id;
-        if (newest.type === 'impact') {
-          soundEngine.playImpact('heavy');
-        } else if (newest.type === 'critical') {
-          soundEngine.playImpact('medium');
+      // Play sound and trigger hitstop from authoritative CombatImpactEvent
+      if (sim.lastImpactEvent && sim.lastImpactEvent.id !== lastImpactEventIdRef.current) {
+        lastImpactEventIdRef.current = sim.lastImpactEvent.id;
+        const imp = sim.lastImpactEvent;
+        soundEngine.playCombatImpact(imp.severity, imp.type);
+        if (imp.hitstopMs > 0) {
+          hitstopTimerRef.current = imp.hitstopMs / 1000;
+        }
+        if (isDevMode) {
+          console.log('[DEV IMPACT TELEMETRY]', {
+            type: imp.type,
+            severity: imp.severity,
+            source: imp.sourceRobot,
+            target: imp.targetRobot,
+            relativeSpeed: `${imp.relativeVelocity} m/s`,
+            impulse: `${imp.impulse} N*s`,
+            weaponEnergy: imp.weaponEnergyJ ? `${imp.weaponEnergyJ} J` : 'N/A',
+            targetDeltaV: imp.targetDeltaV ? `${imp.targetDeltaV} m/s` : 'N/A',
+            targetDeltaOmega: imp.targetDeltaOmega ? `${(imp.targetDeltaOmega * (180 / Math.PI)).toFixed(0)} deg/s` : '0 deg/s',
+            tractionBreak: imp.tractionBreakDurationSec ? `${Math.round(imp.tractionBreakDurationSec * 1000)} ms` : '0 ms',
+          });
+        }
+      } else {
+        const newest = sim.events[0];
+        if (newest && newest.id !== lastEventIdRef.current) {
+          lastEventIdRef.current = newest.id;
+          if (newest.type === 'impact') {
+            soundEngine.playImpact('heavy');
+          }
         }
       }
 
@@ -201,10 +230,10 @@ const Arena3DScene: React.FC<{
     const midZ = (sim.player.z + sim.bull.z) * 0.5;
 
 
-    // Subtle impact camera shake
-    const shakeAmt = sim.cameraImpactShake * 0.14;
-    const shakeX = Math.sin(state.clock.elapsedTime * 55) * shakeAmt;
-    const shakeY = Math.cos(state.clock.elapsedTime * 48) * shakeAmt;
+    // Punchy impact camera shake
+    const shakeAmt = sim.cameraImpactShake * 0.22;
+    const shakeX = Math.sin(state.clock.elapsedTime * 65) * shakeAmt;
+    const shakeY = Math.cos(state.clock.elapsedTime * 55) * shakeAmt;
 
     if (battlePhase === 'tutorial' || battlePhase === 'countdown') {
       // Dramatic establishing orbit around arena center
@@ -243,7 +272,7 @@ const Arena3DScene: React.FC<{
         debugHitboxes: sim.debugHitboxes ? { ...sim.debugHitboxes } : undefined,
       });
       if (battlePhase === 'fighting' && !sim.isFinished) {
-        onSyncHud({ ...sim.player }, { ...sim.bull }, sim.timeSec, [...sim.events], null);
+        onSyncHud({ ...sim.player }, { ...sim.bull }, sim.timeSec, [...sim.events], null, sim.lastImpactEvent);
       }
     }
   });
@@ -329,33 +358,49 @@ const Arena3DScene: React.FC<{
         ))}
       </group>
 
-      {/* Active Impact Spark Bursts */}
-      {renderState.sparks.map((sp) => (
-        <group key={sp.id} position={[sp.x, sp.y, sp.z]} rotation={[0, sp.age * 25, 0]}>
-          {[0, 1, 2, 3, 4, 5].map((i) => {
-            const ang = (i * Math.PI) / 3;
-            const spread = 0.15 + sp.age * 1.4;
-            return (
-              <mesh
-                key={i}
-                position={[
-                  Math.cos(ang) * spread,
-                  Math.sin(ang * 2) * 0.2,
-                  Math.sin(ang) * spread,
-                ]}
-                rotation={[ang, ang, 0]}
-              >
-                <boxGeometry args={[0.04, 0.04, 0.26]} />
-                <meshStandardMaterial
-                  color={sp.color}
-                  emissive={sp.color}
-                  emissiveIntensity={2.5}
-                />
-              </mesh>
-            );
-          })}
-        </group>
-      ))}
+      {/* Active Impact Directional Sparks & Procedural Debris */}
+      {renderState.sparks.map((sp) => {
+        const t = sp.age;
+        const posX = sp.x + (sp.vx ?? 0) * t;
+        const posY = Math.max(0.02, sp.y + (sp.vy ?? 0) * t - 0.5 * 9.8 * t * t);
+        const posZ = sp.z + (sp.vz ?? 0) * t;
+        const maxT = sp.maxAge ?? 0.35;
+        const lifeRatio = Math.max(0, 1 - t / maxT);
+
+        if (sp.isDebris) {
+          return (
+            <mesh
+              key={sp.id}
+              position={[posX, posY, posZ]}
+              rotation={[t * 12, t * 15, 0]}
+            >
+              <boxGeometry args={[0.065, 0.025, 0.065]} />
+              <meshStandardMaterial color="#475569" metalness={0.9} roughness={0.3} />
+            </mesh>
+          );
+        }
+
+        const speed = Math.hypot(sp.vx ?? 0, sp.vz ?? 0);
+        const streakLen = Math.max(0.08, Math.min(0.35, speed * 0.05 * lifeRatio));
+        const angle = Math.atan2(sp.vx ?? 0, sp.vz ?? 0);
+
+        return (
+          <mesh
+            key={sp.id}
+            position={[posX, posY, posZ]}
+            rotation={[0, angle, 0]}
+          >
+            <boxGeometry args={[0.025, 0.025, streakLen]} />
+            <meshStandardMaterial
+              color={sp.color}
+              emissive={sp.color}
+              emissiveIntensity={2.8 * lifeRatio}
+              transparent
+              opacity={Math.min(1.0, lifeRatio * 1.5)}
+            />
+          </mesh>
+        );
+      })}
 
       {/* Subtle Cyan Driver Ring under Player Robot */}
       {pState && (
@@ -371,6 +416,7 @@ const Arena3DScene: React.FC<{
       <group ref={playerGroupRef} position={[0, 0, 3.8]} rotation={[0, Math.PI, 0]}>
         <Robot3D
           config={playerConfig}
+          impactFlashIntensity={pState?.impactFlashIntensity ?? 0}
           wheelSpeedRad={
             pState ? Math.hypot(pState.vx, pState.vz) * 6 : 0
           }
@@ -401,6 +447,7 @@ const Arena3DScene: React.FC<{
         <Robot3D
           config={bossDossier.config}
           bossId={bossId}
+          impactFlashIntensity={bState?.impactFlashIntensity ?? 0}
           wheelSpeedRad={bState ? Math.hypot(bState.vx, bState.vz) * 6 : 0}
           weaponActive={battlePhase === 'fighting'}
           weaponSpinPct={bState?.weaponSpinPct ?? 80}
@@ -409,6 +456,18 @@ const Arena3DScene: React.FC<{
           chassisRollRad={bState?.rollRad ?? 0}
           isFlipped={bState?.isFlipped ?? false}
           motorTempC={bState?.motorTempC ?? bossDossier.stats.expectedMotorTempC}
+          damageState={
+            bState
+              ? {
+                  frontArmorPct: bState.frontArmorPct,
+                  sideArmorPct: bState.sideArmorPct,
+                  rearArmorPct: bState.rearArmorPct,
+                  leftDrivePct: bState.leftDriveHealthPct,
+                  rightDrivePct: bState.rightDriveHealthPct,
+                  weaponPct: bState.weaponHealthPct,
+                }
+              : undefined
+          }
         />
       </group>
 
@@ -627,6 +686,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   const [hudBull, setHudBull] = useState<CombatantTelemetry>(() => initialSim.bull);
   const [hudTimeSec, setHudTimeSec] = useState<number>(0);
   const [, setHudEvents] = useState<BattleEventLog[]>([]);
+  const [hudLastImpact, setHudLastImpact] = useState<CombatImpactEvent | null>(null);
   const [analysisReport, setAnalysisReport] = useState<BattleAnalysisReport | null>(null);
 
   // Setup keyboard controller
@@ -733,11 +793,15 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             playerConfig={playerConfig}
             bossId={bossId}
             showHitboxes={showHitboxes}
-            onSyncHud={(p, b, t, evs, rep) => {
+            isDevMode={isDevMode}
+            onSyncHud={(p, b, t, evs, rep, lastImp) => {
               setHudPlayer(p);
               setHudBull(b);
               setHudTimeSec(t);
               setHudEvents(evs);
+              if (lastImp) {
+                setHudLastImpact(lastImp);
+              }
               if (rep) {
                 setAnalysisReport(rep);
                 setBattlePhase('finished');
@@ -751,6 +815,43 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
           />
         </Canvas>
       </div>
+
+      {/* Developer Mode Live Impact Telemetry HUD (Section 18) */}
+      {isDevMode && (battlePhase === 'fighting' || battlePhase === 'countdown' || battlePhase === 'tutorial') && (
+        <div className="absolute top-20 right-4 z-30 pointer-events-auto bg-slate-950/90 border border-amber-500/50 rounded-xl p-3 text-xs font-mono shadow-xl backdrop-blur max-w-xs">
+          <div className="flex items-center justify-between border-b border-amber-500/30 pb-1.5 mb-2">
+            <span className="font-bold text-amber-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              IMPACT TELEMETRY
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] text-amber-300 uppercase font-bold">
+              {hudLastImpact ? hudLastImpact.severity : 'STANDBY'}
+            </span>
+          </div>
+          {hudLastImpact ? (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-slate-400">Type:</span>
+              <span className="text-white font-bold uppercase">{hudLastImpact.type} ({hudLastImpact.sourceRobot} → {hudLastImpact.targetRobot})</span>
+              <span className="text-slate-400">Rel Speed:</span>
+              <span className="text-white font-bold">{hudLastImpact.relativeVelocity.toFixed(2)} m/s</span>
+              <span className="text-slate-400">Impulse:</span>
+              <span className="text-cyan-300 font-bold">{hudLastImpact.impulse.toFixed(1)} N·s</span>
+              <span className="text-slate-400">Weapon Energy:</span>
+              <span className="text-amber-300 font-bold">{hudLastImpact.weaponEnergyJ ? `${hudLastImpact.weaponEnergyJ} J` : 'N/A'}</span>
+              <span className="text-slate-400">Target Δv:</span>
+              <span className="text-emerald-400 font-bold">{hudLastImpact.targetDeltaV !== undefined ? `${hudLastImpact.targetDeltaV.toFixed(2)} m/s` : `${hudLastImpact.relativeVelocity.toFixed(2)} m/s`}</span>
+              <span className="text-slate-400">Target Δω:</span>
+              <span className="text-purple-300 font-bold">{hudLastImpact.targetDeltaOmega !== undefined ? `${(hudLastImpact.targetDeltaOmega * (180 / Math.PI)).toFixed(0)}°/s` : '0°/s'}</span>
+              <span className="text-slate-400">Traction Break:</span>
+              <span className="text-rose-400 font-bold">{hudLastImpact.tractionBreakDurationSec !== undefined ? `${Math.round(hudLastImpact.tractionBreakDurationSec * 1000)} ms` : '0 ms'}</span>
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-500 italic py-1">
+              Awaiting first collision impact...
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ============================================================
           LIVE TELEMETRY HUD (Only shown during countdown & battle)
