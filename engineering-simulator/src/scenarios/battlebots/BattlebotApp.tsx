@@ -24,7 +24,6 @@ import { TestLabOverlay } from './components/testlab/TestLabOverlay';
 import { type ActiveTestVisualState, WorkshopStage3D } from './components/three/WorkshopStage3D';
 import { CompareModal } from './components/workshop/CompareModal';
 import { EngineeringDetailsDrawer } from './components/workshop/EngineeringDetailsDrawer';
-import { TeamMissionScreen } from './components/team/TeamMissionScreen';
 import { TeamDashboardScreen } from './components/team/TeamDashboardScreen';
 import { SystemsTeamScreen } from './components/team/SystemsTeamScreen';
 import { MechanicalScreen } from './components/disciplines/MechanicalScreen';
@@ -78,7 +77,7 @@ const CATEGORY_TABS: {
 const ACCENT_SWATCHES = ['#22d3ee', '#f59e0b', '#10b981', '#ec4899', '#a855f7'];
 
 export function BattlebotApp() {
-  const [screen, setScreen] = useState<AppScreen>('mission');
+  const [screen, setScreen] = useState<AppScreen>('team-dashboard');
   const [project, setProject] = useState<TeamRobotProject>(() => {
     try {
       const saved = localStorage.getItem('besa_team_battlebot_project');
@@ -171,7 +170,7 @@ export function BattlebotApp() {
     } catch {
       // ignore
     }
-    setScreen('mission');
+    setScreen('team-dashboard');
     soundEngine.playInstall();
   };
 
@@ -517,16 +516,13 @@ export function BattlebotApp() {
     }
   }, [selectedCategory, config]);
 
-  // 1. TEAM MISSION SCREEN (Intro briefing)
+  // 1. HOME SCREEN - ENTRY TO LIGHT TEAM DASHBOARD (Bypasses legacy dark landing page)
   if (screen === 'welcome' || screen === 'mission') {
-    return (
-      <TeamMissionScreen
-        onBeginProject={() => setScreen('team-dashboard')}
-      />
-    );
+    setScreen('team-dashboard');
+    return null;
   }
 
-  // 7. AUTONOMOUS ARENA SCREEN (VS THE BULL ONLY - Dark Cinematic Arena)
+  // 7. COMBAT ARENA SCREEN (VS THE BULL ONLY - Manual Combat Arena)
   if (screen === 'arena') {
     return (
       <ArenaScreen

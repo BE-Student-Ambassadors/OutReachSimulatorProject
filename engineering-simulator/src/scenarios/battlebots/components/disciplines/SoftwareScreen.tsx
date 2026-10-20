@@ -22,7 +22,7 @@ import {
   type TeamRobotProject,
 } from '../../types/robot';
 import { ResetTaskModal } from './ResetTaskModal';
-import { Software3DWorkstation } from './software/Software3DWorkstation';
+import { Software3DWorkstation, type ControllerPort } from './software/Software3DWorkstation';
 
 interface SoftwareScreenProps {
   project: TeamRobotProject;
@@ -40,9 +40,20 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
   const soft = project.software;
   const originalScript = soft.initialScript || INITIAL_BOTCODE_SCRIPT;
 
-  // Step 1: Physical connection
-  const [cableConnected, setCableConnected] = useState(soft.computerConnected || soft.softwareUploaded);
-    
+  // Step 1: Physical connection authoritative state
+  const [connectedPort, setConnectedPort] = useState<ControllerPort | null>(() => {
+    if (soft.computerConnected || soft.softwareUploaded) return 'DATA';
+    return null;
+  });
+  const [explanationAcknowledged, setExplanationAcknowledged] = useState<boolean>(() => {
+    return Boolean(soft.computerConnected || soft.softwareUploaded);
+  });
+  const [viewMode, setViewMode] = useState<'workstation' | 'ide'>(() => {
+    return soft.computerConnected || soft.softwareUploaded ? 'ide' : 'workstation';
+  });
+
+  const isDataConnected = connectedPort === 'DATA';
+
   // Step 2: Code Editor State
   const [code, setCode] = useState(soft.codeContent || originalScript);
   const [lastCheck, setLastCheck] = useState<BotCodeValidation | null>(() => {
@@ -62,16 +73,28 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
   const currentEval = evaluateBotCode(code);
 
   const handleTestForward = () => {
+    if (!isDataConnected) {
+      soundEngine.playWarning();
+      return;
+    }
     soundEngine.playInstall();
     setTestedForward(true);
   };
 
   const handleTestTurn = () => {
+    if (!isDataConnected) {
+      soundEngine.playWarning();
+      return;
+    }
     soundEngine.playInstall();
     setTestedTurn(true);
   };
 
   const handleTestWeapon = () => {
+    if (!isDataConnected) {
+      soundEngine.playWarning();
+      return;
+    }
     soundEngine.playInstall();
     setTestedWeapon(true);
   };
@@ -83,9 +106,9 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
     }
   }, [testedForward, testedTurn, testedWeapon]);
 
-  // Keyboard listener to test controls live in Software role
+  // Keyboard listener to test controls live in Software role (requires active DATA link)
   useEffect(() => {
-    if (!cableConnected || !soft.softwareUploaded) return;
+    if (!isDataConnected || !soft.softwareUploaded) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'KeyW' || e.code === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
@@ -99,15 +122,29 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cableConnected, soft.softwareUploaded]);
+  }, [isDataConnected, soft.softwareUploaded]);
 
   const updateSoft = (updated: Partial<SoftwareConfiguration>) => {
     onUpdateSoftware({ ...soft, ...updated });
   };
 
+  const handlePortChange = (port: ControllerPort | null) => {
+    setConnectedPort(port);
+    const valid = port === 'DATA';
+    updateSoft({ computerConnected: valid });
+  };
+
+  const handleOpenIde = () => {
+    if (!isDataConnected) return;
+    soundEngine.playInstall();
+    setViewMode('ide');
+  };
+
   const handleResetSoftware = () => {
     soundEngine.playInstall();
-    setCableConnected(false);
+    setConnectedPort(null);
+    setExplanationAcknowledged(false);
+    setViewMode('workstation');
     setCode(originalScript);
     setLastCheck(null);
     setIsUploading(false);
@@ -124,17 +161,6 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
       isCompleted: false,
     });
     setShowResetModal(false);
-  };
-
-  const handleConnectPort = (port: 'POWER' | 'CONTROL' | 'MOTOR' | 'SENSOR' | 'DATA') => {
-    soundEngine.playClick();
-    if (port === 'CONTROL' || port === 'DATA') {
-      soundEngine.playInstall();
-      setCableConnected(true);
-      updateSoft({ computerConnected: true });
-    } else {
-      soundEngine.playWarning();
-    }
   };
 
   const handleCheckCode = () => {
@@ -171,7 +197,7 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
   };
 
   const handleUploadToRobot = () => {
-    if (!currentEval.allVerified || isUploading) return;
+    if (!isDataConnected || !currentEval.allVerified || isUploading) return;
     soundEngine.playClick();
     setIsUploading(true);
     setUploadProgress(0);
@@ -219,10 +245,13 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
               <span>Dashboard</span>
             </button>
             <div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="w-2 h-2 rounded-full bg-indigo-600" />
                 <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-700 font-bold">
                   Discipline 03 • Software
+                </span>
+                <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                  SIMULATED PROGRAMMING LANGUAGE
                 </span>
               </div>
               <h2 className="font-display font-black text-lg text-slate-900 leading-tight">BotCode IDE & Microcontroller</h2>
@@ -267,16 +296,18 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
         onCancel={() => setShowResetModal(false)}
       />
 
-      {!cableConnected ? (
+      {viewMode === 'workstation' ? (
         /* ==========================================
            STEP 1: IMMERSIVE 3D WORKBENCH & CABLE CONNECTION
            ========================================== */
         <div className="flex-1 my-2 rounded-2xl overflow-hidden border border-slate-200 shadow-xs flex flex-col min-h-[560px]">
           <Software3DWorkstation
             project={project}
-            onOpenIde={() => {
-              handleConnectPort('DATA');
-            }}
+            connectedPort={connectedPort}
+            onPortChange={handlePortChange}
+            explanationAcknowledged={explanationAcknowledged}
+            onAcknowledgeExplanation={() => setExplanationAcknowledged(true)}
+            onOpenIde={handleOpenIde}
             onResetTask={() => setShowResetModal(true)}
           />
         </div>
@@ -289,11 +320,14 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
           <div className="flex-1 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs">
             <div>
               {/* Terminal Window Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 flex-wrap gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Terminal className="w-4 h-4 text-indigo-600" />
                   <span className="font-mono text-xs font-bold text-slate-900">
                     BotCode IDE v2.4 • onboard://{project.teamName.toLowerCase().replace(/\s+/g, '_')}.bot
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                    SIMULATED PROGRAMMING LANGUAGE
                   </span>
                 </div>
                 <div className="flex items-center gap-2.5 text-xs">
@@ -301,7 +335,7 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                     type="button"
                     onClick={() => {
                       soundEngine.playClick();
-                      setCableConnected(false);
+                      setViewMode('workstation');
                     }}
                     title="View 3D robotics workstation"
                     className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 transition-colors font-semibold"
@@ -327,11 +361,45 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                     <span className="text-[11px]">Reset Code</span>
                   </button>
                   <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                    <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-emerald-700 font-bold">LINK ACTIVE</span>
+                    {isDataConnected ? (
+                      <>
+                        <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-emerald-700 font-bold">LINK ACTIVE</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="size-2 rounded-full bg-rose-500" />
+                        <span className="text-rose-700 font-bold">NO DATA LINK</span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
+
+              {/* Lost Connection Alert in IDE */}
+              {!isDataConnected && (
+                <div className="mt-3 p-3 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                    <div>
+                      <span className="font-bold block">Robot Data Cable Disconnected</span>
+                      <span className="text-[11px] text-amber-800">
+                        Your code progress is saved. Reconnect the USB cable to the DATA port in the 3D Workstation to upload software or test robot hardware.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setViewMode('workstation');
+                    }}
+                    className="cursor-pointer px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs whitespace-nowrap shadow-xs"
+                  >
+                    3D Workstation →
+                  </button>
+                </div>
+              )}
 
               {/* Status Banner */}
               <div className="mt-3">
@@ -350,8 +418,8 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                     </span>
                   </div>
                 ) : (
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
-                    <span>Inspect and edit the program below, then click <strong>[Check Code]</strong> to test.</span>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between flex-wrap gap-2">
+                    <span>Inspect and edit the program below in <strong>BotCode</strong> (a simplified programming language created for this activity), then click <strong>[Check Code]</strong> to test.</span>
                     <span className="text-[11px] font-mono text-slate-400">Direct IDE</span>
                   </div>
                 )}
@@ -360,8 +428,13 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
               {/* Collapsible Command Guide */}
               {showReference && (
                 <div className="mt-3 p-3.5 bg-slate-50 border border-indigo-200 rounded-2xl text-xs text-slate-700 space-y-2">
-                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
-                    <span className="font-bold text-indigo-900">BotCode Command Reference</span>
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-indigo-900">BotCode Command Reference</span>
+                      <span className="text-[10px] font-mono text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-semibold">
+                        Simulated language for this activity
+                      </span>
+                    </div>
                     <span className="text-[10px] text-slate-400 font-mono">Case-sensitive</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono">
@@ -429,19 +502,24 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
               <button
                 type="button"
                 onClick={handleUploadToRobot}
-                disabled={!currentEval.allVerified || isUploading}
+                disabled={!currentEval.allVerified || isUploading || !isDataConnected}
+                title={!isDataConnected ? 'Requires active DATA connection to robot' : undefined}
                 className={`cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-display font-black text-xs uppercase tracking-wider transition-all shadow-md ${
-                  !currentEval.allVerified
+                  !currentEval.allVerified || !isDataConnected
                     ? 'opacity-40 cursor-not-allowed bg-slate-200 text-slate-400'
                     : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-98'
                 }`}
               >
                 <UploadCloud className="w-4 h-4" />
-                <span>{isUploading
-                  ? `Uploading... ${uploadProgress}%`
-                  : soft.softwareUploaded
-                  ? 'Software Installed ✓'
-                  : 'Upload to Robot'}</span>
+                <span>
+                  {!isDataConnected
+                    ? 'Upload (No DATA Link)'
+                    : isUploading
+                    ? `Uploading... ${uploadProgress}%`
+                    : soft.softwareUploaded
+                    ? 'Software Installed ✓'
+                    : 'Upload to Robot'}
+                </span>
               </button>
             </div>
           </div>
@@ -493,7 +571,9 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                         Driver Software Flashed
                       </div>
                       <p className="text-[11px] text-emerald-950 mt-0.5">
-                        Test onboard controls below using your keyboard or click buttons:
+                        {isDataConnected
+                          ? 'Test onboard controls below using your keyboard or click buttons:'
+                          : 'Reconnect the DATA cable in 3D Workstation to test hardware controls.'}
                       </p>
                     </div>
 
@@ -503,7 +583,9 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                           DRIVER CONTROL TEST
                         </span>
                         <span className="text-[10px] font-mono font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
-                          {[testedForward, testedTurn, testedWeapon].filter(Boolean).length} / 3 VERIFIED
+                          {isDataConnected
+                            ? `${[testedForward, testedTurn, testedWeapon].filter(Boolean).length} / 3 VERIFIED`
+                            : 'NO DATA LINK'}
                         </span>
                       </div>
 
@@ -511,8 +593,11 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                       <button
                         type="button"
                         onClick={handleTestForward}
+                        disabled={!isDataConnected}
                         className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
-                          testedForward
+                          !isDataConnected
+                            ? 'opacity-60 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400'
+                            : testedForward
                             ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                             : 'bg-white border-slate-200 hover:border-indigo-300'
                         }`}
@@ -524,7 +609,7 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                           <span className="font-semibold text-[11px]">Forward Drive</span>
                         </div>
                         <span className="font-mono text-[10px] font-bold">
-                          {testedForward ? '✓ OK' : 'Press W / ↑'}
+                          {!isDataConnected ? 'No Link' : testedForward ? '✓ OK' : 'Press W / ↑'}
                         </span>
                       </button>
 
@@ -532,8 +617,11 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                       <button
                         type="button"
                         onClick={handleTestTurn}
+                        disabled={!isDataConnected}
                         className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
-                          testedTurn
+                          !isDataConnected
+                            ? 'opacity-60 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400'
+                            : testedTurn
                             ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                             : 'bg-white border-slate-200 hover:border-indigo-300'
                         }`}
@@ -545,7 +633,7 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                           <span className="font-semibold text-[11px]">Left Steering</span>
                         </div>
                         <span className="font-mono text-[10px] font-bold">
-                          {testedTurn ? '✓ OK' : 'Press A / ←'}
+                          {!isDataConnected ? 'No Link' : testedTurn ? '✓ OK' : 'Press A / ←'}
                         </span>
                       </button>
 
@@ -553,8 +641,11 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                       <button
                         type="button"
                         onClick={handleTestWeapon}
+                        disabled={!isDataConnected}
                         className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
-                          testedWeapon
+                          !isDataConnected
+                            ? 'opacity-60 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400'
+                            : testedWeapon
                             ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                             : 'bg-white border-slate-200 hover:border-indigo-300'
                         }`}
@@ -566,7 +657,7 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                           <span className="font-semibold text-[11px]">Weapon Trigger</span>
                         </div>
                         <span className="font-mono text-[10px] font-bold">
-                          {testedWeapon ? '✓ OK' : 'Press SPACE'}
+                          {!isDataConnected ? 'No Link' : testedWeapon ? '✓ OK' : 'Press SPACE'}
                         </span>
                       </button>
 

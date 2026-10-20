@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import {
   CheckCircle2,
   Compass,
+  GripVertical,
   Lightbulb,
   Package,
   ShieldCheck,
@@ -398,27 +399,41 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
               {purchasedParts.map((part) => {
                 const isMounted = assembledCategories.includes(part.category);
                 const isSelected = selectedTrayCategory === part.category;
+                const isDraggingThis = draggedCategory === part.category;
 
                 return (
                   <div
                     key={part.category}
                     draggable={!isMounted}
                     onDragStart={() => setDraggedCategory(part.category)}
+                    onDragEnd={() => setDraggedCategory(null)}
                     onClick={() => {
                       if (!isMounted) {
                         soundEngine.playClick();
                         setSelectedTrayCategory(part.category);
                       }
                     }}
-                    className={`p-2.5 rounded-xl border text-xs transition-all ${
+                    className={`p-2.5 rounded-xl border text-xs transition-all duration-150 select-none ${
                       isMounted
                         ? 'bg-slate-50 border-slate-200 text-slate-400 opacity-75'
+                        : isDraggingThis
+                        ? 'bg-cyan-50 border-cyan-400 ring-2 ring-cyan-400/40 opacity-50 scale-98 cursor-grabbing shadow-lg'
                         : isSelected
-                        ? 'bg-cyan-50 border-cyan-400 text-cyan-900 shadow-xs ring-1 ring-cyan-400/30 cursor-pointer'
-                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700 cursor-pointer shadow-xs'
+                        ? 'bg-cyan-50 border-cyan-400 text-cyan-900 shadow-sm ring-2 ring-cyan-400/30 -translate-y-0.5 cursor-grab active:cursor-grabbing'
+                        : 'bg-white border-slate-200 hover:border-cyan-400 hover:ring-2 hover:ring-cyan-400/20 hover:-translate-y-1 hover:shadow-md text-slate-700 cursor-grab active:cursor-grabbing shadow-xs group'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2">
+                      {/* Drag Grip Handle on unmounted parts */}
+                      {!isMounted && (
+                        <div
+                          className="flex items-center text-slate-300 group-hover:text-cyan-600 transition-colors shrink-0"
+                          title="Click and drag onto turntable to mount"
+                        >
+                          <GripVertical className="w-4 h-4" />
+                        </div>
+                      )}
+
                       <div className="size-10 rounded-lg bg-slate-100 border border-slate-200 grid place-items-center shrink-0 p-1">
                         <PartArt category={part.category} partId={part.partId} className="w-full h-full" />
                       </div>
@@ -456,7 +471,9 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
                               Unmount
                             </button>
                           ) : (
-                            <span className="text-cyan-700 font-sans font-semibold">Click / Drag</span>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-sans font-bold text-cyan-700 bg-cyan-50 border border-cyan-200 group-hover:bg-cyan-100 group-hover:border-cyan-300 px-1.5 py-0.5 rounded shadow-2xs transition-colors">
+                              <GripVertical className="w-2.5 h-2.5" /> DRAG
+                            </span>
                           )}
                         </div>
                       </div>
