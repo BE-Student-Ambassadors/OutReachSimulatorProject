@@ -23,7 +23,7 @@ import {
   testWeaponChassisContact,
 } from './collisionGeometry';
 
-export const ARENA_HALF_SIZE = 3.6; // 7.2m x 7.2m enclosed combat arena
+export const ARENA_HALF_SIZE = 5.6; // 11.2m x 11.2m enclosed combat arena
 
 export interface LiveBattleSimulation {
   playerInput?: PlayerInput;
@@ -128,7 +128,7 @@ export function createBattleSimulation(
 
   const initialPlayer: CombatantTelemetry = {
     x: 0,
-    z: 2.35,
+    z: 3.8,
     headingRad: Math.PI, // Facing North (-z) toward Boss
     vx: 0,
     vz: 0,
@@ -153,7 +153,7 @@ export function createBattleSimulation(
 
   const initialBoss: CombatantTelemetry = {
     x: 0,
-    z: -2.35,
+    z: -3.8,
     headingRad: 0, // Facing South (+z) toward Player
     vx: 0,
     vz: 0,
@@ -482,7 +482,8 @@ export function stepBattleSimulation(
       } else {
         // A. Differential Steering: Turn left (negative) or right (positive)
         // Turning right increases headingRad (clockwise), turning left decreases it
-        const turnDelta = input.steering * playerTurnRate * dt;
+        const steerDir = input.throttle < 0 ? 1 : -1;
+        const turnDelta = input.steering * steerDir * playerTurnRate * dt;
 
         // Motor damage asymmetry pulls robot toward the damaged side when driving
         const drivePull = (rightHealth - leftHealth) * 0.55 * playerTurnRate * dt * Math.sign(input.throttle || 0);
@@ -660,14 +661,14 @@ export function stepBattleSimulation(
         desiredBossHeading = angleBossToPlayer;
 
         // Charge trigger: initiate charge when aligned within 0.28 rad or when pinning player near perimeter wall
-        if ((Math.abs(headingDiff) < 0.28 || playerNearWall) && dist < 3.8 && sim.bossChargeCooldownSec <= 0 && sim.bossChargeActiveSec <= 0) {
-          sim.bossChargeActiveSec = 1.35;
+        if ((Math.abs(headingDiff) < 0.28 || playerNearWall) && dist < 5.0 && sim.bossChargeCooldownSec <= 0 && sim.bossChargeActiveSec <= 0) {
+          sim.bossChargeActiveSec = 1.6;
           sim.bossChargeCooldownSec = 3.6;
           boss.aiStateLabel = playerNearWall ? 'PUSH' : 'ENGAGE';
         }
 
         // Charge Abort / Braking Recovery: If player evades and angle exceeds 0.45 rad, abort charge to avoid overshooting wall
-        if (sim.bossChargeActiveSec > 0 && Math.abs(headingDiff) > 0.45 && dist > 1.2) {
+        if (sim.bossChargeActiveSec > 0 && Math.abs(headingDiff) > 0.45 && dist > 1.6) {
           sim.bossChargeActiveSec = 0; // Abort charge and pivot back toward opponent
           desiredBossSpeed = bossMaxSpeed * 0.55;
           boss.aiStateLabel = 'APPROACH';
@@ -1045,7 +1046,7 @@ function resolveEngagementImpact(
 
   const angleBossToPlayer = Math.atan2(-nx, -nz);
   const bossHitAngle = Math.abs(normalizeAngle(boss.headingRad - angleBossToPlayer));
-  const bossHitOnFront = bossHitAngle < 0.65 || bossHit;
+  const bossHitOnFront = bossHitAngle < 0.75;
   const bossHitOnSide = bossHitAngle >= 0.65 && bossHitAngle <= 2.25;
 
   const bossEffectiveArmor = bossHitOnFront ? bossStats.frontArmorScore : bossHitOnSide ? bossStats.sideArmorScore : bossStats.rearArmorScore;
@@ -1101,8 +1102,28 @@ function resolveEngagementImpact(
   if (playerPresentingFront && player.weaponHealthPct > 15 && (playerHit || weaponClash || !bossHit)) {
     // 1. SPINNER ENGAGEMENT
     if (wType === 'spinner-vert' || wType === 'spinner-horiz') {
-      const spinFraction = Math.max(0.2, player.weaponSpinPct / 100);
-      const deliveredEnergyJ = playerStats.weaponEnergyJ * spinFraction;
+      // Kinetic strike requires minimum 28% spin. Below this, weapon is stalled or spinning down;
+      // continuous contact or pushing delivers only low-energy chassis scraping without kinetic shock.
+      if (player.weaponSpinPct < 28) {
+        sim.contactCooldownSec = 0.45;
+        const scrapeRelSpeed = Math.hypot(player.vx - boss.vx, player.vz - boss.vz);
+        if (scrapeRelSpeed > 1.2) {
+          sim.sparks.push({
+            id: sim.nextSparkId++,
+            x: midX,
+            y: 0.25,
+            z: midZ,
+            color: '#fbbf24',
+            intensity: 0.8,
+            age: 0,
+          });
+        }
+        return;
+      }
+
+      // Rotational Kinetic Energy: E = 0.5 * I * omega^2 (quadratic with rotational velocity)
+      const spinFraction = Math.pow(player.weaponSpinPct / 100, 2);
+      const rawKineticEnergyJ = playerStats.weaponEnergyJ * spinFraction;
 
       sim.impactsDelivered++;
       sim.sparks.push({
@@ -1111,49 +1132,73 @@ function resolveEngagementImpact(
         y: 0.35,
         z: midZ,
         color: '#fde047',
-        intensity: 2.2,
+        intensity: Math.min(3.5, 1.2 + rawKineticEnergyJ / 1400),
         age: 0,
       });
-      sim.cameraImpactShake = Math.min(1.0, deliveredEnergyJ / 2600);
+      sim.cameraImpactShake = Math.min(1.0, rawKineticEnergyJ / 2400);
 
-      const armorMitigation = bossEffectiveArmor / 95;
-      const rawBossDamage = (deliveredEnergyJ / 135) / Math.max(0.55, armorMitigation);
-      boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - rawBossDamage);
-
+      // Deflection & Armor calculation:
+      // Front wedge / plow is hardened sloped AR400 armor specifically engineered to absorb & deflect spinners.
+      // Hitting the front plow deflects substantial energy, transferring high recoil back into the spinner.
+      // Striking unarmored sides or rear delivers 100% devastating kinetic breach!
       if (bossHitOnFront) {
-        boss.frontArmorPct = Math.max(0, boss.frontArmorPct - rawBossDamage * 0.85);
-        addEvent(sim, 'IMPACT — FRONT', 'impact');
+        const deflectionFactor = bossStats.frontArmorScore >= 100 ? 0.32 : 0.50;
+        const deliveredEnergyJ = rawKineticEnergyJ * deflectionFactor;
+        const frontArmorDamage = (deliveredEnergyJ / 150);
+        boss.frontArmorPct = Math.max(0, boss.frontArmorPct - frontArmorDamage * 1.05);
+        boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - frontArmorDamage * 0.40);
+
+        // Substantial recoil impulse thrown back onto Player Bot from striking immovable hardened wedge
+        const playerRecoilSpeed = 3.2 + (rawKineticEnergyJ / 1100) * 1.5;
+        player.vx = -nx * playerRecoilSpeed;
+        player.vz = -nz * playerRecoilSpeed;
+        player.pitchRad = 0.35;
+
+        // Boss absorbs strike through heavy plow with minimal displacement
+        boss.vx = nx * 1.2;
+        boss.vz = nz * 1.2;
+        sim.bossStunTimerSec = 0.30;
+
+        // Striking the stationary hardened plow stalls the spinner bar down to near zero
+        player.weaponSpinPct = Math.min(8, player.weaponSpinPct * 0.10);
+        addEvent(sim, `DEFLECTED BY ${sim.bossDossier.name.toUpperCase()} FRONT PLOW!`, 'warning');
       } else {
-        boss.sideArmorPct = Math.max(0, boss.sideArmorPct - rawBossDamage * 1.45);
-        boss.leftDriveHealthPct = Math.max(0, boss.leftDriveHealthPct - rawBossDamage * 1.15);
-        boss.rightDriveHealthPct = Math.max(0, boss.rightDriveHealthPct - rawBossDamage * 0.95);
-        addEvent(sim, 'IMPACT — SIDE', 'impact');
+        // Flank or Rear strike: catastrophic kinetic breach into unprotected chassis!
+        const deliveredEnergyJ = rawKineticEnergyJ;
+        const armorMitigation = bossEffectiveArmor / 65;
+        const breachDamage = (deliveredEnergyJ / 115) / Math.max(0.5, armorMitigation);
+
+        boss.hullIntegrityPct = Math.max(0, boss.hullIntegrityPct - breachDamage);
+        boss.sideArmorPct = Math.max(0, boss.sideArmorPct - breachDamage * 1.35);
+        boss.leftDriveHealthPct = Math.max(0, boss.leftDriveHealthPct - breachDamage * 1.1);
+        boss.rightDriveHealthPct = Math.max(0, boss.rightDriveHealthPct - breachDamage * 1.1);
+
+        const knockbackSpeed = 2.8 + (deliveredEnergyJ / 1300) * 2.2;
+        boss.vx = nx * knockbackSpeed;
+        boss.vz = nz * knockbackSpeed;
+        boss.pitchRad = -0.42;
+        sim.bossStunTimerSec = 0.75;
+
+        // Recoil on Player
+        const recoilRatio = playerStats.weaponRecoilScore / 100;
+        const playerRecoilSpeed = knockbackSpeed * recoilRatio * 0.55;
+        player.vx = -nx * (playerRecoilSpeed + 0.8);
+        player.vz = -nz * (playerRecoilSpeed + 0.8);
+
+        // Spinner discharges stored angular momentum on impact
+        player.weaponSpinPct = Math.min(10, player.weaponSpinPct * 0.15);
+        addEvent(sim, 'KINETIC BREACH — SIDE FLANK!', 'impact');
       }
 
-      // Knockback on Boss
-      const knockbackSpeed = 2.4 + (deliveredEnergyJ / 1600) * 1.8;
-      boss.vx = nx * knockbackSpeed;
-      boss.vz = nz * knockbackSpeed;
-      boss.pitchRad = -0.38;
-      sim.bossStunTimerSec = 0.65;
-
-      // Flip on vertical spinner hits: if kinetic energy >= 1500 J or front armor damaged
-      if (wType === 'spinner-vert' && (deliveredEnergyJ >= 1500 || boss.frontArmorPct < 70)) {
+      // Flip on vertical spinner hits: requires kinetic bite >= 1400 J or weakened front armor
+      if (wType === 'spinner-vert' && (rawKineticEnergyJ >= 1400 || boss.frontArmorPct < 65)) {
         boss.isFlipped = true;
         sim.flipsInflicted++;
         addEvent(sim, `ROBOT FLIPPED — ${sim.bossDossier.name} INVERTED!`, 'impact');
       }
 
-      // Recoil reaction on Player Bot
-      const recoilRatio = playerStats.weaponRecoilScore / 100;
-      const playerRecoilSpeed = knockbackSpeed * recoilRatio * (bossHitOnFront ? 0.65 : 0.38);
-      player.vx = -nx * playerRecoilSpeed;
-      player.vz = -nz * playerRecoilSpeed;
-      player.pitchRad = 0.32 * recoilRatio;
-      player.weaponSpinPct = Math.max(15, player.weaponSpinPct * 0.32);
       sim.weaponAtSpeedAnnounced = false;
-
-      sim.contactCooldownSec = 0.55;
+      sim.contactCooldownSec = 0.85;
       return;
     }
 

@@ -27,6 +27,7 @@ interface SystemsTeamScreenProps {
   onEnterArena: () => void;
   onReturnToTeam: () => void;
   onSelectRole: (role: TeamRole) => void;
+  isDevMode?: boolean;
 }
 
 export const SystemsTeamScreen: React.FC<SystemsTeamScreenProps> = ({
@@ -34,6 +35,7 @@ export const SystemsTeamScreen: React.FC<SystemsTeamScreenProps> = ({
   onEnterArena,
   onReturnToTeam,
   onSelectRole,
+  isDevMode = false,
 }) => {
   const summary = computeTeamEngineeringSummary(project);
   const report: SystemIntegrationReport = validateSystemIntegration(project);
@@ -234,6 +236,20 @@ export const SystemsTeamScreen: React.FC<SystemsTeamScreenProps> = ({
                   </div>
                 ))}
               </div>
+
+              {isDevMode && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playArenaHorn();
+                    onEnterArena();
+                  }}
+                  className="cursor-pointer w-full py-3 px-6 mb-2 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-display font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-amber-500/25 transition-all transform active:scale-98 flex items-center justify-center gap-2"
+                >
+                  <Swords className="w-4 h-4" />
+                  <span>TEST ARENA (DEV BYPASS) →</span>
+                </button>
+              )}
 
               <button
                 type="button"

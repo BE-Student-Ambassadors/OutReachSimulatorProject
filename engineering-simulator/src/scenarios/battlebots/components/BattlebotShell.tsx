@@ -33,6 +33,8 @@ interface BattlebotShellProps {
   spentUsd: number;
   availableUsd: number;
   children: React.ReactNode;
+  isDevMode?: boolean;
+  onDevEnterArena?: () => void;
 }
 
 export const BattlebotShell: React.FC<BattlebotShellProps> = ({
@@ -44,6 +46,8 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
   spentUsd,
   availableUsd,
   children,
+  isDevMode = false,
+  onDevEnterArena,
 }) => {
   const isOverBudget = spentUsd > availableUsd;
 
@@ -160,7 +164,7 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
             {navTabs.map((t) => {
               const active = t.id === activeScreen;
               const status = t.roleId ? getRoleStatus(t.roleId) : null;
-              const isLockedArena = t.isArena && !allRolesComplete;
+              const isLockedArena = t.isArena && !allRolesComplete && !isDevMode;
 
               return (
                 <button
@@ -211,6 +215,28 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
 
         {/* Right: Single Primary Budget Indicator + Reset Game */}
         <div className="ml-auto flex shrink-0 items-center gap-3">
+          {isDevMode && (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-50 border border-amber-300 text-[10px] font-mono font-bold tracking-wider text-amber-800 uppercase shadow-xs">
+                <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+                DEV MODE
+              </span>
+              {activeScreen !== 'arena' && onDevEnterArena && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    onDevEnterArena();
+                  }}
+                  title="Developer Mode: Jump directly into the Combat Arena"
+                  className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-display font-extrabold text-xs shadow-xs transition active:scale-95"
+                >
+                  <Swords className="w-3.5 h-3.5" />
+                  <span>TEST ARENA</span>
+                </button>
+              )}
+            </div>
+          )}
           <div className="text-right leading-tight hidden sm:block">
             <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 block">
               Budget

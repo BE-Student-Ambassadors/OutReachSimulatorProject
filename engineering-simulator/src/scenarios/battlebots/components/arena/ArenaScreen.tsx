@@ -44,6 +44,7 @@ interface ArenaScreenProps {
   onReturnToWorkshop: (resetToStarter?: boolean) => void;
   onReturnToDashboard?: () => void;
   onDefeatBoss?: (bossId: BossId) => void;
+  isDevMode?: boolean;
 }
 
 type SpectatorCamMode = 'director' | 'wide' | 'chase';
@@ -218,13 +219,13 @@ const Arena3DScene: React.FC<{
       camera.position.lerp(targetPos, delta * 3.5);
       camera.lookAt(midX, 0.35, midZ);
     } else if (camMode === 'wide') {
-      const targetPos = new THREE.Vector3(0 + shakeX, 7.0 + shakeY, 7.0);
+      const targetPos = new THREE.Vector3(0 + shakeX, 9.2 + shakeY, 9.2);
       camera.position.lerp(targetPos, delta * 4);
       camera.lookAt(0, 0, 0);
     } else {
       // STABLE PLAYABLE GAMEPLAY CAMERA (Elevated chase with smooth damping following player)
-      const behindDist = 3.6;
-      const camHeight = 3.8;
+      const behindDist = 4.4;
+      const camHeight = 4.5;
       const targetCamX = sim.player.x - Math.sin(sim.player.headingRad) * behindDist + (midX - sim.player.x) * 0.25 + shakeX;
       const targetCamZ = sim.player.z - Math.cos(sim.player.headingRad) * behindDist + (midZ - sim.player.z) * 0.25 + shakeY;
       camera.position.lerp(new THREE.Vector3(targetCamX, camHeight, targetCamZ), delta * 4.5);
@@ -286,13 +287,13 @@ const Arena3DScene: React.FC<{
         </mesh>
 
         {/* Player Starting Box (South - Cyan) */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, 2.35]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, 3.8]}>
           <ringGeometry args={[0.95, 1.05, 4]} />
           <meshStandardMaterial color="#22d3ee" emissive="#22d3ee" emissiveIntensity={1.0} />
         </mesh>
 
         {/* Boss Starting Box (North) */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, -2.35]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, -3.8]}>
           <ringGeometry args={[0.95, 1.05, 4]} />
           <meshStandardMaterial color={bossDossier.config.accentColor} emissive={bossDossier.config.accentColor} emissiveIntensity={1.0} />
         </mesh>
@@ -367,7 +368,7 @@ const Arena3DScene: React.FC<{
       )}
 
       {/* Student's Exact Assembled Robot3D */}
-      <group ref={playerGroupRef} position={[0, 0, 2.35]} rotation={[0, Math.PI, 0]}>
+      <group ref={playerGroupRef} position={[0, 0, 3.8]} rotation={[0, Math.PI, 0]}>
         <Robot3D
           config={playerConfig}
           wheelSpeedRad={
@@ -396,7 +397,7 @@ const Arena3DScene: React.FC<{
       </group>
 
       {/* Active Boss Robot */}
-      <group ref={bullGroupRef} position={[0, 0, -2.35]} rotation={[0, 0, 0]}>
+      <group ref={bullGroupRef} position={[0, 0, -3.8]} rotation={[0, 0, 0]}>
         <Robot3D
           config={bossDossier.config}
           bossId={bossId}
@@ -592,6 +593,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   onReturnToWorkshop,
   onReturnToDashboard,
   onDefeatBoss,
+  isDevMode = false,
 }) => {
   const [battlePhase, setBattlePhase] = useState<'tutorial' | 'countdown' | 'fighting' | 'finished'>('tutorial');
   const [countdownNumber, setCountdownNumber] = useState<number | 'FIGHT!'>(3);
@@ -607,13 +609,14 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
       ? 24
       : 0;
 
+  const devDefaultLimiter = isDevMode && !teamProject?.electrical.currentLimiterA ? 120 : teamProject?.electrical.currentLimiterA;
   const [initialSim] = useState(() =>
     createBattleSimulation(
       playerConfig,
       'control',
       'bull',
       teamProject?.software.rules,
-      teamProject?.electrical.currentLimiterA,
+      devDefaultLimiter,
       coolingDrop,
       true
     )
@@ -676,12 +679,13 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
 
   const handleStartBattle = () => {
     soundEngine.playClick();
+    const effectiveLimiter = isDevMode && !teamProject?.electrical.currentLimiterA ? 120 : teamProject?.electrical.currentLimiterA;
     simRef.current = createBattleSimulation(
       playerConfig,
       'control',
       'bull',
       teamProject?.software.rules,
-      teamProject?.electrical.currentLimiterA,
+      effectiveLimiter,
       coolingDrop,
       true
     );
@@ -720,7 +724,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
     <div className="relative w-full h-full bg-[#0a0f1d] overflow-hidden flex flex-col justify-between select-none">
       {/* 3D Combat Arena Canvas */}
       <div className="absolute inset-0 z-0">
-        <Canvas shadows camera={{ position: [0, 4.2, 6.4], fov: 44 }}>
+        <Canvas shadows camera={{ position: [0, 5.0, 8.2], fov: 46 }}>
           <Arena3DScene
             simRef={simRef}
             keyboardRef={keyboardRef}
@@ -894,8 +898,15 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-5">
               <div>
-                <div className="text-xs font-mono uppercase tracking-widest text-cyan-400 mb-1 font-bold">
-                  FINAL COMBAT ARENA
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="text-xs font-mono uppercase tracking-widest text-cyan-400 font-bold">
+                    FINAL COMBAT ARENA
+                  </div>
+                  {isDevMode && (
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono font-bold text-amber-300">
+                      DEV MODE
+                    </span>
+                  )}
                 </div>
                 <h2 className="font-display text-2xl md:text-3xl font-black text-white">
                   {teamName} VS THE BULL
@@ -1049,6 +1060,21 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             >
               HITBOXES {showHitboxes ? 'ON' : 'OFF'}
             </button>
+
+            {isDevMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  handleStartBattle();
+                }}
+                className="cursor-pointer px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30 flex items-center gap-1.5 shadow-sm shadow-amber-500/20"
+                title="Developer Mode: Reset battle state instantly"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                <span>RESET TEST BATTLE</span>
+              </button>
+            )}
           </div>
         </div>
       )}
