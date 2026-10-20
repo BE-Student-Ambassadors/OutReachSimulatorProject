@@ -43,7 +43,7 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
   onOrderParts,
   onGoToWorkbench,
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState<ComponentCategory | 'all'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<ComponentCategory | 'all'>('chassis');
   const [searchQuery, setSearchQuery] = useState('');
   const [conditionSelections, setConditionSelections] = useState<Record<string, PartCondition>>({});
   const [detailItem, setDetailItem] = useState<MarketplaceItem | null>(null);
@@ -127,6 +127,16 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
       ...prev,
       [item.category]: { item, condition: cond },
     }));
+
+    // Auto-advance to next unfulfilled category in guided engineering flow
+    const flow: ComponentCategory[] = ['chassis', 'drive', 'wheels', 'armor', 'weapon'];
+    const currentIdx = flow.indexOf(item.category);
+    if (currentIdx !== -1 && currentIdx < flow.length - 1) {
+      const nextCat = flow[currentIdx + 1];
+      if (!cart[nextCat]) {
+        setSelectedCategory(nextCat);
+      }
+    }
   };
 
   const handleRemoveFromCart = (category: string) => {
@@ -239,38 +249,85 @@ export const BotBayMarketplace: React.FC<BotBayMarketplaceProps> = ({
               />
             </div>
 
-            {/* Category Pills */}
+            {/* Guided Category Flow */}
             <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
+              {REQUIRED_MECHANICAL_CATEGORIES.map((cat, idx) => {
+                const isSelected = selectedCategory === cat.id;
+                const isFulfilled = Boolean(cart[cat.id]);
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSelectedCategory(cat.id);
+                    }}
+                    className={`cursor-pointer px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : isFulfilled
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`text-[10px] size-4 rounded-full flex items-center justify-center font-mono ${
+                        isFulfilled
+                          ? 'bg-emerald-600 text-white'
+                          : isSelected
+                          ? 'bg-white/20 text-white'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {isFulfilled ? '✓' : idx + 1}
+                    </span>
+                    {getCategoryIcon(cat.id)}
+                    <span className="capitalize">{cat.id}</span>
+                  </button>
+                );
+              })}
+
+              {/* Utility (Optional) */}
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  setSelectedCategory('utility');
+                }}
+                className={`cursor-pointer px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                  selectedCategory === 'utility'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : cart['utility']
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <span
+                  className={`text-[10px] size-4 rounded-full flex items-center justify-center font-mono ${
+                    cart['utility']
+                      ? 'bg-emerald-600 text-white'
+                      : selectedCategory === 'utility'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {cart['utility'] ? '✓' : '+'}
+                </span>
+                <span>Utility</span>
+              </button>
+
+              {/* All Parts */}
               <button
                 onClick={() => {
                   soundEngine.playClick();
                   setSelectedCategory('all');
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase transition-all shrink-0 ${
+                className={`cursor-pointer px-3 py-1.5 rounded-xl text-xs font-bold uppercase transition-all shrink-0 ${
                   selectedCategory === 'all'
                     ? 'bg-slate-900 text-white shadow-xs'
-                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'
                 }`}
               >
                 All
               </button>
-              {(['chassis', 'drive', 'wheels', 'armor', 'weapon', 'utility'] as ComponentCategory[]).map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setSelectedCategory(cat);
-                  }}
-                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold uppercase flex items-center gap-1.5 transition-all shrink-0 ${
-                    selectedCategory === cat
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                  }`}
-                >
-                  {getCategoryIcon(cat)}
-                  <span className="capitalize">{cat}</span>
-                </button>
-              ))}
             </div>
           </div>
         </div>

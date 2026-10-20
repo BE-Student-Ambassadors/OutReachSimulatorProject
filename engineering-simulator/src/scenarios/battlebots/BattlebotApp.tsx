@@ -594,16 +594,28 @@ export function BattlebotApp() {
       case 'software': {
         return [
           {
-            label: 'Connect USB data cable',
+            label: 'Connect computer to robot',
             done: Boolean(project.software.computerConnected || project.software.softwareUploaded),
           },
           {
-            label: 'Debug BotCode logic',
+            label: 'Fix syntax bugs',
             done: Boolean(project.software.bugsFixed || project.software.softwareUploaded),
           },
           {
-            label: 'Upload to microcontroller',
-            done: Boolean(project.software.softwareUploaded && project.software.isCompleted),
+            label: 'Upload program',
+            done: Boolean(project.software.softwareUploaded),
+          },
+          {
+            label: 'Run behavior test',
+            done: Boolean(project.software.testPassed || project.software.softwareUploaded),
+          },
+          {
+            label: 'Fix logic issue',
+            done: Boolean(project.software.bugsFixed && project.software.softwareUploaded),
+          },
+          {
+            label: 'Verify software',
+            done: Boolean(project.software.isCompleted),
           },
         ];
       }

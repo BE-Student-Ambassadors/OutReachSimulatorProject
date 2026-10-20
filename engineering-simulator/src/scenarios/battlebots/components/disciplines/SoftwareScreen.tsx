@@ -3,13 +3,11 @@ import {
   BookOpen,
   CheckCircle2,
   Code2,
-  Cpu,
   Laptop,
   RotateCcw,
   ShieldAlert,
   Terminal,
   UploadCloud,
-  Usb,
 } from 'lucide-react';
 import React, { useState } from 'react';
 import { soundEngine } from '../../audio/soundEngine';
@@ -24,6 +22,7 @@ import {
   type TeamRobotProject,
 } from '../../types/robot';
 import { ResetTaskModal } from './ResetTaskModal';
+import { Software3DWorkstation } from './software/Software3DWorkstation';
 
 interface SoftwareScreenProps {
   project: TeamRobotProject;
@@ -43,9 +42,7 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
 
   // Step 1: Physical connection
   const [cableConnected, setCableConnected] = useState(soft.computerConnected || soft.softwareUploaded);
-  const [selectedRobotPort, setSelectedRobotPort] = useState<string | null>(null);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
-
+    
   // Step 2: Code Editor State
   const [code, setCode] = useState(soft.codeContent || originalScript);
   const [lastCheck, setLastCheck] = useState<BotCodeValidation | null>(() => {
@@ -68,8 +65,6 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
   const handleResetSoftware = () => {
     soundEngine.playInstall();
     setCableConnected(false);
-    setSelectedRobotPort(null);
-    setConnectionError(null);
     setCode(originalScript);
     setLastCheck(null);
     setIsUploading(false);
@@ -85,18 +80,14 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
     setShowResetModal(false);
   };
 
-  const handleConnectPort = (port: 'POWER' | 'CONTROL' | 'MOTOR' | 'SENSOR') => {
+  const handleConnectPort = (port: 'POWER' | 'CONTROL' | 'MOTOR' | 'SENSOR' | 'DATA') => {
     soundEngine.playClick();
-    setSelectedRobotPort(port);
-
-    if (port === 'CONTROL') {
+    if (port === 'CONTROL' || port === 'DATA') {
       soundEngine.playInstall();
       setCableConnected(true);
-      setConnectionError(null);
       updateSoft({ computerConnected: true });
     } else {
       soundEngine.playWarning();
-      setConnectionError(`Connection refused on [${port}]. Connect USB cable to robot [CONTROL] port.`);
     }
   };
 
@@ -232,83 +223,16 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
 
       {!cableConnected ? (
         /* ==========================================
-           STEP 1: PHYSICAL CABLE CONNECTION
+           STEP 1: IMMERSIVE 3D WORKBENCH & CABLE CONNECTION
            ========================================== */
-        <div className="flex-1 my-3 flex flex-col justify-between">
-          <div className="p-4 bg-white border border-slate-200 rounded-2xl mb-4 text-xs font-sans shadow-xs">
-            <span className="text-indigo-700 font-bold block mb-1">
-              Step 1: Physical Link Setup
-            </span>
-            <p className="text-slate-600">
-              Your computer must connect to the robot microcontroller before you can inspect onboard software.
-              Click the correct port on the robot to connect the <strong>USB Data Cable</strong>.
-            </p>
-          </div>
-
-          <div className="flex-1 bg-white border border-slate-200 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-around gap-6 relative shadow-xs">
-            {/* Left: Programmer Laptop */}
-            <div className="flex flex-col items-center p-6 bg-slate-50 border border-slate-200 rounded-2xl w-full max-w-sm text-center">
-              <Laptop className="size-16 text-indigo-600 mb-3" />
-              <h3 className="font-display font-bold text-base text-slate-900">Developer Laptop</h3>
-              <span className="text-[11px] font-sans text-slate-500 mb-4">
-                Field Debug Workstation
-              </span>
-
-              <div className="px-3.5 py-2 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center gap-2 text-xs font-mono text-indigo-800">
-                <Usb className="w-4 h-4 text-indigo-600" />
-                <span>USB 3.0 LINK READY</span>
-              </div>
-            </div>
-
-            {/* Connecting Cable Graphic */}
-            <div className="hidden md:flex flex-col items-center text-slate-400 font-mono text-xs">
-              <span>────── USB CABLE ──────►</span>
-            </div>
-
-            {/* Right: Team Robot Interface */}
-            <div className="flex flex-col items-center p-6 bg-slate-50 border border-slate-200 rounded-2xl w-full max-w-sm text-center">
-              <Cpu className="size-16 text-cyan-600 mb-3" />
-              <h3 className="font-display font-bold text-base text-slate-900">
-                {project.teamName || 'BattleBot'}
-              </h3>
-              <span className="text-[11px] font-sans text-slate-500 mb-4">
-                Onboard Controller Header
-              </span>
-
-              <span className="text-[10px] font-mono text-slate-400 uppercase font-semibold tracking-wider mb-2">
-                Select Connection Port:
-              </span>
-
-              <div className="grid grid-cols-2 gap-2.5 w-full font-mono">
-                {(['POWER', 'CONTROL', 'MOTOR', 'SENSOR'] as const).map((port) => (
-                  <button
-                    key={port}
-                    type="button"
-                    onClick={() => handleConnectPort(port)}
-                    className={`cursor-pointer py-2.5 px-3 rounded-xl border text-xs font-bold transition-all ${
-                      selectedRobotPort === port
-                        ? port === 'CONTROL'
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                          : 'bg-rose-50 text-rose-700 border-rose-300'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 shadow-xs'
-                    }`}
-                  >
-                    [{port}]
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Error Feedback */}
-          <div className="mt-4">
-            {connectionError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{connectionError}</span>
-              </div>
-            )}
-          </div>
+        <div className="flex-1 my-2 rounded-2xl overflow-hidden border border-slate-200 shadow-xs flex flex-col min-h-[560px]">
+          <Software3DWorkstation
+            project={project}
+            onOpenIde={() => {
+              handleConnectPort('DATA');
+            }}
+            onResetTask={() => setShowResetModal(true)}
+          />
         </div>
       ) : (
         /* ==========================================
@@ -327,6 +251,18 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-2.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setCableConnected(false);
+                    }}
+                    title="View 3D robotics workstation"
+                    className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 transition-colors font-semibold"
+                  >
+                    <Laptop className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>3D Workstation</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => setShowReference(!showReference)}
