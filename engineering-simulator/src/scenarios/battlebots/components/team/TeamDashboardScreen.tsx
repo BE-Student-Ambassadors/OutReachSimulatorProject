@@ -147,7 +147,7 @@ export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
               BattleBot Challenge
             </span>
             <h1 className="font-display font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-tight">
-              Build an autonomous 30 lb robot and defeat The Bull.
+              Design, build, program, and drive a 30 lb combat robot to defeat The Bull.
             </h1>
           </div>
 

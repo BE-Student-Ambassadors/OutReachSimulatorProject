@@ -9,7 +9,7 @@ import {
   Terminal,
   UploadCloud,
 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { soundEngine } from '../../audio/soundEngine';
 import {
   BOTCODE_VARIANTS,
@@ -55,8 +55,51 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
   const [showResetModal, setShowResetModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [testedForward, setTestedForward] = useState(Boolean(soft.testPassed));
+  const [testedTurn, setTestedTurn] = useState(Boolean(soft.testPassed));
+  const [testedWeapon, setTestedWeapon] = useState(Boolean(soft.testPassed));
 
   const currentEval = evaluateBotCode(code);
+
+  const handleTestForward = () => {
+    soundEngine.playInstall();
+    setTestedForward(true);
+  };
+
+  const handleTestTurn = () => {
+    soundEngine.playInstall();
+    setTestedTurn(true);
+  };
+
+  const handleTestWeapon = () => {
+    soundEngine.playInstall();
+    setTestedWeapon(true);
+  };
+
+  useEffect(() => {
+    if (testedForward && testedTurn && testedWeapon && !soft.testPassed) {
+      soundEngine.playInstall();
+      updateSoft({ testPassed: true, isCompleted: true });
+    }
+  }, [testedForward, testedTurn, testedWeapon]);
+
+  // Keyboard listener to test controls live in Software role
+  useEffect(() => {
+    if (!cableConnected || !soft.softwareUploaded) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'KeyW' || e.code === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+        handleTestForward();
+      } else if (e.code === 'KeyA' || e.code === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+        handleTestTurn();
+      } else if (e.code === 'Space' || e.key === ' ') {
+        handleTestWeapon();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cableConnected, soft.softwareUploaded]);
 
   const updateSoft = (updated: Partial<SoftwareConfiguration>) => {
     onUpdateSoftware({ ...soft, ...updated });
@@ -69,6 +112,9 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
     setLastCheck(null);
     setIsUploading(false);
     setUploadProgress(0);
+    setTestedForward(false);
+    setTestedTurn(false);
+    setTestedWeapon(false);
     updateSoft({
       computerConnected: false,
       codeContent: originalScript,
@@ -437,15 +483,104 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
                 ))}
               </div>
 
-              {/* Status Message */}
+              {/* Status & Control Test Panel */}
               <div className="mt-4">
                 {soft.softwareUploaded ? (
-                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-sans">
-                    <div className="flex items-center gap-1.5 font-bold mb-1 text-emerald-800">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      Robot Software Flashed
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-sans">
+                      <div className="flex items-center gap-1.5 font-bold text-emerald-800">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        Driver Software Flashed
+                      </div>
+                      <p className="text-[11px] text-emerald-950 mt-0.5">
+                        Test onboard controls below using your keyboard or click buttons:
+                      </p>
                     </div>
-                    Program is verified and active on the onboard microcontroller!
+
+                    <div className="p-3 rounded-2xl bg-indigo-50/70 border border-indigo-200 text-xs font-sans space-y-2">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-indigo-200/60">
+                        <span className="font-bold text-indigo-900 text-[11px] uppercase tracking-wider">
+                          DRIVER CONTROL TEST
+                        </span>
+                        <span className="text-[10px] font-mono font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
+                          {[testedForward, testedTurn, testedWeapon].filter(Boolean).length} / 3 VERIFIED
+                        </span>
+                      </div>
+
+                      {/* Test 1: Forward */}
+                      <button
+                        type="button"
+                        onClick={handleTestForward}
+                        className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
+                          testedForward
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                            : 'bg-white border-slate-200 hover:border-indigo-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border text-[10px] font-mono font-bold">
+                            W / ↑
+                          </span>
+                          <span className="font-semibold text-[11px]">Forward Drive</span>
+                        </div>
+                        <span className="font-mono text-[10px] font-bold">
+                          {testedForward ? '✓ OK' : 'Press W / ↑'}
+                        </span>
+                      </button>
+
+                      {/* Test 2: Turn */}
+                      <button
+                        type="button"
+                        onClick={handleTestTurn}
+                        className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
+                          testedTurn
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                            : 'bg-white border-slate-200 hover:border-indigo-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border text-[10px] font-mono font-bold">
+                            A / ←
+                          </span>
+                          <span className="font-semibold text-[11px]">Left Steering</span>
+                        </div>
+                        <span className="font-mono text-[10px] font-bold">
+                          {testedTurn ? '✓ OK' : 'Press A / ←'}
+                        </span>
+                      </button>
+
+                      {/* Test 3: Weapon */}
+                      <button
+                        type="button"
+                        onClick={handleTestWeapon}
+                        className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
+                          testedWeapon
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                            : 'bg-white border-slate-200 hover:border-indigo-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border text-[10px] font-mono font-bold">
+                            SPACE
+                          </span>
+                          <span className="font-semibold text-[11px]">Weapon Trigger</span>
+                        </div>
+                        <span className="font-mono text-[10px] font-bold">
+                          {testedWeapon ? '✓ OK' : 'Press SPACE'}
+                        </span>
+                      </button>
+
+                      {testedForward && testedTurn && testedWeapon && (
+                        <div className="p-2.5 rounded-xl bg-emerald-600 text-white font-sans text-xs space-y-0.5 animate-in fade-in">
+                          <div className="font-bold flex items-center gap-1.5 text-[11px]">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> DRIVER SOFTWARE READY
+                          </div>
+                          <div className="text-[10px] font-mono text-emerald-100">
+                            Controls: WASD / ARROWS &bull; SPACE
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : currentEval.allVerified ? (
                   <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-sans">

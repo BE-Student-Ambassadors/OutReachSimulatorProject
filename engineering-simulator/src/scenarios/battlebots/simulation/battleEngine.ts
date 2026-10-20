@@ -1,3 +1,4 @@
+import { type PlayerInput, createDefaultPlayerInput } from './playerInput';
 import * as THREE from 'three';
 import { getBossById } from '../data/bosses';
 import { calculateEngineeringStats } from './engineering';
@@ -25,6 +26,8 @@ import {
 export const ARENA_HALF_SIZE = 3.6; // 7.2m x 7.2m enclosed combat arena
 
 export interface LiveBattleSimulation {
+  playerInput?: PlayerInput;
+  isManual?: boolean;
   timeSec: number;
   maxDurationSec: number;
   isFinished: boolean;
@@ -116,7 +119,8 @@ export function createBattleSimulation(
   bossId: BossId = 'bull',
   softwareRules?: BehaviorRule[],
   electricalLimiterA = 0,
-  coolingTempReductionC = 0
+  coolingTempReductionC = 0,
+  isManual = false
 ): LiveBattleSimulation {
   const playerStats = calculateEngineeringStats(playerConfig);
   const bossDossier = getBossById(bossId);
@@ -173,6 +177,8 @@ export function createBattleSimulation(
   };
 
   const sim: LiveBattleSimulation = {
+    isManual,
+    playerInput: createDefaultPlayerInput(),
     timeSec: 0,
     maxDurationSec: 75, // 75 seconds for deep tactical 30-90s combat
     isFinished: false,
@@ -237,8 +243,16 @@ export function createBattleSimulation(
  * Uses 4 sub-steps per frame to resolve non-penetration, continuous capsule/OBB contact,
  * mass-weighted momentum transfer, and angular impulse deflection.
  */
-export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): void {
+export function stepBattleSimulation(
+  sim: LiveBattleSimulation,
+  rawDt: number,
+  playerInput?: PlayerInput
+): void {
   if (sim.isFinished) return;
+  if (playerInput) {
+    sim.playerInput = playerInput;
+    sim.isManual = true;
+  }
   const dt = Math.min(rawDt, 0.04);
   sim.timeSec += dt;
 
@@ -273,28 +287,72 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
   boss.rollRad *= Math.pow(0.04, dt);
 
   // 1. WEAPON SPIN-UP & BATTERY / THERMAL
-  if (player.weaponHealthPct > 20 && !player.isFlipped && player.batteryPct > 2) {
-    if (playerStats.weaponSpinUpSec > 0) {
-      const spinRate = 100 / Math.max(0.35, playerStats.weaponSpinUpSec);
-      const powerFactor = playerStats.powerLimited ? 0.78 : 1.0;
-      const limiterFactor =
-        sim.electricalLimiterA && sim.electricalLimiterA > 0
-          ? sim.electricalLimiterA === 100
-            ? 0.65
-            : sim.electricalLimiterA === 120
-            ? 0.8
-            : 0.92
-          : 1.0;
-      player.weaponSpinPct = Math.min(100, player.weaponSpinPct + spinRate * powerFactor * limiterFactor * dt);
-      if (player.weaponSpinPct >= 95 && !sim.weaponAtSpeedAnnounced && playerStats.weaponEnergyJ >= 1200) {
-        addEvent(sim, 'WEAPON AT SPEED', 'info');
-        sim.weaponAtSpeedAnnounced = true;
+  if (sim.isManual) {
+    const input = sim.playerInput || createDefaultPlayerInput();
+    const isSpinner = playerStats.weaponSpinUpSec > 0;
+    const isActiveNonSpinner = !isSpinner && playerConfig.weaponId !== 'wedge';
+
+    if (player.weaponHealthPct > 20 && !player.isFlipped && player.batteryPct > 2) {
+      if (isSpinner) {
+        if (input.weaponActive) {
+          const spinRate = 100 / Math.max(0.35, playerStats.weaponSpinUpSec);
+          const powerFactor = playerStats.powerLimited ? 0.78 : 1.0;
+          const limiterFactor =
+            sim.electricalLimiterA && sim.electricalLimiterA > 0
+              ? sim.electricalLimiterA === 100
+                ? 0.65
+                : sim.electricalLimiterA === 120
+                ? 0.8
+                : 0.92
+              : 1.0;
+          const simultaneousFactor = (playerStats.powerLimited && input.throttle !== 0) ? 0.85 : 1.0;
+          player.weaponSpinPct = Math.min(
+            100,
+            player.weaponSpinPct + spinRate * powerFactor * limiterFactor * simultaneousFactor * dt
+          );
+          if (player.weaponSpinPct >= 95 && !sim.weaponAtSpeedAnnounced && playerStats.weaponEnergyJ >= 1200) {
+            addEvent(sim, 'WEAPON AT FULL POWER', 'info');
+            sim.weaponAtSpeedAnnounced = true;
+          }
+        } else {
+          player.weaponSpinPct = Math.max(0, player.weaponSpinPct - dt * 32);
+          sim.weaponAtSpeedAnnounced = false;
+        }
+      } else if (isActiveNonSpinner) {
+        if (input.weaponActive && player.weaponActuationPhase <= 0.05) {
+          player.weaponActuationPhase = 1.0;
+          addEvent(sim, 'WEAPON ACTUATED', 'info');
+        }
+      } else {
+        player.weaponSpinPct = 0;
       }
     } else {
-      player.weaponSpinPct = 100;
+      player.weaponSpinPct = Math.max(0, player.weaponSpinPct - dt * 55);
     }
   } else {
-    player.weaponSpinPct = Math.max(0, player.weaponSpinPct - dt * 60);
+    if (player.weaponHealthPct > 20 && !player.isFlipped && player.batteryPct > 2) {
+      if (playerStats.weaponSpinUpSec > 0) {
+        const spinRate = 100 / Math.max(0.35, playerStats.weaponSpinUpSec);
+        const powerFactor = playerStats.powerLimited ? 0.78 : 1.0;
+        const limiterFactor =
+          sim.electricalLimiterA && sim.electricalLimiterA > 0
+            ? sim.electricalLimiterA === 100
+              ? 0.65
+              : sim.electricalLimiterA === 120
+              ? 0.8
+              : 0.92
+            : 1.0;
+        player.weaponSpinPct = Math.min(100, player.weaponSpinPct + spinRate * powerFactor * limiterFactor * dt);
+        if (player.weaponSpinPct >= 95 && !sim.weaponAtSpeedAnnounced && playerStats.weaponEnergyJ >= 1200) {
+          addEvent(sim, 'WEAPON AT SPEED', 'info');
+          sim.weaponAtSpeedAnnounced = true;
+        }
+      } else {
+        player.weaponSpinPct = 100;
+      }
+    } else {
+      player.weaponSpinPct = Math.max(0, player.weaponSpinPct - dt * 60);
+    }
   }
 
   // Boss weapon spin
@@ -309,25 +367,50 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
     boss.weaponSpinPct = Math.max(0, boss.weaponSpinPct - dt * 60);
   }
 
-  // Battery drain
-  const strategyDrainFactor = strategy === 'aggressive' ? 1.18 : strategy === 'defensive' ? 0.86 : 1.0;
-  const playerDrainPerSec = (100 / Math.max(55, playerStats.runtimeSeconds * 0.72)) * strategyDrainFactor;
-  player.batteryPct = Math.max(0, player.batteryPct - playerDrainPerSec * dt);
+  // Battery drain & motor temperature
+  if (sim.isManual) {
+    const input = sim.playerInput || createDefaultPlayerInput();
+    const isDriving = input.throttle !== 0 || input.steering !== 0;
+    const isWeaponPowering = input.weaponActive && player.weaponHealthPct > 20;
+
+    let loadFactor = 0.25;
+    if (isDriving) loadFactor += 0.45 * Math.abs(input.throttle || input.steering);
+    if (isWeaponPowering) loadFactor += 0.55;
+    if (playerStats.powerLimited && isDriving && isWeaponPowering) loadFactor += 0.22;
+
+    const playerDrainPerSec = (100 / Math.max(55, playerStats.runtimeSeconds * 0.72)) * loadFactor;
+    player.batteryPct = Math.max(0, player.batteryPct - playerDrainPerSec * dt);
+
+    const coolingBonus = sim.coolingTempReductionC || 0;
+    const extraLoadHeat = (isDriving ? 6 : 0) + (playerStats.powerLimited && isDriving && isWeaponPowering ? 8 : 0);
+    const targetTemp = Math.max(38, playerStats.expectedMotorTempC - coolingBonus + extraLoadHeat);
+    player.motorTempC += (targetTemp - player.motorTempC) * dt * 0.16;
+    if (player.motorTempC > sim.peakMotorTempC) {
+      sim.peakMotorTempC = Math.round(player.motorTempC);
+    }
+    if (player.motorTempC >= 84 && !sim.tempWarningAnnounced) {
+      addEvent(sim, 'DRIVE MOTOR HOT', 'warning');
+      sim.tempWarningAnnounced = true;
+    }
+  } else {
+    const strategyDrainFactor = strategy === 'aggressive' ? 1.18 : strategy === 'defensive' ? 0.86 : 1.0;
+    const playerDrainPerSec = (100 / Math.max(55, playerStats.runtimeSeconds * 0.72)) * strategyDrainFactor;
+    player.batteryPct = Math.max(0, player.batteryPct - playerDrainPerSec * dt);
+
+    const coolingBonus = sim.coolingTempReductionC || 0;
+    const targetTemp = Math.max(38, playerStats.expectedMotorTempC - coolingBonus + (strategy === 'aggressive' ? 5 : 0));
+    player.motorTempC += (targetTemp - player.motorTempC) * dt * 0.14;
+    if (player.motorTempC > sim.peakMotorTempC) {
+      sim.peakMotorTempC = Math.round(player.motorTempC);
+    }
+    if (player.motorTempC >= 84 && !sim.tempWarningAnnounced) {
+      addEvent(sim, 'DRIVE MOTOR HOT', 'warning');
+      sim.tempWarningAnnounced = true;
+    }
+  }
 
   const bossDrainRate = (100 / Math.max(70, bossStats.runtimeSeconds)) * (bossId === 'cyclone' ? 1.35 : 1.0);
   boss.batteryPct = Math.max(0, boss.batteryPct - bossDrainRate * dt);
-
-  // Motor temperature
-  const coolingBonus = sim.coolingTempReductionC || 0;
-  const targetTemp = Math.max(38, playerStats.expectedMotorTempC - coolingBonus + (strategy === 'aggressive' ? 5 : 0));
-  player.motorTempC += (targetTemp - player.motorTempC) * dt * 0.14;
-  if (player.motorTempC > sim.peakMotorTempC) {
-    sim.peakMotorTempC = Math.round(player.motorTempC);
-  }
-  if (player.motorTempC >= 84 && !sim.tempWarningAnnounced) {
-    addEvent(sim, 'DRIVE MOTOR HOT', 'warning');
-    sim.tempWarningAnnounced = true;
-  }
 
   // Boss motor temperature
   const bossTargetTemp = bossStats.expectedMotorTempC + (boss.batteryPct < 50 ? 8 : 0);
@@ -376,131 +459,186 @@ export function stepBattleSimulation(sim: LiveBattleSimulation, rawDt: number): 
   const anglePlayerToBoss = Math.atan2(dx, dz);
   const angleBossToPlayer = Math.atan2(-dx, -dz);
 
-  // 4. AUTONOMOUS DRIVE DECISIONS
-  // Player Controller
-  const playerDriveHealth = (player.leftDriveHealthPct + player.rightDriveHealthPct) * 0.005;
-  const thermalThrottle = player.motorTempC > 90 ? 0.74 : 1.0;
-  const batteryThrottle = player.batteryPct < 10 ? 0.55 : player.batteryPct < 22 ? 0.82 : 1.0;
-  const playerMaxSpeed =
-    (playerStats.topSpeedMph / 14.0) * 3.1 * playerDriveHealth * thermalThrottle * batteryThrottle;
-  const playerTurnRate =
-    THREE.MathUtils.degToRad(playerStats.turningRateDegPerSec) * 1.55 * Math.max(0.35, playerDriveHealth);
+  // 4. DRIVE DECISIONS (MANUAL KEYBOARD OR AUTONOMOUS FALLBACK)
+  if (sim.isManual) {
+    const input = sim.playerInput || createDefaultPlayerInput();
+    const leftHealth = player.leftDriveHealthPct / 100;
+    const rightHealth = player.rightDriveHealthPct / 100;
+    const avgHealth = (leftHealth + rightHealth) * 0.5;
 
-  let desiredPlayerHeading: number;
-  let desiredPlayerSpeed: number;
+    const thermalThrottle = player.motorTempC > 90 ? 0.72 : player.motorTempC > 80 ? 0.88 : 1.0;
+    const batteryThrottle = player.batteryPct < 8 ? 0.5 : player.batteryPct < 20 ? 0.8 : 1.0;
+    const simultaneousFactor =
+      playerStats.powerLimited && input.weaponActive && player.weaponSpinPct < 90 ? 0.85 : 1.0;
 
-  const needsSpinUp =
-    playerStats.weaponSpinUpSec >= 1.2 &&
-    player.weaponSpinPct < (strategy === 'aggressive' ? 50 : 82) &&
-    player.weaponHealthPct > 25;
+    const playerMaxSpeed =
+      (playerStats.topSpeedMph / 14.0) * 3.1 * avgHealth * thermalThrottle * batteryThrottle * simultaneousFactor;
+    const playerTurnRate =
+      THREE.MathUtils.degToRad(playerStats.turningRateDegPerSec) * 1.55 * Math.max(0.3, avgHealth);
 
-  if (!player.isFlipped && sim.playerStunTimerSec <= 0) {
-    if (sim.grabTimerSec > 0 && player.isGrabbing) {
-      // Pushing pinned boss toward hazard perimeter wall
-      const wallTargetHeading = Math.atan2(Math.sign(player.x || 1), Math.sign(player.z || 1));
-      desiredPlayerHeading = wallTargetHeading;
-      desiredPlayerSpeed = playerMaxSpeed * 0.92;
-      player.aiStateLabel = 'PUSH';
-    } else if (sim.softwareRules && sim.softwareRules.length > 0) {
-      let matchedAction: string | null = null;
-      const angleDiffToBoss = Math.abs(normalizeAngle(anglePlayerToBoss - player.headingRad));
+    if (!player.isFlipped && sim.playerStunTimerSec <= 0) {
+      if (sim.grabTimerSec > 0 && player.isGrabbing) {
+        player.aiStateLabel = 'PUSH';
+      } else {
+        // A. Differential Steering: Turn left (negative) or right (positive)
+        // Turning right increases headingRad (clockwise), turning left decreases it
+        const turnDelta = input.steering * playerTurnRate * dt;
 
-      for (const rule of sim.softwareRules) {
-        let match = false;
-        if (rule.sensor === 'robot_tilt') {
-          match = rule.conditionValue === 'flipped' ? player.isFlipped : !player.isFlipped;
-        } else if (rule.sensor === 'weapon_ready') {
-          match = rule.conditionValue === 'yes' ? player.weaponSpinPct >= 80 : player.weaponSpinPct < 80;
-        } else if (rule.sensor === 'opponent_distance') {
-          match =
-            rule.conditionValue === 'close'
-              ? dist < 1.5
-              : rule.conditionValue === 'medium'
-              ? dist >= 1.5 && dist <= 2.8
-              : dist > 2.8;
-        } else if (rule.sensor === 'opponent_angle') {
-          match =
-            rule.conditionValue === 'front'
-              ? angleDiffToBoss < 0.45
-              : rule.conditionValue === 'flank'
-              ? angleDiffToBoss >= 0.45 && angleDiffToBoss <= 1.8
-              : angleDiffToBoss > 1.8;
-        } else if (rule.sensor === 'front_contact') {
-          match = rule.conditionValue === 'contact' ? sim.contactCooldownSec > 0 : sim.contactCooldownSec <= 0;
-        }
+        // Motor damage asymmetry pulls robot toward the damaged side when driving
+        const drivePull = (rightHealth - leftHealth) * 0.55 * playerTurnRate * dt * Math.sign(input.throttle || 0);
 
-        if (match) {
-          matchedAction = rule.action;
-          break;
+        player.headingRad = normalizeAngle(player.headingRad + turnDelta + drivePull);
+
+        // B. Forward / Reverse Linear Speed
+        const desiredPlayerSpeed = input.throttle * playerMaxSpeed;
+        const targetVx = Math.sin(player.headingRad) * desiredPlayerSpeed;
+        const targetVz = Math.cos(player.headingRad) * desiredPlayerSpeed;
+
+        const accelRate = 7.5 * Math.max(0.4, playerStats.accelerationMphPerSec / 8.5);
+
+        if (input.throttle !== 0) {
+          player.vx += (targetVx - player.vx) * Math.min(1, accelRate * dt);
+          player.vz += (targetVz - player.vz) * Math.min(1, accelRate * dt);
+          player.aiStateLabel = input.throttle > 0 ? 'ENGAGE' : 'EVADE';
+        } else if (input.steering !== 0) {
+          const pointTurnBrake = 12.0 * dt;
+          player.vx += (0 - player.vx) * Math.min(1, pointTurnBrake);
+          player.vz += (0 - player.vz) * Math.min(1, pointTurnBrake);
+          player.aiStateLabel = 'FLANK';
+        } else {
+          const decelRate = 9.0 * Math.max(0.45, playerStats.tractionCoeff);
+          player.vx += (0 - player.vx) * Math.min(1, decelRate * dt);
+          player.vz += (0 - player.vz) * Math.min(1, decelRate * dt);
+          player.aiStateLabel = 'SENSE';
         }
       }
-
-      if (matchedAction === 'full_charge') {
-        desiredPlayerHeading = anglePlayerToBoss;
-        desiredPlayerSpeed = playerMaxSpeed * 1.12;
-        player.aiStateLabel = 'ENGAGE';
-      } else if (matchedAction === 'approach') {
-        desiredPlayerHeading = anglePlayerToBoss;
-        desiredPlayerSpeed = playerMaxSpeed * 0.88;
-        player.aiStateLabel = 'APPROACH';
-      } else if (matchedAction === 'flank_target') {
-        desiredPlayerHeading = normalizeAngle(anglePlayerToBoss + 0.65 * Math.sign(dx || 1));
-        desiredPlayerSpeed = playerMaxSpeed * 0.95;
-        player.aiStateLabel = 'FLANK';
-      } else if (matchedAction === 'back_away') {
-        desiredPlayerHeading = anglePlayerToBoss;
-        desiredPlayerSpeed = -playerMaxSpeed * 0.75;
-        player.aiStateLabel = 'EVADE';
-      } else if (matchedAction === 'turn_toward') {
-        desiredPlayerHeading = anglePlayerToBoss;
-        desiredPlayerSpeed = playerMaxSpeed * 0.2;
-        player.aiStateLabel = 'SENSE';
-      } else {
-        // Fallback approach
-        desiredPlayerHeading = anglePlayerToBoss;
-        desiredPlayerSpeed = playerMaxSpeed * 0.88;
-        player.aiStateLabel = 'APPROACH';
-      }
-    } else if (needsSpinUp) {
-      // Approach cautiously while spinning up weapon (maintain direct frontal heading toward opponent)
-      desiredPlayerHeading = anglePlayerToBoss;
-      desiredPlayerSpeed = playerMaxSpeed * 0.65;
-      player.aiStateLabel = 'APPROACH';
-    } else if (strategy === 'control') {
-      if (dist > 2.2) {
-        desiredPlayerHeading = anglePlayerToBoss;
-        desiredPlayerSpeed = playerMaxSpeed * 0.88;
-        player.aiStateLabel = 'APPROACH';
-      } else {
-        // Flank around toward boss rear/side
-        desiredPlayerHeading = normalizeAngle(anglePlayerToBoss + 0.55 * Math.sign(dx || 1));
-        desiredPlayerSpeed = playerMaxSpeed * 0.95;
-        player.aiStateLabel = 'FLANK';
-      }
-    } else if (strategy === 'defensive') {
-      desiredPlayerHeading = anglePlayerToBoss;
-      desiredPlayerSpeed = playerMaxSpeed * 0.85;
-      player.aiStateLabel = dist < 1.6 ? 'ENGAGE' : 'APPROACH';
     } else {
-      // AGGRESSIVE: Direct pursuit
-      desiredPlayerHeading = anglePlayerToBoss;
-      desiredPlayerSpeed = playerMaxSpeed * 1.05;
-      player.aiStateLabel = dist < 1.4 ? 'ENGAGE' : 'APPROACH';
+      player.vx *= Math.pow(0.15, dt);
+      player.vz *= Math.pow(0.15, dt);
+      if (player.isFlipped) player.aiStateLabel = 'RECOVER';
+      else if (sim.playerStunTimerSec > 0) player.aiStateLabel = 'RECOVER';
     }
-
-    const headingDiff = normalizeAngle(desiredPlayerHeading - player.headingRad);
-    const maxTurn = playerTurnRate * dt;
-    player.headingRad = normalizeAngle(player.headingRad + Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), maxTurn));
-
-    const alignFactor = Math.max(0, Math.cos(headingDiff));
-    const targetVx = Math.sin(player.headingRad) * desiredPlayerSpeed * alignFactor;
-    const targetVz = Math.cos(player.headingRad) * desiredPlayerSpeed * alignFactor;
-
-    player.vx += (targetVx - player.vx) * Math.min(1, 7.5 * dt);
-    player.vz += (targetVz - player.vz) * Math.min(1, 7.5 * dt);
   } else {
-    player.vx *= Math.pow(0.15, dt);
-    player.vz *= Math.pow(0.15, dt);
+    // Autonomous Player Controller (Fallback / Headless simulation)
+    const playerDriveHealth = (player.leftDriveHealthPct + player.rightDriveHealthPct) * 0.005;
+    const thermalThrottle = player.motorTempC > 90 ? 0.74 : 1.0;
+    const batteryThrottle = player.batteryPct < 10 ? 0.55 : player.batteryPct < 22 ? 0.82 : 1.0;
+    const playerMaxSpeed =
+      (playerStats.topSpeedMph / 14.0) * 3.1 * playerDriveHealth * thermalThrottle * batteryThrottle;
+    const playerTurnRate =
+      THREE.MathUtils.degToRad(playerStats.turningRateDegPerSec) * 1.55 * Math.max(0.35, playerDriveHealth);
+
+    let desiredPlayerHeading: number;
+    let desiredPlayerSpeed: number;
+
+    const needsSpinUp =
+      playerStats.weaponSpinUpSec >= 1.2 &&
+      player.weaponSpinPct < (strategy === 'aggressive' ? 50 : 82) &&
+      player.weaponHealthPct > 25;
+
+    if (!player.isFlipped && sim.playerStunTimerSec <= 0) {
+      if (sim.grabTimerSec > 0 && player.isGrabbing) {
+        const wallTargetHeading = Math.atan2(Math.sign(player.x || 1), Math.sign(player.z || 1));
+        desiredPlayerHeading = wallTargetHeading;
+        desiredPlayerSpeed = playerMaxSpeed * 0.92;
+        player.aiStateLabel = 'PUSH';
+      } else if (sim.softwareRules && sim.softwareRules.length > 0) {
+        let matchedAction: string | null = null;
+        const angleDiffToBoss = Math.abs(normalizeAngle(anglePlayerToBoss - player.headingRad));
+
+        for (const rule of sim.softwareRules) {
+          let match = false;
+          if (rule.sensor === 'robot_tilt') {
+            match = rule.conditionValue === 'flipped' ? player.isFlipped : !player.isFlipped;
+          } else if (rule.sensor === 'weapon_ready') {
+            match = rule.conditionValue === 'yes' ? player.weaponSpinPct >= 80 : player.weaponSpinPct < 80;
+          } else if (rule.sensor === 'opponent_distance') {
+            match =
+              rule.conditionValue === 'close'
+                ? dist < 1.5
+                : rule.conditionValue === 'medium'
+                ? dist >= 1.5 && dist <= 2.8
+                : dist > 2.8;
+          } else if (rule.sensor === 'opponent_angle') {
+            match =
+              rule.conditionValue === 'front'
+                ? angleDiffToBoss < 0.45
+                : rule.conditionValue === 'flank'
+                ? angleDiffToBoss >= 0.45 && angleDiffToBoss <= 1.8
+                : angleDiffToBoss > 1.8;
+          } else if (rule.sensor === 'front_contact') {
+            match = rule.conditionValue === 'contact' ? sim.contactCooldownSec > 0 : sim.contactCooldownSec <= 0;
+          }
+
+          if (match) {
+            matchedAction = rule.action;
+            break;
+          }
+        }
+
+        if (matchedAction === 'full_charge') {
+          desiredPlayerHeading = anglePlayerToBoss;
+          desiredPlayerSpeed = playerMaxSpeed * 1.12;
+          player.aiStateLabel = 'ENGAGE';
+        } else if (matchedAction === 'approach') {
+          desiredPlayerHeading = anglePlayerToBoss;
+          desiredPlayerSpeed = playerMaxSpeed * 0.88;
+          player.aiStateLabel = 'APPROACH';
+        } else if (matchedAction === 'flank_target') {
+          desiredPlayerHeading = normalizeAngle(anglePlayerToBoss + 0.65 * Math.sign(dx || 1));
+          desiredPlayerSpeed = playerMaxSpeed * 0.95;
+          player.aiStateLabel = 'FLANK';
+        } else if (matchedAction === 'back_away') {
+          desiredPlayerHeading = anglePlayerToBoss;
+          desiredPlayerSpeed = -playerMaxSpeed * 0.75;
+          player.aiStateLabel = 'EVADE';
+        } else if (matchedAction === 'turn_toward') {
+          desiredPlayerHeading = anglePlayerToBoss;
+          desiredPlayerSpeed = playerMaxSpeed * 0.2;
+          player.aiStateLabel = 'SENSE';
+        } else {
+          desiredPlayerHeading = anglePlayerToBoss;
+          desiredPlayerSpeed = playerMaxSpeed * 0.88;
+          player.aiStateLabel = 'APPROACH';
+        }
+      } else if (needsSpinUp) {
+        desiredPlayerHeading = anglePlayerToBoss;
+        desiredPlayerSpeed = playerMaxSpeed * 0.65;
+        player.aiStateLabel = 'APPROACH';
+      } else if (strategy === 'control') {
+        if (dist > 2.2) {
+          desiredPlayerHeading = anglePlayerToBoss;
+          desiredPlayerSpeed = playerMaxSpeed * 0.88;
+          player.aiStateLabel = 'APPROACH';
+        } else {
+          desiredPlayerHeading = normalizeAngle(anglePlayerToBoss + 0.55 * Math.sign(dx || 1));
+          desiredPlayerSpeed = playerMaxSpeed * 0.95;
+          player.aiStateLabel = 'FLANK';
+        }
+      } else if (strategy === 'defensive') {
+        desiredPlayerHeading = anglePlayerToBoss;
+        desiredPlayerSpeed = playerMaxSpeed * 0.85;
+        player.aiStateLabel = dist < 1.6 ? 'ENGAGE' : 'APPROACH';
+      } else {
+        desiredPlayerHeading = anglePlayerToBoss;
+        desiredPlayerSpeed = playerMaxSpeed * 1.05;
+        player.aiStateLabel = dist < 1.4 ? 'ENGAGE' : 'APPROACH';
+      }
+
+      const headingDiff = normalizeAngle(desiredPlayerHeading - player.headingRad);
+      const maxTurn = playerTurnRate * dt;
+      player.headingRad = normalizeAngle(player.headingRad + Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), maxTurn));
+
+      const alignFactor = Math.max(0, Math.cos(headingDiff));
+      const targetVx = Math.sin(player.headingRad) * desiredPlayerSpeed * alignFactor;
+      const targetVz = Math.cos(player.headingRad) * desiredPlayerSpeed * alignFactor;
+
+      player.vx += (targetVx - player.vx) * Math.min(1, 7.5 * dt);
+      player.vz += (targetVz - player.vz) * Math.min(1, 7.5 * dt);
+    } else {
+      player.vx *= Math.pow(0.15, dt);
+      player.vz *= Math.pow(0.15, dt);
+    }
   }
 
   // Boss Controller (Archetype-specific AI)

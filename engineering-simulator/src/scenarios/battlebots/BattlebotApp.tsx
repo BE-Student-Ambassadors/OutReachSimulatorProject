@@ -596,12 +596,12 @@ export function BattlebotApp() {
             done: Boolean(project.software.bugsFixed || project.software.softwareUploaded),
           },
           {
-            label: 'Test',
-            done: Boolean(project.software.testPassed || project.software.softwareUploaded),
+            label: 'Upload',
+            done: Boolean(project.software.softwareUploaded),
           },
           {
-            label: 'Upload',
-            done: Boolean(project.software.softwareUploaded && project.software.isCompleted),
+            label: 'Test Controls',
+            done: Boolean(project.software.testPassed && project.software.isCompleted),
           },
         ];
       }
