@@ -1,14 +1,11 @@
+import { createKeyboardController, type KeyboardControllerInstance } from '../../simulation/playerInput';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
-  Activity,
   AlertTriangle,
   Battery,
   Camera,
   CheckCircle2,
-  Cpu,
-  Flame,
   RotateCcw,
-  Shield,
   ShieldAlert,
   Swords,
   Thermometer,
@@ -28,7 +25,6 @@ import {
   stepBattleSimulation,
 } from '../../simulation/battleEngine';
 import {
-  type AutonomousStrategy,
   type BattleAnalysisReport,
   type BattleEventLog,
   type BossId,
@@ -51,40 +47,6 @@ interface ArenaScreenProps {
 }
 
 type SpectatorCamMode = 'director' | 'wide' | 'chase';
-
-const STRATEGIES: {
-  id: AutonomousStrategy;
-  name: string;
-  tagline: string;
-  pros: string;
-  tradeoffs: string;
-  icon: React.ReactNode;
-}[] = [
-  {
-    id: 'aggressive',
-    name: 'AGGRESSIVE',
-    tagline: 'Close distance immediately. Attack frequently.',
-    pros: 'Maximizes offensive opportunities and pressure.',
-    tradeoffs: 'High battery energy consumption & greater exposure to frontal damage.',
-    icon: <Flame className="w-5 h-5 text-orange-400" />,
-  },
-  {
-    id: 'control',
-    name: 'CONTROL',
-    tagline: 'Prioritize positioning, flanking, and pushing leverage.',
-    pros: 'Targets exposed side/rear angles & controls arena hazards.',
-    tradeoffs: 'Requires sufficient turning agility; sacrifices early direct strikes.',
-    icon: <Cpu className="w-5 h-5 text-cyan-400" />,
-  },
-  {
-    id: 'defensive',
-    name: 'DEFENSIVE',
-    tagline: 'Evade head-on charges. Counterattack when openings appear.',
-    pros: 'Reduced damage exposure & full weapon spin-up time.',
-    tradeoffs: 'Less offensive pressure; requires mobility to evade The Bull.',
-    icon: <Shield className="w-5 h-5 text-emerald-400" />,
-  },
-];
 
 // 3D Developer Debug Orientation & Vectors (Green Forward, Red Weapon/Front, Blue Velocity)
 const OrientationDebugArrows: React.FC<{
@@ -160,7 +122,8 @@ const OrientationDebugArrows: React.FC<{
 // 3D Arena Scene & Automatic Spectator Camera Controller
 const Arena3DScene: React.FC<{
   simRef: React.MutableRefObject<LiveBattleSimulation | null>;
-  battlePhase: 'intro-strategy' | 'fighting' | 'finished';
+  keyboardRef: React.MutableRefObject<KeyboardControllerInstance | null>;
+  battlePhase: 'tutorial' | 'countdown' | 'fighting' | 'finished';
   camMode: SpectatorCamMode;
   playerConfig: RobotConfiguration;
   bossId: BossId;
@@ -172,7 +135,7 @@ const Arena3DScene: React.FC<{
     events: BattleEventLog[],
     report: BattleAnalysisReport | null
   ) => void;
-}> = ({ simRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, onSyncHud }) => {
+}> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, onSyncHud }) => {
   const { camera } = useThree();
   const playerGroupRef = useRef<THREE.Group>(null);
   const bullGroupRef = useRef<THREE.Group>(null);
@@ -195,7 +158,8 @@ const Arena3DScene: React.FC<{
     if (!sim) return;
 
     if (battlePhase === 'fighting' && !sim.isFinished) {
-      stepBattleSimulation(sim, delta);
+      const input = keyboardRef.current ? keyboardRef.current.getInput() : undefined;
+      stepBattleSimulation(sim, delta, input);
 
       // Play sound effects when new impact events arrive
       const newest = sim.events[0];
@@ -234,40 +198,37 @@ const Arena3DScene: React.FC<{
     // Automatic Cinematic Spectator Camera
     const midX = (sim.player.x + sim.bull.x) * 0.5;
     const midZ = (sim.player.z + sim.bull.z) * 0.5;
-    const separation = Math.hypot(sim.player.x - sim.bull.x, sim.player.z - sim.bull.z);
+
 
     // Subtle impact camera shake
     const shakeAmt = sim.cameraImpactShake * 0.14;
     const shakeX = Math.sin(state.clock.elapsedTime * 55) * shakeAmt;
     const shakeY = Math.cos(state.clock.elapsedTime * 48) * shakeAmt;
 
-    if (battlePhase === 'intro-strategy') {
-      // Dramatic pre-battle orbit around arena center
-      const t = state.clock.elapsedTime * 0.25;
-      const targetPos = new THREE.Vector3(Math.sin(t) * 6.4, 3.8, Math.cos(t) * 6.4);
+    if (battlePhase === 'tutorial' || battlePhase === 'countdown') {
+      // Dramatic establishing orbit around arena center
+      const t = state.clock.elapsedTime * 0.22;
+      const targetPos = new THREE.Vector3(Math.sin(t) * 6.6, 3.8, Math.cos(t) * 6.6);
       camera.position.lerp(targetPos, delta * 3);
       camera.lookAt(0, 0.3, 0);
+    } else if (battlePhase === 'finished') {
+      // Post-battle orbit
+      const t = state.clock.elapsedTime * 0.35;
+      const targetPos = new THREE.Vector3(midX + Math.sin(t) * 4.5, 3.2, midZ + Math.cos(t) * 4.5);
+      camera.position.lerp(targetPos, delta * 3.5);
+      camera.lookAt(midX, 0.35, midZ);
     } else if (camMode === 'wide') {
-      const targetPos = new THREE.Vector3(0 + shakeX, 6.8 + shakeY, 6.8);
+      const targetPos = new THREE.Vector3(0 + shakeX, 7.0 + shakeY, 7.0);
       camera.position.lerp(targetPos, delta * 4);
       camera.lookAt(0, 0, 0);
-    } else if (camMode === 'chase') {
-      const behindX = sim.player.x - Math.sin(sim.player.headingRad) * 3.4 + shakeX;
-      const behindZ = sim.player.z - Math.cos(sim.player.headingRad) * 3.4;
-      camera.position.lerp(new THREE.Vector3(behindX, 2.3 + shakeY, behindZ), delta * 6);
-      camera.lookAt(midX, 0.35, midZ);
     } else {
-      // DIRECTOR CAM: Dynamically frames both robots, tightening on engagement & pulling back when separated
-      const zoomDist = THREE.MathUtils.clamp(3.3 + separation * 0.72, 3.6, 7.2);
-      const camHeight = THREE.MathUtils.clamp(2.2 + separation * 0.42, 2.4, 4.8);
-      const orbitOffset = Math.sin(state.clock.elapsedTime * 0.18) * 1.4;
-      const targetCamPos = new THREE.Vector3(
-        midX + orbitOffset + shakeX,
-        camHeight + shakeY,
-        midZ + zoomDist
-      );
-      camera.position.lerp(targetCamPos, delta * 4.5);
-      camera.lookAt(midX, 0.25, midZ);
+      // STABLE PLAYABLE GAMEPLAY CAMERA (Elevated chase with smooth damping following player)
+      const behindDist = 3.6;
+      const camHeight = 3.8;
+      const targetCamX = sim.player.x - Math.sin(sim.player.headingRad) * behindDist + (midX - sim.player.x) * 0.25 + shakeX;
+      const targetCamZ = sim.player.z - Math.cos(sim.player.headingRad) * behindDist + (midZ - sim.player.z) * 0.25 + shakeY;
+      camera.position.lerp(new THREE.Vector3(targetCamX, camHeight, targetCamZ), delta * 4.5);
+      camera.lookAt(midX, 0.3, midZ);
     }
 
     // Throttle React state updates for HUD & spark meshes to ~15Hz
@@ -394,6 +355,16 @@ const Arena3DScene: React.FC<{
           })}
         </group>
       ))}
+
+      {/* Subtle Cyan Driver Ring under Player Robot */}
+      {pState && (
+        <group position={[pState.x, 0.015, pState.z]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[0.54, 0.62, 32]} />
+            <meshBasicMaterial color="#22d3ee" transparent opacity={0.85} />
+          </mesh>
+        </group>
+      )}
 
       {/* Student's Exact Assembled Robot3D */}
       <group ref={playerGroupRef} position={[0, 0, 2.35]} rotation={[0, Math.PI, 0]}>
@@ -622,14 +593,12 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   onReturnToDashboard,
   onDefeatBoss,
 }) => {
-  const bossDossier = getBossById('bull'); // ONE BOSS ONLY: THE BULL
-
-  const [selectedStrategy, setSelectedStrategy] = useState<AutonomousStrategy>('control');
-  const [battlePhase, setBattlePhase] = useState<'intro-strategy' | 'fighting' | 'finished'>(
-    'intro-strategy'
-  );
+  const [battlePhase, setBattlePhase] = useState<'tutorial' | 'countdown' | 'fighting' | 'finished'>('tutorial');
+  const [countdownNumber, setCountdownNumber] = useState<number | 'FIGHT!'>(3);
   const [camMode, setCamMode] = useState<SpectatorCamMode>('director');
   const [showHitboxes, setShowHitboxes] = useState(false);
+
+  const keyboardRef = useRef<KeyboardControllerInstance | null>(null);
 
   const coolingDrop =
     teamProject?.electrical.coolingSystem === 'fan'
@@ -641,11 +610,12 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   const [initialSim] = useState(() =>
     createBattleSimulation(
       playerConfig,
-      selectedStrategy,
+      'control',
       'bull',
       teamProject?.software.rules,
       teamProject?.electrical.currentLimiterA,
-      coolingDrop
+      coolingDrop,
+      true
     )
   );
   const simRef = useRef<LiveBattleSimulation | null>(initialSim);
@@ -653,57 +623,107 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   const [hudPlayer, setHudPlayer] = useState<CombatantTelemetry>(() => initialSim.player);
   const [hudBull, setHudBull] = useState<CombatantTelemetry>(() => initialSim.bull);
   const [hudTimeSec, setHudTimeSec] = useState<number>(0);
-  const [hudEvents, setHudEvents] = useState<BattleEventLog[]>([]);
+  const [, setHudEvents] = useState<BattleEventLog[]>([]);
   const [analysisReport, setAnalysisReport] = useState<BattleAnalysisReport | null>(null);
 
-  // Ensure keyboard inputs do NOTHING during battle (100% autonomous spectator guarantee)
-  // Pressing 'H' toggles developer collision hitboxes
+  // Setup keyboard controller
   useEffect(() => {
-    const handleKeys = (e: KeyboardEvent) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(e.code)) {
-        e.preventDefault();
-      }
+    const controller = createKeyboardController(window);
+    keyboardRef.current = controller;
+    controller.setEnabled(battlePhase === 'fighting');
+
+    const handleDebugKey = (e: KeyboardEvent) => {
       if (e.key === 'h' || e.key === 'H') {
         setShowHitboxes((prev) => !prev);
       }
     };
-    window.addEventListener('keydown', handleKeys);
-    return () => window.removeEventListener('keydown', handleKeys);
+    window.addEventListener('keydown', handleDebugKey);
+
+    return () => {
+      controller.dispose();
+      window.removeEventListener('keydown', handleDebugKey);
+    };
   }, []);
 
+  useEffect(() => {
+    if (keyboardRef.current) {
+      keyboardRef.current.setEnabled(battlePhase === 'fighting');
+    }
+  }, [battlePhase]);
+
+  const startCountdown = () => {
+    setBattlePhase('countdown');
+    setCountdownNumber(3);
+    soundEngine.playClick();
+
+    window.setTimeout(() => {
+      setCountdownNumber(2);
+      soundEngine.playClick();
+      window.setTimeout(() => {
+        setCountdownNumber(1);
+        soundEngine.playClick();
+        window.setTimeout(() => {
+          setCountdownNumber('FIGHT!');
+          soundEngine.playArenaHorn();
+          window.setTimeout(() => {
+            setBattlePhase('fighting');
+            keyboardRef.current?.setEnabled(true);
+          }, 600);
+        }, 1000);
+      }, 1000);
+    }, 1000);
+  };
+
   const handleStartBattle = () => {
-    soundEngine.playArenaHorn();
+    soundEngine.playClick();
     simRef.current = createBattleSimulation(
       playerConfig,
-      selectedStrategy,
+      'control',
       'bull',
       teamProject?.software.rules,
       teamProject?.electrical.currentLimiterA,
-      coolingDrop
+      coolingDrop,
+      true
     );
     setHudPlayer(simRef.current.player);
     setHudBull(simRef.current.bull);
     setHudTimeSec(0);
     setHudEvents(simRef.current.events);
     setAnalysisReport(null);
-    setBattlePhase('fighting');
+    keyboardRef.current?.clear();
+    startCountdown();
   };
 
-  const playerDriveCondition = Math.round(
-    (hudPlayer.leftDriveHealthPct + hudPlayer.rightDriveHealthPct) * 0.5
-  );
+  const handleRematch = () => {
+    handleStartBattle();
+  };
+
+  const handleReturnToEngineering = () => {
+    soundEngine.playInstall();
+    keyboardRef.current?.clear();
+    if (onReturnToDashboard) {
+      onReturnToDashboard();
+    } else {
+      onReturnToWorkshop(false);
+    }
+  };
+
   const bullOverallCondition = Math.round(
     hudBull.hullIntegrityPct * 0.6 +
       ((hudBull.leftDriveHealthPct + hudBull.rightDriveHealthPct) * 0.5) * 0.4
   );
 
+  const teamName = (teamProject?.teamName || playerConfig.name || 'TITAN').toUpperCase();
+  const isSpinner = playerStats.weaponSpinUpSec > 0;
+
   return (
-    <div className="relative w-full h-full bg-[#0a0f1d] overflow-hidden flex flex-col justify-between">
+    <div className="relative w-full h-full bg-[#0a0f1d] overflow-hidden flex flex-col justify-between select-none">
       {/* 3D Combat Arena Canvas */}
       <div className="absolute inset-0 z-0">
         <Canvas shadows camera={{ position: [0, 4.2, 6.4], fov: 44 }}>
           <Arena3DScene
             simRef={simRef}
+            keyboardRef={keyboardRef}
             battlePhase={battlePhase}
             camMode={camMode}
             playerConfig={playerConfig}
@@ -717,6 +737,8 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
               if (rep) {
                 setAnalysisReport(rep);
                 setBattlePhase('finished');
+                keyboardRef.current?.clear();
+                keyboardRef.current?.setEnabled(false);
                 if (rep.winner === 'player') {
                   onDefeatBoss?.(bossId);
                 }
@@ -727,267 +749,245 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
       </div>
 
       {/* ============================================================
-          LIVE TELEMETRY HUD (Always visible at top)
+          LIVE TELEMETRY HUD (Only shown during countdown & battle)
          ============================================================ */}
-      <div className="relative z-20 p-4 md:p-5 flex flex-col gap-3 pointer-events-none">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
-          {/* LEFT: PLAYER BOT TELEMETRY */}
-          <div className="holo-panel holo-glow-cyan rounded-2xl border border-cyan-500/40 p-3.5">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-                <span className="font-display font-extrabold text-sm text-white tracking-wide">
-                  {playerConfig.name} ({playerStats.totalWeightLb.toFixed(1)} LB)
+      {(battlePhase === 'fighting' || battlePhase === 'countdown') && (
+        <div className="relative z-20 p-4 md:p-5 flex flex-col gap-3 pointer-events-none">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+            {/* LEFT: PLAYER BOT TELEMETRY */}
+            <div className="holo-panel holo-glow-cyan rounded-2xl border border-cyan-500/40 p-3.5">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="font-display font-extrabold text-sm text-white tracking-wide">
+                    {teamName} ({playerStats.totalWeightLb.toFixed(1)} LB)
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 font-bold">
+                  DRIVER CONTROL
                 </span>
               </div>
-              <span className="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-400/30 text-cyan-300">
-                AI: {hudPlayer.aiStateLabel}
-              </span>
+
+              {/* Hull Bar */}
+              <div className="mb-2.5">
+                <div className="flex justify-between text-[11px] font-mono-num text-slate-300 mb-1">
+                  <span>STRUCTURAL INTEGRITY</span>
+                  <span className="font-bold text-cyan-300">
+                    {Math.round(hudPlayer.hullIntegrityPct)}%
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-400 to-sky-300 transition-all duration-150"
+                    style={{ width: `${Math.max(0, hudPlayer.hullIntegrityPct)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Telemetry Subsystems: Battery, Weapon, Temp */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
+                  <div className="text-[9px] font-mono-num text-slate-400 flex items-center justify-center gap-0.5">
+                    <Battery className="w-3 h-3 text-cyan-400" /> BATT
+                  </div>
+                  <div className={`font-mono-num text-xs font-bold mt-0.5 ${hudPlayer.batteryPct < 20 ? 'text-red-400' : 'text-white'}`}>
+                    {Math.round(hudPlayer.batteryPct)}%
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
+                  <div className="text-[9px] font-mono-num text-slate-400 flex items-center justify-center gap-0.5">
+                    <Zap className="w-3 h-3 text-amber-400" /> WEAPON
+                  </div>
+                  <div className="font-mono-num text-xs font-bold mt-0.5 text-amber-300">
+                    {isSpinner
+                      ? `${Math.round(hudPlayer.weaponSpinPct)}%`
+                      : hudPlayer.weaponActuationPhase > 0
+                      ? 'ACTUATING'
+                      : 'ARMED'}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
+                  <div className="text-[9px] font-mono-num text-slate-400 flex items-center justify-center gap-0.5">
+                    <Thermometer className="w-3 h-3 text-rose-400" /> TEMP
+                  </div>
+                  <div className={`font-mono-num text-xs font-bold mt-0.5 ${hudPlayer.motorTempC >= 85 ? 'text-rose-400 animate-pulse' : 'text-white'}`}>
+                    {Math.round(hudPlayer.motorTempC)}°C
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Hull Bar */}
-            <div className="mb-2.5">
-              <div className="flex justify-between text-[11px] font-mono-num text-slate-300 mb-1">
-                <span>STRUCTURAL INTEGRITY</span>
-                <span className="font-bold text-cyan-300">
-                  {Math.round(hudPlayer.hullIntegrityPct)}%
+            {/* CENTER: ARENA MATCH TIMER & OPPONENT CALLOUT */}
+            <div className="flex flex-col items-center justify-center gap-1">
+              <div className="holo-panel rounded-xl border border-slate-800 px-4 py-2 flex items-center gap-3">
+                <div className="text-center">
+                  <div className="text-[9px] font-mono-num uppercase tracking-wider text-slate-400">
+                    MATCH CLOCK
+                  </div>
+                  <div className="font-mono-num text-xl font-black text-amber-400">
+                    {Math.floor(hudTimeSec / 60)}:{(Math.floor(hudTimeSec % 60)).toString().padStart(2, '0')}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT: THE BULL AI OPPONENT TELEMETRY */}
+            <div className="holo-panel holo-glow-red rounded-2xl border border-red-500/40 p-3.5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-red-500/20 border border-red-400/30 text-red-300 font-bold">
+                  AI OPPONENT
                 </span>
-              </div>
-              <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-cyan-400 to-sky-300 transition-all duration-150"
-                  style={{ width: `${Math.max(0, hudPlayer.hullIntegrityPct)}%` }}
-                />
-              </div>
-            </div>
-
-            {/* 4 Key Telemetry Subsystems: Battery, Weapon, Drive, Temperature */}
-            <div className="grid grid-cols-4 gap-2 text-center">
-              <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
-                <div className="text-[9px] font-mono-num text-slate-400 flex items-center justify-center gap-0.5">
-                  <Battery className="w-3 h-3 text-cyan-400" /> BATT
-                </div>
-                <div
-                  className={`font-mono-num text-xs font-bold mt-0.5 ${
-                    hudPlayer.batteryPct < 25 ? 'text-red-400' : 'text-white'
-                  }`}
-                >
-                  {Math.round(hudPlayer.batteryPct)}%
+                <div className="flex items-center gap-2">
+                  <span className="font-display font-extrabold text-sm text-white tracking-wide">
+                    THE BULL (30.0 LB)
+                  </span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
                 </div>
               </div>
 
-              <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
-                <div className="text-[9px] font-mono-num text-slate-400 flex items-center justify-center gap-0.5">
-                  <Zap className="w-3 h-3 text-amber-400" /> WEAPON
+              {/* Boss Hull Bar */}
+              <div className="mb-2.5">
+                <div className="flex justify-between text-[11px] font-mono-num text-slate-300 mb-1">
+                  <span>STRUCTURAL INTEGRITY</span>
+                  <span className="font-bold text-red-400">
+                    {bullOverallCondition}%
+                  </span>
                 </div>
-                <div
-                  className={`font-mono-num text-xs font-bold mt-0.5 ${
-                    hudPlayer.weaponHealthPct <= 20 ? 'text-red-400' : 'text-amber-300'
-                  }`}
-                >
-                  {hudPlayer.weaponHealthPct <= 20
-                    ? 'DOWN'
-                    : `${Math.round(hudPlayer.weaponSpinPct)}%`}
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
-                <div className="text-[9px] font-mono-num text-slate-400 flex items-center justify-center gap-0.5">
-                  <Activity className="w-3 h-3 text-emerald-400" /> DRIVE
-                </div>
-                <div
-                  className={`font-mono-num text-xs font-bold mt-0.5 ${
-                    playerDriveCondition < 55 ? 'text-amber-400' : 'text-emerald-300'
-                  }`}
-                >
-                  {playerDriveCondition}%
+                <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-red-500 to-amber-500 transition-all duration-150"
+                    style={{ width: `${Math.max(0, bullOverallCondition)}%` }}
+                  />
                 </div>
               </div>
 
-              <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
-                <div className="text-[9px] font-mono-num text-slate-400 flex items-center justify-center gap-0.5">
-                  <Thermometer className="w-3 h-3 text-orange-400" /> TEMP
-                </div>
-                <div
-                  className={`font-mono-num text-xs font-bold mt-0.5 ${
-                    hudPlayer.motorTempC >= 85 ? 'text-red-400' : 'text-white'
-                  }`}
-                >
-                  {Math.round(hudPlayer.motorTempC)}°C
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* CENTER: MATCH CLOCK & AUTONOMOUS SPECTATOR BADGE */}
-          <div className="flex flex-col items-center">
-            <div className="holo-panel rounded-2xl border border-slate-700/80 px-6 py-2.5 text-center">
-              <div className="text-[10px] font-mono-num uppercase tracking-widest text-cyan-300">
-                AUTONOMOUS COMBAT TELEMETRY
-              </div>
-              <div className="font-mono-num text-2xl font-black text-white">
-                {(36.0 - Math.min(36.0, hudTimeSec)).toFixed(1)}s
-              </div>
-            </div>
-
-            {/* Live Important Event Callout Banner */}
-            {battlePhase === 'fighting' && hudEvents[0] && (
-              <div
-                key={hudEvents[0].id}
-                className={`mt-2.5 px-4 py-1.5 rounded-full font-mono-num text-xs font-bold uppercase tracking-wider border animate-pop-in ${
-                  hudEvents[0].type === 'critical'
-                    ? 'bg-red-950/90 border-red-500 text-red-200'
-                    : hudEvents[0].type === 'impact'
-                    ? 'bg-amber-950/90 border-amber-400 text-amber-200'
-                    : hudEvents[0].type === 'warning'
-                    ? 'bg-orange-950/90 border-orange-400 text-orange-200'
-                    : 'bg-cyan-950/90 border-cyan-400 text-cyan-200'
-                }`}
-              >
-                {hudEvents[0].text}
-              </div>
-            )}
-          </div>
-
-          {/* RIGHT: THE BULL CONDITION */}
-          <div className="holo-panel holo-glow-amber rounded-2xl border border-amber-500/40 p-3.5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/30 text-amber-300">
-                TIER 0{bossDossier.tier} BOSS
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="font-display font-extrabold text-sm text-white tracking-wide">
-                  {bossDossier.icon} {bossDossier.name} ({bossDossier.weightLb.toFixed(1)} LB)
-                </span>
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
-              </div>
-            </div>
-
-            <div className="mb-2.5">
-              <div className="flex justify-between text-[11px] font-mono-num text-slate-300 mb-1">
-                <span>GENERAL CONDITION</span>
-                <span className="font-bold text-amber-300">{bullOverallCondition}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-orange-400 transition-all duration-150"
-                  style={{ width: `${Math.max(0, bullOverallCondition)}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
-                <div className="text-[9px] font-mono-num text-slate-400">FRONT PLOW</div>
-                <div className="font-mono-num text-xs font-bold text-amber-300 mt-0.5">
-                  {Math.round(hudBull.frontArmorPct)}%
-                </div>
-              </div>
-              <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
-                <div className="text-[9px] font-mono-num text-slate-400">SIDE / REAR</div>
-                <div className="font-mono-num text-xs font-bold text-white mt-0.5">
-                  {Math.round(hudBull.sideArmorPct)}%
-                </div>
-              </div>
-              <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-1.5">
-                <div className="text-[9px] font-mono-num text-slate-400">DRIVETRAIN</div>
-                <div className="font-mono-num text-xs font-bold text-white mt-0.5">
-                  {hudBull.isFlipped
-                    ? 'INVERTED'
-                    : `${Math.round((hudBull.leftDriveHealthPct + hudBull.rightDriveHealthPct) * 0.5)}%`}
-                </div>
+              <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-1">
+                <span>WEDGE PLOW: {hudBull.isGrabbing ? 'PINNING' : 'ACTIVE'}</span>
+                <span>STATE: {hudBull.aiStateLabel}</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ============================================================
-          PHASE A: PRE-BATTLE STRATEGY SELECTION MODAL
+          COUNTDOWN OVERLAY (3, 2, 1, FIGHT!)
          ============================================================ */}
-      {battlePhase === 'intro-strategy' && (
+      {battlePhase === 'countdown' && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs pointer-events-none">
+          <div className="text-center animate-in zoom-in-75 duration-300">
+            <span className="font-display font-black text-7xl md:text-9xl text-amber-400 drop-shadow-[0_0_35px_rgba(251,191,36,0.6)]">
+              {countdownNumber}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          PHASE 1: CONTROL TUTORIAL MODAL (Before Battle Starts)
+         ============================================================ */}
+      {battlePhase === 'tutorial' && (
         <div className="relative z-30 flex-1 flex items-center justify-center p-4">
-          <div className="holo-panel holo-glow-cyan max-w-3xl w-full rounded-2xl border border-cyan-500/40 p-6 md:p-8 animate-pop-in">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-5">
+          <div className="holo-panel holo-glow-cyan max-w-2xl w-full rounded-3xl border border-cyan-500/40 p-6 md:p-8 animate-pop-in">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-5">
               <div>
-                <div className="text-xs font-mono-num uppercase tracking-widest text-cyan-300 mb-1">
-                  AUTONOMOUS COMBAT PROTOCOL
+                <div className="text-xs font-mono uppercase tracking-widest text-cyan-400 mb-1 font-bold">
+                  FINAL COMBAT ARENA
                 </div>
                 <h2 className="font-display text-2xl md:text-3xl font-black text-white">
-                  CHOOSE AUTONOMOUS STRATEGY
+                  {teamName} VS THE BULL
                 </h2>
               </div>
               <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  onReturnToWorkshop(false);
-                }}
-                className="cursor-pointer px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-display font-bold text-slate-300"
+                type="button"
+                onClick={handleReturnToEngineering}
+                className="cursor-pointer px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-display font-bold text-slate-300 transition-colors"
               >
                 ← WORKSHOP
               </button>
             </div>
 
-            <p className="text-xs sm:text-sm text-slate-300 mb-5">
-              Once battle starts, your robot fights <strong className="text-cyan-300">100% autonomously</strong>.
-              Your strategy determines what your robot <em>attempts</em> to do — your engineering
-              determines whether it <em>succeeds</em>.
-            </p>
+            {/* Visual Controls Schematic Card */}
+            <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 text-center mb-6">
+              <span className="text-xs font-mono uppercase tracking-widest text-slate-400 font-bold block mb-4">
+                CONTROLS
+              </span>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mb-6">
-              {STRATEGIES.map((st) => {
-                const isSelected = selectedStrategy === st.id;
-                return (
-                  <button
-                    key={st.id}
-                    onClick={() => {
-                      soundEngine.playClick();
-                      setSelectedStrategy(st.id);
-                    }}
-                    className={`cursor-pointer rounded-xl p-4 text-left transition-all border flex flex-col justify-between ${
-                      isSelected
-                        ? 'bg-cyan-500/15 border-cyan-400 shadow-lg shadow-cyan-500/15'
-                        : 'bg-slate-900/90 hover:bg-slate-800/90 border-slate-800'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        {st.icon}
-                        <span
-                          className={`text-[10px] font-mono-num uppercase px-2 py-0.5 rounded ${
-                            isSelected
-                              ? 'bg-cyan-400 text-slate-950 font-bold'
-                              : 'bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          {isSelected ? 'SELECTED' : 'SELECT'}
-                        </span>
-                      </div>
-                      <h3 className="font-display text-lg font-extrabold text-white mb-1">
-                        {st.name}
-                      </h3>
-                      <p className="text-xs text-slate-200 font-medium mb-3">{st.tagline}</p>
-                    </div>
+              {/* D-Pad Layout */}
+              <div className="flex flex-col items-center justify-center gap-2 mb-6">
+                {/* Forward Key */}
+                <div className="flex flex-col items-center">
+                  <div className="px-4 py-2 rounded-xl bg-slate-800 border border-cyan-500/50 text-cyan-300 font-mono font-black text-sm shadow-md flex items-center gap-1.5">
+                    <span>W</span>
+                    <span className="text-slate-500">/</span>
+                    <span>↑</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono mt-0.5">FORWARD</span>
+                </div>
 
-                    <div className="space-y-1.5 text-[11px] border-t border-slate-800/90 pt-2.5">
-                      <div className="text-emerald-300">+ {st.pros}</div>
-                      <div className="text-amber-300">- {st.tradeoffs}</div>
+                {/* Left - Neutral - Right Row */}
+                <div className="flex items-center justify-center gap-4">
+                  <div className="flex flex-col items-center">
+                    <div className="px-4 py-2 rounded-xl bg-slate-800 border border-cyan-500/50 text-cyan-300 font-mono font-black text-sm shadow-md flex items-center gap-1.5">
+                      <span>A</span>
+                      <span className="text-slate-500">/</span>
+                      <span>←</span>
                     </div>
-                  </button>
-                );
-              })}
+                    <span className="text-[10px] text-slate-400 font-mono mt-0.5">LEFT</span>
+                  </div>
+
+                  <div className="w-8 h-8 rounded-full border border-slate-700/80 flex items-center justify-center text-slate-500 text-xs font-mono">
+                    ❖
+                  </div>
+
+                  <div className="flex flex-col items-center">
+                    <div className="px-4 py-2 rounded-xl bg-slate-800 border border-cyan-500/50 text-cyan-300 font-mono font-black text-sm shadow-md flex items-center gap-1.5">
+                      <span>D</span>
+                      <span className="text-slate-500">/</span>
+                      <span>→</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono mt-0.5">RIGHT</span>
+                  </div>
+                </div>
+
+                {/* Reverse Key */}
+                <div className="flex flex-col items-center">
+                  <div className="px-4 py-2 rounded-xl bg-slate-800 border border-cyan-500/50 text-cyan-300 font-mono font-black text-sm shadow-md flex items-center gap-1.5">
+                    <span>S</span>
+                    <span className="text-slate-500">/</span>
+                    <span>↓</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono mt-0.5">REVERSE</span>
+                </div>
+              </div>
+
+              {/* Spacebar for Weapon */}
+              <div className="pt-4 border-t border-slate-800 flex flex-col items-center justify-center">
+                <div className="w-56 py-2.5 rounded-xl bg-slate-800 border border-amber-500/50 text-amber-300 font-mono font-black text-xs uppercase tracking-wider shadow-md">
+                  SPACE
+                </div>
+                <span className="text-[10px] text-amber-400 font-mono mt-1 font-bold">
+                  {isSpinner ? 'HOLD FOR WEAPON POWER' : 'PRIMARY WEAPON / ACTION'}
+                </span>
+              </div>
             </div>
 
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-xs font-mono-num text-slate-400">
-                ZERO MANUAL CONTROLS IN ARENA — PURE ENGINEERING TEST
-              </div>
+            {/* Launch Action */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono text-slate-400">
+                DRIVE YOUR ROBOT • DEFEAT THE BULL
+              </span>
+
               <button
+                type="button"
                 onClick={handleStartBattle}
-                className="cursor-pointer inline-flex items-center gap-3 px-8 py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-display font-black text-lg tracking-wide shadow-lg shadow-amber-500/25 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+                className="cursor-pointer inline-flex items-center gap-3 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-display font-black text-base tracking-wide shadow-lg shadow-amber-500/25 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
               >
                 <Swords className="w-5 h-5" />
-                START BATTLE
+                <span>START BATTLE</span>
               </button>
             </div>
           </div>
@@ -995,56 +995,36 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
       )}
 
       {/* ============================================================
-          PHASE B: SPECTATOR FOOTER DURING AUTONOMOUS BATTLE
+          IN-BATTLE CONTROL REMINDER & FEED (During Battle)
          ============================================================ */}
       {battlePhase === 'fighting' && (
         <div className="relative z-20 px-5 pb-5 flex items-end justify-between gap-4 pointer-events-none">
-          {/* Live Telemetry Event Feed */}
-          <div className="holo-panel rounded-xl border border-slate-800/90 p-3 max-w-md w-full">
-            <div className="text-[10px] font-mono-num uppercase tracking-widest text-slate-400 mb-1.5">
-              AUTONOMOUS CONTROLLER LOG (SENSE → DECIDE → ENGAGE)
-            </div>
-            <div className="space-y-1 max-h-24 overflow-hidden">
-              {hudEvents.slice(0, 4).map((ev) => (
-                <div key={ev.id} className="text-xs font-mono-num flex items-center gap-2">
-                  <span className="text-slate-500">{ev.timeSec.toFixed(1)}s</span>
-                  <span
-                    className={
-                      ev.type === 'critical'
-                        ? 'text-red-300 font-semibold'
-                        : ev.type === 'impact'
-                        ? 'text-amber-300 font-semibold'
-                        : ev.type === 'warning'
-                        ? 'text-orange-300'
-                        : 'text-cyan-300'
-                    }
-                  >
-                    {ev.text}
-                  </span>
-                </div>
-              ))}
-            </div>
+          {/* Subtle Control Reminder Pill */}
+          <div className="holo-panel px-4 py-2 rounded-xl border border-slate-800 text-xs font-mono text-slate-300 flex items-center gap-3">
+            <span><strong className="text-cyan-400 font-bold">WASD / ARROWS</strong> DRIVE</span>
+            <span className="text-slate-600">•</span>
+            <span><strong className="text-amber-400 font-bold">SPACE</strong> WEAPON</span>
           </div>
 
-          {/* Spectator Camera Angle Selector (No Robot Controls!) */}
+          {/* Spectator Camera Mode & Hitboxes */}
           <div className="pointer-events-auto holo-panel rounded-xl border border-slate-800 p-2 flex items-center gap-1.5">
-            <span className="text-[10px] font-mono-num uppercase text-slate-400 px-2 flex items-center gap-1">
-              <Camera className="w-3.5 h-3.5 text-cyan-400" /> CAMERA:
+            <span className="text-[10px] font-mono uppercase text-slate-400 px-2 flex items-center gap-1">
+              <Camera className="w-3.5 h-3.5 text-cyan-400" /> CAM:
             </span>
             {(
               [
-                { id: 'director', label: 'DIRECTOR CAM' },
-                { id: 'wide', label: 'ARENA WIDE' },
-                { id: 'chase', label: 'FOLLOW BOT' },
+                { id: 'director', label: 'FOLLOW' },
+                { id: 'wide', label: 'WIDE' },
               ] as { id: SpectatorCamMode; label: string }[]
             ).map((c) => (
               <button
                 key={c.id}
+                type="button"
                 onClick={() => {
                   soundEngine.playClick();
                   setCamMode(c.id);
                 }}
-                className={`cursor-pointer px-3 py-1.5 rounded-lg text-xs font-mono-num font-bold transition-all ${
+                className={`cursor-pointer px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all ${
                   camMode === c.id
                     ? 'bg-cyan-400 text-slate-950'
                     : 'bg-slate-900 text-slate-300 hover:bg-slate-800'
@@ -1054,84 +1034,87 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
               </button>
             ))}
 
-            {/* Developer Hitbox Debug Toggle */}
             <button
+              type="button"
               onClick={() => {
                 soundEngine.playClick();
                 setShowHitboxes((prev) => !prev);
               }}
-              className={`cursor-pointer px-3 py-1.5 rounded-lg text-xs font-mono-num font-bold transition-all border ${
+              className={`cursor-pointer px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border ${
                 showHitboxes
                   ? 'bg-rose-500/20 text-rose-300 border-rose-500/60 shadow-sm shadow-rose-500/30'
                   : 'bg-slate-900 text-slate-400 border-slate-700/60 hover:text-slate-200'
               }`}
               title="Toggle Collision Hitboxes [H]"
             >
-              DEBUG HITBOXES {showHitboxes ? 'ON' : 'OFF'}
+              HITBOXES {showHitboxes ? 'ON' : 'OFF'}
             </button>
           </div>
         </div>
       )}
 
       {/* ============================================================
-          PHASE C: POST-BATTLE ENGINEERING ANALYSIS (WIN OR LOSS)
+          PHASE C: POST-BATTLE RESULT (WIN OR LOSS)
          ============================================================ */}
       {battlePhase === 'finished' && analysisReport && (
         <div className="relative z-30 flex-1 flex items-center justify-center p-4 overflow-y-auto">
           <div
-            className={`holo-panel max-w-3xl w-full rounded-2xl border p-6 md:p-8 animate-pop-in ${
+            className={`holo-panel max-w-2xl w-full rounded-3xl border p-6 md:p-8 animate-pop-in ${
               analysisReport.winner === 'player'
                 ? 'holo-glow-cyan border-cyan-400/50'
                 : 'holo-glow-red border-red-500/50'
             }`}
           >
             {/* Header Banner */}
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-5">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-4">
               <div>
                 <div
-                  className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-mono-num uppercase tracking-widest mb-1.5 ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-mono uppercase tracking-widest mb-1.5 ${
                     analysisReport.winner === 'player'
-                      ? 'bg-emerald-500/20 border border-emerald-400/40 text-emerald-300'
-                      : 'bg-red-500/20 border border-red-400/40 text-red-300'
+                      ? 'bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-bold'
+                      : 'bg-red-500/20 border border-red-400/40 text-red-300 font-bold'
                   }`}
                 >
                   {analysisReport.winner === 'player' ? (
                     <>
-                      <Trophy className="w-3.5 h-3.5" /> YOUR DESIGN WORKED.
+                      <Trophy className="w-3.5 h-3.5" /> CHAMPIONSHIP VICTORY
                     </>
                   ) : (
                     <>
-                      <AlertTriangle className="w-3.5 h-3.5" /> POST-MATCH FAILURE TELEMETRY
+                      <AlertTriangle className="w-3.5 h-3.5" /> COMBAT EVALUATION
                     </>
                   )}
                 </div>
-                <h2 className="font-display text-3xl md:text-4xl font-black text-white">
-                  {analysisReport.winner === 'player' ? 'BOSS DEFEATED' : 'THE BULL WINS'}
+                <h2 className="font-display text-3xl font-black text-white">
+                  {analysisReport.winner === 'player'
+                    ? 'YOUR TEAM DEFEATED THE BULL'
+                    : 'THE BULL PREVAILED'}
                 </h2>
-                <p className="text-sm text-slate-300 mt-1">{analysisReport.headlineSummary}</p>
+                <p className={`text-sm font-semibold mt-1 ${analysisReport.winner === 'player' ? 'text-emerald-300' : 'text-slate-300'}`}>
+                  {analysisReport.winner === 'player'
+                    ? 'YOUR DESIGN WORKED.'
+                    : analysisReport.headlineSummary}
+                </p>
               </div>
 
-              <div className="rounded-xl bg-slate-900/90 border border-slate-800 px-4 py-2.5 text-right">
-                <div className="text-[10px] font-mono-num text-slate-400 uppercase">
+              <div className="rounded-xl bg-slate-900/90 border border-slate-800 px-4 py-2.5 text-right font-mono">
+                <div className="text-[10px] text-slate-400 uppercase">
                   BATTLE TIME
                 </div>
-                <div className="font-mono-num text-2xl font-extrabold text-white">
+                <div className="text-2xl font-black text-white">
                   {analysisReport.durationSec.toFixed(1)}s
-                </div>
-                <div className="text-[10px] font-mono-num text-cyan-300 uppercase">
-                  STRATEGY: {analysisReport.strategyUsed}
                 </div>
               </div>
             </div>
 
-            {/* Engineering Evidence Narrative */}
+            {/* Factual Engineering Observations */}
             <div className="mb-5">
-              <div className="text-xs font-mono-num uppercase tracking-widest text-cyan-300 font-bold mb-2.5 flex items-center gap-1.5">
-                <ShieldAlert className="w-4 h-4" /> BATTLE ANALYSIS — ENGINEERING EVIDENCE
+              <div className="text-xs font-mono uppercase tracking-widest text-cyan-300 font-bold mb-2 flex items-center gap-1.5">
+                <ShieldAlert className="w-4 h-4" /> ENGINEERING OBSERVATIONS
               </div>
-              <div className="space-y-2 rounded-xl bg-slate-900/90 border border-slate-800 p-4">
+              <div className="space-y-2 rounded-2xl bg-slate-900/90 border border-slate-800 p-4 font-sans text-xs sm:text-sm text-slate-200">
                 {analysisReport.engineeringEvidence.map((item, idx) => (
-                  <div key={idx} className="text-xs sm:text-sm text-slate-200 flex items-start gap-2">
+                  <div key={idx} className="flex items-start gap-2">
                     <CheckCircle2
                       className={`w-4 h-4 shrink-0 mt-0.5 ${
                         analysisReport.winner === 'player' ? 'text-emerald-400' : 'text-amber-400'
@@ -1143,102 +1126,53 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
               </div>
             </div>
 
-            {/* Subsystem Post-Battle Telemetry Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 mb-6">
+            {/* Subsystem Telemetry Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-6 text-xs font-mono">
               <div className="rounded-xl bg-slate-900/85 border border-slate-800 p-2.5">
-                <div className="text-[10px] font-mono-num text-slate-400">BATTERY</div>
-                <div className="font-mono-num text-sm font-bold text-white mt-0.5">
-                  {Math.round(analysisReport.playerFinal.batteryPct)}% left
+                <div className="text-[10px] text-slate-400">BATTERY FINISH</div>
+                <div className="text-sm font-bold text-white mt-0.5">
+                  {Math.round(analysisReport.playerFinal.batteryPct)}%
                 </div>
               </div>
               <div className="rounded-xl bg-slate-900/85 border border-slate-800 p-2.5">
-                <div className="text-[10px] font-mono-num text-slate-400">DRIVE</div>
-                <div className="font-mono-num text-sm font-bold text-white mt-0.5">
-                  {analysisReport.playerFinal.leftDriveHealthPct < 55
-                    ? 'Left Damaged'
-                    : `${Math.round(analysisReport.playerFinal.leftDriveHealthPct)}% Intact`}
-                </div>
-              </div>
-              <div className="rounded-xl bg-slate-900/85 border border-slate-800 p-2.5">
-                <div className="text-[10px] font-mono-num text-slate-400">WEAPON</div>
-                <div className="font-mono-num text-sm font-bold text-white mt-0.5">
-                  {analysisReport.playerFinal.weaponHealthPct > 25 ? 'Functional' : 'Disabled'}
-                </div>
-              </div>
-              <div className="rounded-xl bg-slate-900/85 border border-slate-800 p-2.5">
-                <div className="text-[10px] font-mono-num text-slate-400">MAX MOTOR TEMP</div>
-                <div
-                  className={`font-mono-num text-sm font-bold mt-0.5 ${
-                    analysisReport.peakMotorTempC >= 85 ? 'text-amber-400' : 'text-white'
-                  }`}
-                >
+                <div className="text-[10px] text-slate-400">PEAK DRIVE TEMP</div>
+                <div className={`text-sm font-bold mt-0.5 ${analysisReport.peakMotorTempC >= 85 ? 'text-amber-400' : 'text-white'}`}>
                   {analysisReport.peakMotorTempC}°C
                 </div>
               </div>
               <div className="rounded-xl bg-slate-900/85 border border-slate-800 p-2.5">
-                <div className="text-[10px] font-mono-num text-slate-400">STABILITY</div>
-                <div className="font-mono-num text-sm font-bold text-white mt-0.5">
-                  {analysisReport.playerFinal.isFlipped
-                    ? 'Inverted'
-                    : analysisReport.playerStats.stabilityLabel}
+                <div className="text-[10px] text-slate-400">IMPACTS DELIVERED</div>
+                <div className="text-sm font-bold text-white mt-0.5">
+                  {analysisReport.impactsDelivered} Strikes
                 </div>
               </div>
               <div className="rounded-xl bg-slate-900/85 border border-slate-800 p-2.5">
-                <div className="text-[10px] font-mono-num text-slate-400">ARMOR</div>
-                <div className="font-mono-num text-sm font-bold text-white mt-0.5">
-                  {analysisReport.playerFinal.sideArmorPct < 45
-                    ? 'Side Failed'
-                    : `${Math.round(analysisReport.playerFinal.hullIntegrityPct)}% Hull`}
+                <div className="text-[10px] text-slate-400">PUSH DOMINANCE</div>
+                <div className="text-sm font-bold text-white mt-0.5">
+                  {Math.round(analysisReport.pushDominanceRatio * 100)}%
                 </div>
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Action Buttons: REMATCH and RETURN TO ENGINEERING */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800">
               <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  setBattlePhase('intro-strategy');
-                }}
-                className="cursor-pointer inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm font-display font-bold text-slate-200"
+                type="button"
+                onClick={handleRematch}
+                className="cursor-pointer inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm font-display font-bold text-slate-200 transition-colors"
               >
                 <RotateCcw className="w-4 h-4 text-cyan-400" />
-                CHANGE STRATEGY / REMATCH
+                <span>↻ REMATCH</span>
               </button>
 
-              {analysisReport.winner === 'player' ? (
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    onClick={() => {
-                      soundEngine.playInstall();
-                      if (onReturnToDashboard) {
-                        onReturnToDashboard();
-                      } else {
-                        onReturnToWorkshop(false);
-                      }
-                    }}
-                    className="cursor-pointer inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 text-sm font-display font-extrabold shadow-lg shadow-emerald-500/25 transform hover:scale-[1.02]"
-                  >
-                    <Wrench className="w-4 h-4" />
-                    RETURN TO TEAM DASHBOARD →
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    soundEngine.playInstall();
-                    if (onReturnToDashboard) {
-                      onReturnToDashboard();
-                    } else {
-                      onReturnToWorkshop(false);
-                    }
-                  }}
-                  className="cursor-pointer inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-gradient-to-r from-cyan-400 to-sky-400 hover:from-cyan-300 hover:to-sky-300 text-slate-950 text-sm font-display font-extrabold shadow-lg shadow-cyan-500/25"
-                >
-                  <Wrench className="w-4 h-4" />
-                  RETURN TO ENGINEERING & ITERATE
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleReturnToEngineering}
+                className="cursor-pointer inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-400 to-sky-400 hover:from-cyan-300 hover:to-sky-300 text-slate-950 text-xs sm:text-sm font-display font-extrabold shadow-lg shadow-cyan-500/25 transition-all transform hover:scale-[1.02]"
+              >
+                <Wrench className="w-4 h-4" />
+                <span>RETURN TO ENGINEERING</span>
+              </button>
             </div>
           </div>
         </div>

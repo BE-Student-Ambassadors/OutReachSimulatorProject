@@ -1,507 +1,326 @@
 import { OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import {
+  ArrowRight,
   Briefcase,
   CheckCircle2,
-  Clock,
-  Cpu,
+  Code2,
+  Lock,
   RotateCcw,
-  ShieldAlert,
-  Swords,
   Wrench,
   Zap,
 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useMemo } from 'react';
 import { soundEngine } from '../../audio/soundEngine';
-import { ARMOR_CATALOG, CHASSIS_CATALOG, WEAPON_CATALOG } from '../../data/components';
-import {
-  computeTeamEngineeringSummary,
-  validateSystemIntegration,
-} from '../../simulation/integrationValidator';
 import {
   type RobotConfiguration,
-  type SystemIntegrationReport,
   type TeamRobotProject,
   type TeamRole,
 } from '../../types/robot';
 import { Robot3D } from '../three/Robot3D';
 import { ResetProjectModal } from './ResetProjectModal';
-import { SystemIntegrationModal } from './SystemIntegrationModal';
 
 interface TeamDashboardScreenProps {
   project: TeamRobotProject;
   onSelectRole: (role: TeamRole) => void;
+  onCheckRobot?: () => void;
   onEnterArena: () => void;
   onResetProject: () => void;
+  hideHeader?: boolean;
 }
 
 export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
   project,
   onSelectRole,
+  onCheckRobot,
   onEnterArena,
   onResetProject,
 }) => {
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [showIntegrationModal, setShowIntegrationModal] = useState(false);
+  const [showResetModal, setShowResetModal] = React.useState(false);
 
-  const summary = computeTeamEngineeringSummary(project);
-  const integrationReport: SystemIntegrationReport = validateSystemIntegration(project);
-
-  const currentRobotConfig: RobotConfiguration = {
-    name: project.teamName,
-    chassisId: project.mechanical.chassisId,
-    driveId: project.mechanical.driveId,
-    wheelsId: project.mechanical.wheelsId,
-    armorId: project.mechanical.armorId,
-    armorThickness: project.mechanical.armorThickness,
-    weaponId: project.mechanical.weaponId,
-    batteryId: project.electrical.batteryId,
-    utilityId: project.mechanical.utilityId,
-    accentColor: project.mechanical.accentColor,
+  // Bull configuration for large 3D visual
+  const bullConfig: RobotConfiguration = useMemo(() => ({
+    name: 'The Bull',
+    chassisId: 'wide',
+    driveId: 'torque',
+    wheelsId: 'high-traction',
+    armorId: 'steel',
+    armorThickness: 'thick',
+    weaponId: 'wedge',
+    batteryId: 'large',
+    utilityId: 'wheel-guards',
+    accentColor: '#dc2626',
     customWeapon: null,
     customUtility: null,
-  };
+    autonomousStrategy: 'aggressive',
+  }), []);
 
-  const handleRunIntegration = () => {
-    soundEngine.playClick();
-    if (integrationReport.overallPassed) {
-      soundEngine.playArenaHorn();
-    } else {
-      soundEngine.playWarning();
+  // Determine state for each of the 4 roles: 'done' | 'progress' | 'not-started'
+  const getRoleStatus = (role: TeamRole): 'done' | 'progress' | 'not-started' => {
+    switch (role) {
+      case 'mechanical':
+        if (project.mechanical.isCompleted) return 'done';
+        if (
+          Object.keys(project.mechanical.purchasedParts || {}).length > 0 ||
+          (project.mechanical.assembledParts || []).length > 0
+        )
+          return 'progress';
+        return 'not-started';
+
+      case 'electrical':
+        if (project.electrical.isCompleted) return 'done';
+        if ((project.electrical.wires || []).length > 0 || project.electrical.wiringVerified)
+          return 'progress';
+        return 'not-started';
+
+      case 'software':
+        if (project.software.isCompleted) return 'done';
+        if (
+          project.software.computerConnected ||
+          project.software.bugsFixed ||
+          project.software.softwareUploaded
+        )
+          return 'progress';
+        return 'not-started';
+
+      case 'project-lead':
+        if (project.projectLead.isCompleted) return 'done';
+        if (Boolean(project.projectLead.adPrompt?.trim()) || project.projectLead.sponsorTier !== 'None')
+          return 'progress';
+        return 'not-started';
     }
-    setShowIntegrationModal(true);
   };
 
-  const allRolesMarkedDone =
+  const allRolesComplete =
     project.mechanical.isCompleted &&
     project.electrical.isCompleted &&
     project.software.isCompleted &&
     project.projectLead.isCompleted;
 
+  const rolesList: {
+    id: TeamRole;
+    name: string;
+    tagline: string;
+    icon: React.ComponentType<{ className?: string }>;
+    colorClass: string;
+  }[] = [
+    {
+      id: 'mechanical',
+      name: 'Mechanical',
+      tagline: 'Build the robot',
+      icon: Wrench,
+      colorClass: 'text-cyan-600 bg-cyan-50 border-cyan-200',
+    },
+    {
+      id: 'electrical',
+      name: 'Electrical',
+      tagline: 'Wire the robot',
+      icon: Zap,
+      colorClass: 'text-amber-600 bg-amber-50 border-amber-200',
+    },
+    {
+      id: 'software',
+      name: 'Software',
+      tagline: 'Program the robot',
+      icon: Code2,
+      colorClass: 'text-indigo-600 bg-indigo-50 border-indigo-200',
+    },
+    {
+      id: 'project-lead',
+      name: 'Business',
+      tagline: 'Fund the robot',
+      icon: Briefcase,
+      colorClass: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+    },
+  ];
+
   return (
-    <div className="relative w-full h-full bg-[#080d1a] overflow-hidden flex flex-col justify-between">
-      {/* 3D Turntable Background Canvas */}
-      <div className="absolute inset-0 z-0">
-        <Canvas shadows camera={{ position: [2.6, 1.85, 2.9], fov: 42 }}>
-          <color attach="background" args={['#080d1a']} />
-          <fog attach="fog" args={['#080d1a', 5.5, 14]} />
-          <OrbitControls
-            enablePan={false}
-            minDistance={2.0}
-            maxDistance={5.2}
-            minPolarAngle={0.25}
-            maxPolarAngle={Math.PI / 2 - 0.05}
-            autoRotate
-            autoRotateSpeed={0.8}
-          />
+    <div className="relative w-full h-full bg-slate-50 text-slate-800 flex flex-col justify-between p-4 md:p-6 lg:p-8 font-sans overflow-y-auto select-none">
+      {/* Main 2-Column Home Layout */}
+      <div className="flex-1 max-w-6xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
+        {/* ==========================================
+            LEFT COLUMN: BATTLEBOT CHALLENGE & TEAM
+            ========================================== */}
+        <div className="lg:col-span-6 flex flex-col justify-center space-y-6">
+          <div>
+            <span className="text-[11px] font-mono font-black uppercase tracking-wider text-cyan-700 bg-cyan-50 border border-cyan-200 px-3 py-1 rounded-full inline-block mb-2">
+              BattleBot Challenge
+            </span>
+            <h1 className="font-display font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-tight">
+              Design, build, program, and drive a 30 lb combat robot to defeat The Bull.
+            </h1>
+          </div>
 
-          <ambientLight intensity={0.9} color="#f8fafc" />
-          <directionalLight
-            castShadow
-            position={[4.5, 7, 5]}
-            intensity={2.2}
-            color="#ffffff"
-            shadow-mapSize-width={1024}
-            shadow-mapSize-height={1024}
-          />
-          <directionalLight position={[-4, 4.5, -3.5]} intensity={1.1} color="#94a3b8" />
-          <pointLight position={[-3.5, 3, -3]} intensity={2.0} color="#38bdf8" />
-          <pointLight position={[3.5, 2.8, -3]} intensity={1.8} color="#f59e0b" />
+          <div>
+            <h2 className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold mb-3">
+              Your Team
+            </h2>
 
-          {/* Turntable platform */}
-          <group position={[0, -0.02, 0]}>
-            <mesh receiveShadow position={[0, -0.03, 0]}>
-              <cylinderGeometry args={[2.0, 2.15, 0.08, 48]} />
-              <meshStandardMaterial color="#1e2638" metalness={0.5} roughness={0.5} />
-            </mesh>
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}>
-              <ringGeometry args={[1.82, 1.9, 48]} />
-              <meshStandardMaterial
-                color={project.mechanical.accentColor}
-                emissive={project.mechanical.accentColor}
-                emissiveIntensity={1.2}
+            {/* 4 Simple Role Buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {rolesList.map((role) => {
+                const status = getRoleStatus(role.id);
+                const Icon = role.icon;
+                return (
+                  <button
+                    key={role.id}
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      onSelectRole(role.id);
+                    }}
+                    className="cursor-pointer group p-4 rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all text-left flex flex-col justify-between min-h-[110px]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={`size-8 rounded-xl border flex items-center justify-center shrink-0 ${role.colorClass}`}
+                        >
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <span className="font-display font-extrabold text-sm text-slate-900">
+                          {role.name}
+                        </span>
+                      </div>
+
+                      {/* Tiny state indicator */}
+                      <span className="text-xs font-bold">
+                        {status === 'done' ? (
+                          <span className="text-emerald-600 flex items-center gap-1 font-mono text-[11px]">
+                            ✓ Done
+                          </span>
+                        ) : status === 'progress' ? (
+                          <span className="text-cyan-600 flex items-center gap-1 font-mono text-[11px]">
+                            ● Active
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 font-mono text-[11px]">
+                            ○ Ready
+                          </span>
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
+                      <span className="text-xs text-slate-500 font-medium">
+                        {role.tagline}
+                      </span>
+                      <span className="text-xs font-display font-bold text-slate-800 group-hover:text-cyan-600 flex items-center gap-1 transition-colors">
+                        <span>{status === 'done' ? 'Review' : status === 'progress' ? 'Continue' : 'Start'}</span>
+                        <ArrowRight className="w-3.5 h-3.5 transform group-hover:translate-x-0.5 transition-transform" />
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ==========================================
+            RIGHT COLUMN: LARGE THE BULL VISUAL
+            ========================================== */}
+        <div className="lg:col-span-6 h-[420px] sm:h-[480px] rounded-3xl bg-gradient-to-b from-slate-100 to-slate-200/80 border border-slate-200 relative overflow-hidden flex flex-col justify-between p-6 shadow-sm">
+          {/* Subtle Stage Background */}
+          <div className="absolute inset-0 z-0">
+            <Canvas shadows camera={{ position: [2.5, 1.7, 2.7], fov: 38 }}>
+              <ambientLight intensity={1.2} />
+              <directionalLight position={[5, 8, 5]} intensity={2.2} castShadow />
+              <directionalLight position={[-4, 4, -3]} intensity={0.8} />
+
+              <group position={[0, -0.05, 0]}>
+                <mesh receiveShadow position={[0, -0.03, 0]}>
+                  <cylinderGeometry args={[1.8, 1.95, 0.08, 48]} />
+                  <meshStandardMaterial color="#cbd5e1" metalness={0.4} roughness={0.5} />
+                </mesh>
+              </group>
+
+              <group position={[0, -0.02, 0]}>
+                <Robot3D
+                  isBullBoss={true}
+                  config={bullConfig}
+                  wheelSpeedRad={0}
+                />
+              </group>
+
+              <OrbitControls
+                enablePan={false}
+                minDistance={1.8}
+                maxDistance={4.2}
+                maxPolarAngle={Math.PI / 2 - 0.05}
+                autoRotate
+                autoRotateSpeed={0.8}
               />
-            </mesh>
-          </group>
+            </Canvas>
+          </div>
 
-          <group position={[0, 0, 0]}>
-            <Robot3D
-              config={currentRobotConfig}
-              wheelSpeedRad={0}
-              motorTempC={summary.stats.expectedMotorTempC}
-            />
-          </group>
-        </Canvas>
-      </div>
-
-      {/* Top Header Bar */}
-      <div className="relative z-20 p-4 md:px-6 flex items-center justify-between pointer-events-auto bg-gradient-to-b from-[#080d1a]/90 via-[#080d1a]/60 to-transparent">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-[11px] font-mono-num uppercase tracking-widest text-cyan-400 font-semibold">
-              BESA COMBAT ROBOTICS • TEAM ENGINEERING STATION
+          {/* Minimal Text Top */}
+          <div className="relative z-10 text-center pointer-events-none">
+            <h3 className="font-display font-black text-2xl text-slate-900 tracking-tight">
+              THE BULL
+            </h3>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-500">
+              Final Opponent
             </span>
           </div>
-          <h1 className="font-display font-black text-2xl md:text-3xl text-white tracking-wide">
-            {project.teamName}
-          </h1>
-        </div>
 
-        {/* Top Right Actions: Quick Stats & Instructor Reset */}
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-4 px-4 py-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs font-mono-num">
-            <div>
-              <span className="text-slate-400 block text-[10px]">TOTAL MASS</span>
-              <span
-                className={`font-bold ${
-                  summary.isOverweight ? 'text-red-400 font-extrabold' : 'text-slate-200'
-                }`}
-              >
-                {summary.totalWeightLb.toFixed(1)} / 30.0 LB
-              </span>
-            </div>
-            <div className="w-px h-6 bg-slate-800" />
-            <div>
-              <span className="text-slate-400 block text-[10px]">PROJECT COST</span>
-              <span
-                className={`font-bold ${
-                  summary.isOverBudget ? 'text-red-400 font-extrabold' : 'text-slate-200'
-                }`}
-              >
-                ${summary.totalCostUsd} / ${summary.effectiveBudgetUsd}
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setShowResetModal(true)}
-            title="Reset Project for next team"
-            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono-num text-slate-400 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden md:inline">RESET PROJECT</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Middle Spacer for 3D View */}
-      <div className="flex-1 pointer-events-none" />
-
-      {/* Bottom Engineering Deck: 4 Discipline Cards + Integration Console */}
-      <div className="relative z-20 p-4 md:p-6 bg-gradient-to-t from-[#080d1a] via-[#080d1a]/95 to-transparent flex flex-col gap-3">
-        {/* 4 Collaborative Roles Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* 1. Mechanical */}
-          <div
-            onClick={() => {
-              soundEngine.playClick();
-              onSelectRole('mechanical');
-            }}
-            className="cursor-pointer holo-panel rounded-2xl border border-cyan-500/30 hover:border-cyan-400/80 p-3.5 bg-slate-900/85 hover:bg-slate-900 transition-all transform hover:-translate-y-1 shadow-lg"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300">
-                  <Wrench className="w-4 h-4" />
+          {/* Bottom Card: Locked or Ready */}
+          <div className="relative z-10 flex justify-center pointer-events-none">
+            {!allRolesComplete ? (
+              <div className="bg-white/90 backdrop-blur-md border border-slate-200 px-5 py-3 rounded-2xl shadow-md text-center max-w-xs">
+                <div className="flex items-center justify-center gap-1.5 text-slate-700 font-bold text-xs">
+                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Arena Locked</span>
                 </div>
-                <span className="font-display font-extrabold text-sm text-white tracking-wide">
-                  MECHANICAL
-                </span>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Complete all 4 roles to enter.
+                </p>
               </div>
-              <span
-                className={`text-[10px] font-mono-num px-2 py-0.5 rounded-full border ${
-                  project.mechanical.isCompleted
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                    : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
-                }`}
-              >
-                {project.mechanical.isCompleted ? 'COMPLETE' : 'IN PROGRESS'}
-              </span>
-            </div>
-
-            <div className="space-y-1 text-xs font-mono-num text-slate-300">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Chassis & Weapon:</span>
-                <span className="font-semibold text-slate-100 truncate max-w-[130px]">
-                  {CHASSIS_CATALOG[project.mechanical.chassisId]?.name} •{' '}
-                  {WEAPON_CATALOG[project.mechanical.weaponId as Exclude<typeof project.mechanical.weaponId, 'custom-weapon'>]?.name ?? 'CUSTOM'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Armor:</span>
-                <span className="font-semibold text-slate-100">
-                  {ARMOR_CATALOG[project.mechanical.armorId]?.name} ({project.mechanical.armorThickness.toUpperCase()})
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono-num text-cyan-400 font-semibold">
-              <span>CONFIGURE MACHINE</span>
-              <span>→</span>
-            </div>
-          </div>
-
-          {/* 2. Electrical */}
-          <div
-            onClick={() => {
-              soundEngine.playClick();
-              onSelectRole('electrical');
-            }}
-            className="cursor-pointer holo-panel rounded-2xl border border-amber-500/30 hover:border-amber-400/80 p-3.5 bg-slate-900/85 hover:bg-slate-900 transition-all transform hover:-translate-y-1 shadow-lg"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300">
-                  <Zap className="w-4 h-4" />
+            ) : (
+              <div className="pointer-events-auto bg-white/95 backdrop-blur-md border border-emerald-300 p-4 rounded-2xl shadow-xl text-center max-w-xs animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-center gap-1.5 text-emerald-800 font-bold text-xs mb-2 font-mono">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>TEAM READY</span>
                 </div>
-                <span className="font-display font-extrabold text-sm text-white tracking-wide">
-                  ELECTRICAL
-                </span>
-              </div>
-              <span
-                className={`text-[10px] font-mono-num px-2 py-0.5 rounded-full border ${
-                  project.electrical.isCompleted
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                }`}
-              >
-                {project.electrical.isCompleted ? 'COMPLETE' : 'IN PROGRESS'}
-              </span>
-            </div>
-
-            <div className="space-y-1 text-xs font-mono-num text-slate-300">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Wiring Harness:</span>
-                <span
-                  className={`font-semibold ${
-                    project.electrical.wiringVerified ? 'text-emerald-400' : 'text-amber-400'
-                  }`}
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playInstall();
+                    if (onCheckRobot) {
+                      onCheckRobot();
+                    } else {
+                      onEnterArena();
+                    }
+                  }}
+                  className="cursor-pointer w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-display font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/25 transition-all transform active:scale-98 flex items-center justify-center gap-1.5"
                 >
-                  {project.electrical.wiringVerified ? 'VERIFIED ✓' : 'INCOMPLETE ✕'}
-                </span>
+                  <span>Check Your Robot →</span>
+                </button>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Power System:</span>
-                <span
-                  className={`font-semibold ${
-                    project.electrical.wiringVerified ? 'text-emerald-400' : 'text-slate-300'
-                  }`}
-                >
-                  {project.electrical.wiringVerified ? 'ONLINE (100%)' : 'STANDBY'}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono-num text-amber-400 font-semibold">
-              <span>WIRE & POWER</span>
-              <span>→</span>
-            </div>
-          </div>
-
-          {/* 3. Software */}
-          <div
-            onClick={() => {
-              soundEngine.playClick();
-              onSelectRole('software');
-            }}
-            className="cursor-pointer holo-panel rounded-2xl border border-emerald-500/30 hover:border-emerald-400/80 p-3.5 bg-slate-900/85 hover:bg-slate-900 transition-all transform hover:-translate-y-1 shadow-lg"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300">
-                  <Cpu className="w-4 h-4" />
-                </div>
-                <span className="font-display font-extrabold text-sm text-white tracking-wide">
-                  SOFTWARE
-                </span>
-              </div>
-              <span
-                className={`text-[10px] font-mono-num px-2 py-0.5 rounded-full border ${
-                  project.software.isCompleted
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                }`}
-              >
-                {project.software.isCompleted ? 'COMPLETE' : 'IN PROGRESS'}
-              </span>
-            </div>
-
-            <div className="space-y-1 text-xs font-mono-num text-slate-300">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Hardware Link:</span>
-                <span
-                  className={`font-semibold ${
-                    project.software.computerConnected ? 'text-emerald-400' : 'text-amber-400'
-                  }`}
-                >
-                  {project.software.computerConnected ? 'CONNECTED ✓' : 'UNCONNECTED ✕'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Autonomous Code:</span>
-                <span
-                  className={`font-semibold ${
-                    project.software.softwareUploaded
-                      ? 'text-emerald-400'
-                      : project.software.bugsFixed
-                      ? 'text-cyan-300'
-                      : 'text-amber-400'
-                  }`}
-                >
-                  {project.software.softwareUploaded
-                    ? 'UPLOADED ✓'
-                    : project.software.bugsFixed
-                    ? 'READY TO UPLOAD'
-                    : 'BUGS DETECTED'}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono-num text-emerald-400 font-semibold">
-              <span>DEBUG & UPLOAD</span>
-              <span>→</span>
-            </div>
-          </div>
-
-          {/* 4. Business Lead */}
-          <div
-            onClick={() => {
-              soundEngine.playClick();
-              onSelectRole('project-lead');
-            }}
-            className="cursor-pointer holo-panel rounded-2xl border border-purple-500/30 hover:border-purple-400/80 p-3.5 bg-slate-900/85 hover:bg-slate-900 transition-all transform hover:-translate-y-1 shadow-lg"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300">
-                  <Briefcase className="w-4 h-4" />
-                </div>
-                <span className="font-display font-extrabold text-sm text-white tracking-wide">
-                  BUSINESS LEAD
-                </span>
-              </div>
-              <span
-                className={`text-[10px] font-mono-num px-2 py-0.5 rounded-full border ${
-                  project.projectLead.isCompleted
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                    : 'bg-purple-500/10 border-purple-500/30 text-purple-300'
-                }`}
-              >
-                {project.projectLead.isCompleted ? 'COMPLETE' : 'IN PROGRESS'}
-              </span>
-            </div>
-
-            <div className="space-y-1 text-xs font-mono-num text-slate-300">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Budget Spent:</span>
-                <span
-                  className={`font-semibold ${
-                    summary.isOverBudget ? 'text-red-400' : 'text-slate-100'
-                  }`}
-                >
-                  ${summary.totalCostUsd} / ${summary.effectiveBudgetUsd}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Sponsorship:</span>
-                <span className="font-semibold text-purple-300 uppercase">
-                  {project.projectLead.sponsorTier !== 'None'
-                    ? `${project.projectLead.sponsorTier} (+$${project.projectLead.sponsorshipUsd})`
-                    : 'NO SPONSOR (+$0)'}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono-num text-purple-400 font-semibold">
-              <span>PROMPT & SPONSOR</span>
-              <span>→</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Central Integration Gatekeeper Bar */}
-        <div className="rounded-2xl border border-slate-700/80 bg-slate-900/90 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div
-              className={`p-2.5 rounded-xl border ${
-                integrationReport.overallPassed
-                  ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                  : integrationReport.failures.length > 0
-                  ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
-                  : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-400'
-              }`}
-            >
-              {integrationReport.overallPassed ? (
-                <CheckCircle2 className="w-5 h-5" />
-              ) : integrationReport.failures.length > 0 ? (
-                <ShieldAlert className="w-5 h-5" />
-              ) : (
-                <Clock className="w-5 h-5" />
-              )}
-            </div>
-            <div>
-              <div className="text-[10px] font-mono-num uppercase tracking-wider text-slate-400">
-                SYSTEM INTEGRATION STATUS
-              </div>
-              <div className="font-display font-extrabold text-sm md:text-base text-white">
-                {integrationReport.overallPassed
-                  ? 'PASSED — ALL 4 DISCIPLINES CERTIFIED'
-                  : integrationReport.failures.length > 0
-                  ? `INTEGRATION CONFLICTS: ${integrationReport.failures.length} ISSUE(S) DETECTED`
-                  : allRolesMarkedDone
-                  ? 'ALL DISCIPLINES COMPLETE — READY FOR SYSTEM INTEGRATION CHECK'
-                  : 'DISCIPLINES IN PROGRESS — INTEGRATION TEST AVAILABLE'}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRunIntegration}
-              className={`cursor-pointer px-5 py-2.5 rounded-xl text-xs font-display font-bold tracking-wide transition-all ${
-                integrationReport.overallPassed
-                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                  : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-md shadow-cyan-500/20'
-              }`}
-            >
-              RUN INTEGRATION CHECK
-            </button>
-
-            {integrationReport.overallPassed && (
-              <button
-                onClick={() => {
-                  soundEngine.playArenaHorn();
-                  onEnterArena();
-                }}
-                className="cursor-pointer inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-display font-black text-xs md:text-sm tracking-wider shadow-lg shadow-amber-500/30 animate-pulse transition-all transform hover:scale-105"
-              >
-                <Swords className="w-4 h-4" />
-                ENTER COMBAT ARENA →
-              </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Integration Review Modal */}
-      <SystemIntegrationModal
-        isOpen={showIntegrationModal}
-        project={project}
-        report={integrationReport}
-        onClose={() => setShowIntegrationModal(false)}
-        onEnterArena={onEnterArena}
-        onSelectRole={(role) => {
-          setShowIntegrationModal(false);
-          onSelectRole(role);
-        }}
-      />
+      {/* Subtle Reset Project Control */}
+      <div className="max-w-6xl w-full mx-auto flex items-center justify-end pt-4">
+        <button
+          type="button"
+          onClick={() => setShowResetModal(true)}
+          className="cursor-pointer inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <RotateCcw className="w-3 h-3" />
+          <span>Reset Project</span>
+        </button>
+      </div>
 
-      {/* Instructor Reset Modal */}
       <ResetProjectModal
         isOpen={showResetModal}
+        onConfirmReset={() => {
+          setShowResetModal(false);
+          onResetProject();
+        }}
         onClose={() => setShowResetModal(false)}
-        onConfirmReset={onResetProject}
       />
     </div>
   );

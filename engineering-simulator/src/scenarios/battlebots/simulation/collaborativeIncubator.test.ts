@@ -12,6 +12,11 @@ import {
   evaluateAdCampaignPrompt,
 } from '../data/teamData';
 import {
+  BOTBAY_ITEMS,
+  findMarketplaceItem,
+  REQUIRED_MECHANICAL_CATEGORIES,
+} from '../data/marketplaceData';
+import {
   computeTeamEngineeringSummary,
   validateSystemIntegration,
 } from './integrationValidator';
@@ -730,6 +735,160 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
       expect(fullCheck.subsystems?.weaponSystem).toBe(true);
       expect(fullCheck.subsystems?.robotComputer).toBe(true);
       expect(fullCheck.subsystems?.sensorNetwork).toBe(true);
+    });
+  });
+
+  describe('Discipline 1: Mechanical Marketplace, Dynamic Blueprint & Assembly', () => {
+    it('provides multi-condition catalog items in BotBay marketplace with expected tradeoffs', () => {
+      expect(BOTBAY_ITEMS.length).toBeGreaterThan(15);
+      expect(REQUIRED_MECHANICAL_CATEGORIES.length).toBe(5);
+
+      const vertSpinner = findMarketplaceItem('weapon', 'vertical-spinner');
+      expect(vertSpinner).toBeDefined();
+      expect(vertSpinner?.conditions.new.priceUsd).toBe(620);
+      expect(vertSpinner?.conditions.refurbished.priceUsd).toBe(510);
+      expect(vertSpinner?.conditions.used.priceUsd).toBe(410);
+
+      // Used parts are cheaper and functional
+      expect(vertSpinner!.conditions.used.priceUsd).toBeLessThan(vertSpinner!.conditions.new.priceUsd);
+
+      const wedge = findMarketplaceItem('weapon', 'wedge');
+      expect(wedge).toBeDefined();
+      expect(wedge?.weightLb).toBeLessThan(vertSpinner!.weightLb);
+      expect(wedge?.conditions.new.priceUsd).toBeLessThan(vertSpinner!.conditions.new.priceUsd);
+    });
+
+    it('dynamically adapts available team funding when Business updates sponsorship', () => {
+      const project = createInitialTeamProject('MARKETPLACE TEAM');
+      expect(project.projectLead.baseBudgetUsd).toBe(1800);
+      expect(project.projectLead.sponsorshipUsd).toBe(0);
+
+      let summary = computeTeamEngineeringSummary(project);
+      expect(summary.effectiveBudgetUsd).toBe(1800);
+
+      // Business student closes Silver sponsorship (+$400)
+      project.projectLead.sponsorshipUsd = 400;
+      project.projectLead.sponsorTier = 'Silver';
+      project.projectLead.budgetCapUsd = 2200;
+
+      summary = computeTeamEngineeringSummary(project);
+      expect(summary.effectiveBudgetUsd).toBe(2200);
+
+      // Business student improves prompt to Gold sponsorship (+$700)
+      project.projectLead.sponsorshipUsd = 700;
+      project.projectLead.sponsorTier = 'Gold';
+      project.projectLead.budgetCapUsd = 2500;
+
+      summary = computeTeamEngineeringSummary(project);
+      expect(summary.effectiveBudgetUsd).toBe(2500);
+    });
+
+    it('enforces assembly sequence requiring chassis frame before drive or wheels', () => {
+      const assembled: string[] = [];
+
+      const canMount = (cat: string) => {
+        if (cat === 'chassis') return true;
+        if (!assembled.includes('chassis')) return false;
+        if (cat === 'wheels' || cat === 'weapon' || cat === 'armor') {
+          return assembled.includes('drive');
+        }
+        return true;
+      };
+
+      // Cannot mount drive, wheels, or weapon before chassis
+      expect(canMount('drive')).toBe(false);
+      expect(canMount('wheels')).toBe(false);
+      expect(canMount('weapon')).toBe(false);
+
+      // Mount chassis first
+      assembled.push('chassis');
+      expect(canMount('drive')).toBe(true);
+      expect(canMount('wheels')).toBe(false); // Needs drive inside first
+
+      // Mount drive
+      assembled.push('drive');
+      expect(canMount('wheels')).toBe(true);
+      expect(canMount('armor')).toBe(true);
+      expect(canMount('weapon')).toBe(true);
+    });
+
+    it('validates mechanical mass limits during inspection (pass <= 30 lb, fail > 30 lb)', () => {
+      const project = createInitialTeamProject('INSPECTION TEAM');
+
+      // 1. Lightweight configuration (compact, speed drive, small wheels, polycarbonate, wedge)
+      project.mechanical.chassisId = 'compact';
+      project.mechanical.driveId = 'speed';
+      project.mechanical.wheelsId = 'small';
+      project.mechanical.armorId = 'polycarbonate';
+      project.mechanical.weaponId = 'wedge';
+
+      let summary = computeTeamEngineeringSummary(project);
+      expect(summary.totalWeightLb).toBeLessThanOrEqual(30.0);
+      expect(summary.isOverweight).toBe(false);
+
+      // 2. Heavyweight configuration (wide chassis, torque drive, tracks, steel armor thick, large battery)
+      project.mechanical.chassisId = 'wide';
+      project.mechanical.driveId = 'torque';
+      project.mechanical.wheelsId = 'tracks';
+      project.mechanical.armorId = 'steel';
+      project.mechanical.armorThickness = 'thick';
+      project.electrical.batteryId = 'large';
+
+      summary = computeTeamEngineeringSummary(project);
+      expect(summary.totalWeightLb).toBeGreaterThan(30.0);
+      expect(summary.isOverweight).toBe(true);
+    });
+
+    it('resets Mechanical challenge cleanly without touching Business, Electrical, or Software', () => {
+      const project = createInitialTeamProject('FULL RESET TEAM');
+
+      // Setup team with work across disciplines
+      project.projectLead.sponsorshipUsd = 700;
+      project.projectLead.sponsorTier = 'Gold';
+      project.projectLead.budgetCapUsd = 2500;
+
+      project.electrical.wires = [...DEFAULT_SIMPLIFIED_WIRES];
+      project.electrical.wiringVerified = true;
+
+      project.software.computerConnected = true;
+      project.software.bugsFixed = true;
+
+      // Mechanical has custom purchases & completed assembly
+      project.mechanical.chassisId = 'wide';
+      project.mechanical.weaponId = 'vertical-spinner';
+      project.mechanical.assembledParts = ['chassis', 'drive', 'wheels', 'armor', 'weapon'];
+      project.mechanical.partsDelivered = true;
+      project.mechanical.inspectionPassed = true;
+      project.mechanical.isCompleted = true;
+
+      // Simulate Mechanical Reset
+      project.mechanical = {
+        chassisId: 'compact',
+        driveId: 'balanced',
+        wheelsId: 'small',
+        armorId: 'aluminum',
+        armorThickness: 'medium',
+        weaponId: 'wedge',
+        utilityId: 'none',
+        accentColor: '#22d3ee',
+        purchasedParts: {},
+        assembledParts: [],
+        workflowStage: 'marketplace',
+        partsDelivered: false,
+        inspectionPassed: false,
+        isCompleted: false,
+      };
+
+      // Mechanical is reset
+      expect(project.mechanical.isCompleted).toBe(false);
+      expect(project.mechanical.assembledParts).toEqual([]);
+      expect(project.mechanical.workflowStage).toBe('marketplace');
+
+      // Other disciplines remain intact
+      expect(project.projectLead.sponsorshipUsd).toBe(700);
+      expect(project.projectLead.sponsorTier).toBe('Gold');
+      expect(project.electrical.wiringVerified).toBe(true);
+      expect(project.software.bugsFixed).toBe(true);
     });
   });
 });

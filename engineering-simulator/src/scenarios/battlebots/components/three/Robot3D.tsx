@@ -12,6 +12,7 @@ export interface Robot3DProps {
   installProgress?: number; // 0 to 1
   selectedCategory?: ComponentCategory;
   onSelectCategory?: (cat: ComponentCategory) => void;
+  assembledCategories?: (ComponentCategory | string)[];
 
   // Dynamic simulation / animation states
   wheelSpeedRad?: number; // rad/sec
@@ -31,7 +32,44 @@ export interface Robot3DProps {
     rightDrivePct: number;
     weaponPct: number;
   };
+
+  // Visual ghost blueprint placement outlines (Assembly Workbench)
+  ghostMode?: boolean;
+  activeGhostCategory?: ComponentCategory | null;
+  isTargetHovered?: boolean;
+  showFullBlueprint?: boolean;
 }
+
+// Blueprint ghost wireframe material with animated heartbeat cyan pulse
+const GhostMaterial: React.FC<{
+  isActive: boolean;
+  isHovered?: boolean;
+}> = ({ isActive, isHovered }) => {
+  const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  useFrame(({ clock }) => {
+    if (matRef.current) {
+      if (isActive) {
+        const pulse = Math.sin(clock.getElapsedTime() * 4.5) * 0.35 + 0.9;
+        matRef.current.emissiveIntensity = isHovered ? 2.5 : pulse * 1.4;
+        matRef.current.opacity = isHovered ? 0.95 : 0.75;
+      }
+    }
+  });
+
+  return (
+    <meshStandardMaterial
+      ref={matRef}
+      color={isActive ? '#00e5ff' : '#0284c7'}
+      emissive={isActive ? '#00e5ff' : '#0369a1'}
+      emissiveIntensity={isActive ? 1.2 : 0.18}
+      wireframe
+      transparent
+      opacity={isActive ? 0.75 : 0.18}
+      roughness={0.2}
+      metalness={0.8}
+    />
+  );
+};
 
 // Procedural 3D primitive builder for AI Inventor Lab components
 const ProceduralCustomComponent3D: React.FC<{
@@ -206,6 +244,7 @@ export const Robot3D: React.FC<Robot3DProps> = ({
   installingCategory = null,
   selectedCategory,
   onSelectCategory,
+  assembledCategories,
   wheelSpeedRad = 0,
   wheelSlipping = false,
   weaponActive = false,
@@ -216,6 +255,10 @@ export const Robot3D: React.FC<Robot3DProps> = ({
   isFlipped = false,
   motorTempC = 45,
   damageState,
+  ghostMode = false,
+  activeGhostCategory = null,
+  isTargetHovered = false,
+  showFullBlueprint = false,
 }) => {
   const rootRef = useRef<THREE.Group>(null);
   const vertSpinnerRef = useRef<THREE.Group>(null);
@@ -228,6 +271,10 @@ export const Robot3D: React.FC<Robot3DProps> = ({
 
   const effectiveBossId: BossId | null = bossId ?? (isBullBoss ? 'bull' : null);
 
+  const isAssembled = (cat: string) => {
+    if (!assembledCategories) return true;
+    return assembledCategories.includes(cat);
+  };
 
   useEffect(() => {
     if (installingCategory) {
@@ -358,135 +405,142 @@ export const Robot3D: React.FC<Robot3DProps> = ({
       {/* ============================================================
           1. CHASSIS CORE
          ============================================================ */}
-      <group
-        position={getInstallOffset('chassis', 'y', 1)}
-        onClick={(e) => handlePartClick('chassis', e)}
-      >
-        {/* Main structural frame tub */}
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[cW, cH, cL]} />
-          <meshStandardMaterial
-            color={effectiveBossId ? '#2a2624' : '#273444'}
-            metalness={0.65}
-            roughness={0.35}
-          />
-        </mesh>
-
-        {/* Chassis structural rails & accent trim */}
-        {[-1, 1].map((side) => (
-          <mesh
-            key={side}
-            castShadow
-            position={[side * (cW * 0.48), cH * 0.51, 0]}
-          >
-            <boxGeometry args={[0.07, 0.04, cL * 0.94]} />
+      {isAssembled('chassis') && (
+        <group
+          position={getInstallOffset('chassis', 'y', 1)}
+          onClick={(e) => handlePartClick('chassis', e)}
+        >
+          {/* Main structural frame tub */}
+          <mesh castShadow receiveShadow>
+            <boxGeometry args={[cW, cH, cL]} />
             <meshStandardMaterial
-              color={config.accentColor}
-              emissive={config.accentColor}
-              emissiveIntensity={selectedCategory === 'chassis' ? 0.9 : 0.4}
+              color={effectiveBossId ? '#2a2624' : '#273444'}
               metalness={0.65}
-              roughness={0.2}
+              roughness={0.35}
             />
           </mesh>
-        ))}
 
-        {/* Top diagnostic deck viewport */}
-        <mesh position={[0, cH * 0.51, -0.08]}>
-          <boxGeometry args={[cW * 0.52, 0.02, cL * 0.48]} />
-          <meshStandardMaterial
-            color="#162030"
-            metalness={0.7}
-            roughness={0.25}
-          />
-        </mesh>
-      </group>
+          {/* Chassis structural rails & accent trim */}
+          {[-1, 1].map((side) => (
+            <mesh
+              key={side}
+              castShadow
+              position={[side * (cW * 0.48), cH * 0.51, 0]}
+            >
+              <boxGeometry args={[0.07, 0.04, cL * 0.94]} />
+              <meshStandardMaterial
+                color={config.accentColor}
+                emissive={config.accentColor}
+                emissiveIntensity={selectedCategory === 'chassis' ? 0.9 : 0.4}
+                metalness={0.65}
+                roughness={0.2}
+              />
+            </mesh>
+          ))}
+
+          {/* Top diagnostic deck viewport */}
+          <mesh position={[0, cH * 0.51, -0.08]}>
+            <boxGeometry args={[cW * 0.52, 0.02, cL * 0.48]} />
+            <meshStandardMaterial
+              color="#162030"
+              metalness={0.7}
+              roughness={0.25}
+            />
+          </mesh>
+        </group>
+      )}
 
       {/* ============================================================
           2. DRIVE SYSTEM (Left & Right Internal Motor Pods + Vents)
          ============================================================ */}
-      <group
-        position={getInstallOffset('drive', 'y', 1)}
-        onClick={(e) => handlePartClick('drive', e)}
-      >
-        {[-1, 1].map((side) => {
-          const motorScale =
-            config.driveId === 'torque'
-              ? 1.25
-              : config.driveId === 'lightweight'
-              ? 0.72
-              : 1.0;
-          return (
-            <group key={side} position={[side * (cW * 0.24), cH * 0.42, -cL * 0.14]}>
-              {/* Brushless motor can */}
-              <mesh castShadow rotation={[0, 0, Math.PI / 2]}>
-                <cylinderGeometry
-                  args={[0.11 * motorScale, 0.11 * motorScale, 0.28 * motorScale, 16]}
-                />
-                <meshStandardMaterial
-                  color={config.driveId === 'speed' ? '#0284c7' : config.driveId === 'torque' ? '#d97706' : '#64748b'}
-                  metalness={0.85}
-                  roughness={0.22}
-                />
-              </mesh>
-              {/* Thermal copper coil glow ring */}
-              <mesh rotation={[0, 0, Math.PI / 2]}>
-                <cylinderGeometry
-                  args={[0.115 * motorScale, 0.115 * motorScale, 0.08, 16]}
-                />
-                <meshStandardMaterial
-                  color={motorGlowColor}
-                  emissive={motorGlowColor}
-                  emissiveIntensity={motorGlowIntensity}
-                />
-              </mesh>
-            </group>
-          );
-        })}
-      </group>
+      {isAssembled('drive') && (
+        <group
+          position={getInstallOffset('drive', 'y', 1)}
+          onClick={(e) => handlePartClick('drive', e)}
+        >
+          {[-1, 1].map((side) => {
+            const motorScale =
+              config.driveId === 'torque'
+                ? 1.25
+                : config.driveId === 'lightweight'
+                ? 0.72
+                : 1.0;
+            return (
+              <group key={side} position={[side * (cW * 0.24), cH * 0.42, -cL * 0.14]}>
+                {/* Brushless motor can */}
+                <mesh castShadow rotation={[0, 0, Math.PI / 2]}>
+                  <cylinderGeometry
+                    args={[0.11 * motorScale, 0.11 * motorScale, 0.28 * motorScale, 16]}
+                  />
+                  <meshStandardMaterial
+                    color={config.driveId === 'speed' ? '#0284c7' : config.driveId === 'torque' ? '#d97706' : '#64748b'}
+                    metalness={0.85}
+                    roughness={0.22}
+                  />
+                </mesh>
+                {/* Thermal copper coil glow ring */}
+                <mesh rotation={[0, 0, Math.PI / 2]}>
+                  <cylinderGeometry
+                    args={[0.115 * motorScale, 0.115 * motorScale, 0.08, 16]}
+                  />
+                  <meshStandardMaterial
+                    color={motorGlowColor}
+                    emissive={motorGlowColor}
+                    emissiveIntensity={motorGlowIntensity}
+                  />
+                </mesh>
+              </group>
+            );
+          })}
+        </group>
+      )}
 
       {/* ============================================================
           3. POWER SYSTEM (Battery Core & Charge Telemetry Bar)
          ============================================================ */}
-      <group
-        position={getInstallOffset('power', 'y', 1)}
-        onClick={(e) => handlePartClick('power', e)}
-      >
-        {(() => {
-          const battScale =
-            config.batteryId === 'large'
-              ? 1.32
-              : config.batteryId === 'small'
-              ? 0.72
-              : 1.0;
-          return (
-            <group position={[0, cH * 0.48, 0.08]}>
-              <mesh castShadow>
-                <boxGeometry args={[0.36 * battScale, 0.14, 0.34 * battScale]} />
-                <meshStandardMaterial color="#0f172a" metalness={0.6} roughness={0.3} />
-              </mesh>
-              {/* Glowing LiPo cell indicator bars */}
-              {[-0.08, 0, 0.08].map((zOff, i) => (
-                <mesh key={i} position={[0, 0.075, zOff * battScale]}>
-                  <boxGeometry args={[0.28 * battScale, 0.015, 0.04]} />
-                  <meshStandardMaterial
-                    color="#22d3ee"
-                    emissive="#22d3ee"
-                    emissiveIntensity={0.95}
-                  />
+      {(isAssembled('power') || (isAssembled('drive') && isAssembled('chassis'))) && (
+        <group
+          position={getInstallOffset('power', 'y', 1)}
+          onClick={(e) => handlePartClick('power', e)}
+        >
+          {(() => {
+            const battScale =
+              config.batteryId === 'large'
+                ? 1.32
+                : config.batteryId === 'small'
+                ? 0.72
+                : 1.0;
+            return (
+              <group position={[0, cH * 0.48, 0.08]}>
+                <mesh castShadow>
+                  <boxGeometry args={[0.36 * battScale, 0.14, 0.34 * battScale]} />
+                  <meshStandardMaterial color="#0f172a" metalness={0.6} roughness={0.3} />
                 </mesh>
-              ))}
-            </group>
-          );
-        })()}
-      </group>
+                {/* Glowing LiPo cell indicator bars */}
+                {[-0.08, 0, 0.08].map((zOff, i) => (
+                  <mesh key={i} position={[0, 0.075, zOff * battScale]}>
+                    <boxGeometry args={[0.28 * battScale, 0.015, 0.04]} />
+                    <meshStandardMaterial
+                      color="#22d3ee"
+                      emissive="#22d3ee"
+                      emissiveIntensity={0.95}
+                    />
+                  </mesh>
+                ))}
+              </group>
+            );
+          })()}
+        </group>
+      )}
 
       {/* ============================================================
           4. WHEELS OR CONTINUOUS TRACKS
          ============================================================ */}
-      <group
-        position={getInstallOffset('wheels', 'x', 1)}
-        onClick={(e) => handlePartClick('wheels', e)}
-      >
+      {isAssembled('wheels') && (
+        <group
+          position={getInstallOffset('wheels', 'x', 1)}
+          onClick={(e) => handlePartClick('wheels', e)}
+        >
         {config.wheelsId === 'tracks' && !isBullBoss ? (
           // Continuous Track Modules on Left & Right
           [-1, 1].map((side) => {
@@ -628,83 +682,87 @@ export const Robot3D: React.FC<Robot3DProps> = ({
           )
         )}
       </group>
+      )}
 
       {/* ============================================================
           5. ARMOR PANELS (Scaled visibly by Thin / Medium / Thick)
          ============================================================ */}
-      <group
-        position={getInstallOffset('armor', 'y', 1)}
-        onClick={(e) => handlePartClick('armor', e)}
-      >
-        {/* Left & Right side armor plates */}
-        {[-1, 1].map((side) => (
+      {isAssembled('armor') && (
+        <group
+          position={getInstallOffset('armor', 'y', 1)}
+          onClick={(e) => handlePartClick('armor', e)}
+        >
+          {/* Left & Right side armor plates */}
+          {[-1, 1].map((side) => (
+            <mesh
+              key={side}
+              castShadow
+              receiveShadow
+              position={[
+                side * (cW * 0.5 + plateThickness * 0.5),
+                0.02,
+                0,
+              ]}
+              rotation={[0, 0, sideDamaged ? side * 0.12 : 0]}
+            >
+              <boxGeometry args={[plateThickness, cH * 0.92, cL * 0.72]} />
+              <meshStandardMaterial
+                color={isBullBoss ? '#292524' : armorSpec.colorHex}
+                metalness={armorSpec.metalness}
+                roughness={armorSpec.roughness}
+                transparent={Boolean(armorSpec.opacity)}
+                opacity={armorSpec.opacity ?? 1}
+              />
+            </mesh>
+          ))}
+
+          {/* Top front & rear glacis armor plates */}
           <mesh
-            key={side}
             castShadow
             receiveShadow
-            position={[
-              side * (cW * 0.5 + plateThickness * 0.5),
-              0.02,
-              0,
-            ]}
-            rotation={[0, 0, sideDamaged ? side * 0.12 : 0]}
+            position={[0, cH * 0.5 + plateThickness * 0.5, cL * 0.28]}
+            rotation={[frontDamaged ? -0.1 : 0.08, 0, 0]}
           >
-            <boxGeometry args={[plateThickness, cH * 0.92, cL * 0.72]} />
+            <boxGeometry args={[cW * 0.88, plateThickness, cL * 0.34]} />
             <meshStandardMaterial
-              color={isBullBoss ? '#292524' : armorSpec.colorHex}
+              color={isBullBoss ? '#b45309' : armorSpec.colorHex}
               metalness={armorSpec.metalness}
               roughness={armorSpec.roughness}
               transparent={Boolean(armorSpec.opacity)}
               opacity={armorSpec.opacity ?? 1}
             />
           </mesh>
-        ))}
 
-        {/* Top front & rear glacis armor plates */}
-        <mesh
-          castShadow
-          receiveShadow
-          position={[0, cH * 0.5 + plateThickness * 0.5, cL * 0.28]}
-          rotation={[frontDamaged ? -0.1 : 0.08, 0, 0]}
-        >
-          <boxGeometry args={[cW * 0.88, plateThickness, cL * 0.34]} />
-          <meshStandardMaterial
-            color={isBullBoss ? '#b45309' : armorSpec.colorHex}
-            metalness={armorSpec.metalness}
-            roughness={armorSpec.roughness}
-            transparent={Boolean(armorSpec.opacity)}
-            opacity={armorSpec.opacity ?? 1}
-          />
-        </mesh>
-
-        {/* Rear bulkhead armor plate */}
-        <mesh
-          castShadow
-          receiveShadow
-          position={[0, 0.02, -(cL * 0.5 + plateThickness * 0.5)]}
-        >
-          <boxGeometry args={[cW * 0.9, cH * 0.88, plateThickness]} />
-          <meshStandardMaterial
-            color={isBullBoss ? '#44403c' : armorSpec.colorHex}
-            metalness={armorSpec.metalness}
-            roughness={armorSpec.roughness}
-            transparent={Boolean(armorSpec.opacity)}
-            opacity={armorSpec.opacity ?? 1}
-          />
-        </mesh>
-      </group>
+          {/* Rear bulkhead armor plate */}
+          <mesh
+            castShadow
+            receiveShadow
+            position={[0, 0.02, -(cL * 0.5 + plateThickness * 0.5)]}
+          >
+            <boxGeometry args={[cW * 0.9, cH * 0.88, plateThickness]} />
+            <meshStandardMaterial
+              color={isBullBoss ? '#44403c' : armorSpec.colorHex}
+              metalness={armorSpec.metalness}
+              roughness={armorSpec.roughness}
+              transparent={Boolean(armorSpec.opacity)}
+              opacity={armorSpec.opacity ?? 1}
+            />
+          </mesh>
+        </group>
+      )}
 
       {/* ============================================================
           6. FRONT WEAPON SYSTEM (or THE BULL'S HORNED RAMMING PLOW)
          ============================================================ */}
-      <group
-        position={[
-          getInstallOffset('weapon', 'z', 1)[0],
-          getInstallOffset('weapon', 'z', 1)[1],
-          cL * 0.5 + getInstallOffset('weapon', 'z', 1)[2],
-        ]}
-        onClick={(e) => handlePartClick('weapon', e)}
-      >
+      {isAssembled('weapon') && (
+        <group
+          position={[
+            getInstallOffset('weapon', 'z', 1)[0],
+            getInstallOffset('weapon', 'z', 1)[1],
+            cL * 0.5 + getInstallOffset('weapon', 'z', 1)[2],
+          ]}
+          onClick={(e) => handlePartClick('weapon', e)}
+        >
         {effectiveBossId === 'bull' ? (
           // 01 THE BULL'S SIGNATURE HEAVY BRONZE & STEEL BULL-PLOW + HORNS
           <group position={[0, -0.04, 0.18]}>
@@ -990,11 +1048,12 @@ export const Robot3D: React.FC<Robot3DProps> = ({
           </group>
         )}
       </group>
+      )}
 
       {/* ============================================================
           7. UTILITY SUBSYSTEM
          ============================================================ */}
-      {!isBullBoss && config.utilityId !== 'none' && (
+      {!isBullBoss && config.utilityId !== 'none' && isAssembled('utility') && (
         <group
           position={getInstallOffset('utility', 'y', 1)}
           onClick={(e) => handlePartClick('utility', e)}
@@ -1083,6 +1142,128 @@ export const Robot3D: React.FC<Robot3DProps> = ({
               </mesh>
             </group>
           ) : null}
+        </group>
+      )}
+
+      {/* ============================================================
+          7. GHOST BLUEPRINT WIREFRAME OVERLAYS (For Assembly Workbench)
+         ============================================================ */}
+      {ghostMode && (
+        <group>
+          {/* Chassis Ghost Outline */}
+          {!isAssembled('chassis') && (showFullBlueprint || activeGhostCategory === 'chassis') && (
+            <group>
+              <mesh>
+                <boxGeometry args={[cW * 1.01, cH * 1.01, cL * 1.01]} />
+                <GhostMaterial isActive={activeGhostCategory === 'chassis'} isHovered={isTargetHovered && activeGhostCategory === 'chassis'} />
+              </mesh>
+              <mesh position={[0, cH * 0.1, 0]}>
+                <boxGeometry args={[cW * 0.6, cH * 0.5, cL * 0.5]} />
+                <GhostMaterial isActive={activeGhostCategory === 'chassis'} isHovered={isTargetHovered && activeGhostCategory === 'chassis'} />
+              </mesh>
+            </group>
+          )}
+
+          {/* Drive Ghost Outline */}
+          {!isAssembled('drive') && (showFullBlueprint || activeGhostCategory === 'drive') && (
+            <group>
+              {[-1, 1].map((side) => (
+                <group key={side} position={[side * (cW * 0.24), cH * 0.42, -cL * 0.14]}>
+                  <mesh rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.12, 0.12, 0.3, 16]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'drive'} isHovered={isTargetHovered && activeGhostCategory === 'drive'} />
+                  </mesh>
+                  <mesh position={[0, 0, 0.18]}>
+                    <boxGeometry args={[0.15, 0.15, 0.15]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'drive'} isHovered={isTargetHovered && activeGhostCategory === 'drive'} />
+                  </mesh>
+                </group>
+              ))}
+            </group>
+          )}
+
+          {/* Wheels Ghost Outline */}
+          {!isAssembled('wheels') && (showFullBlueprint || activeGhostCategory === 'wheels') && (
+            <group>
+              {[-1, 1].map((side) =>
+                [-cL * 0.25, cL * 0.25].map((zPos, i) => (
+                  <mesh
+                    key={`${side}-${i}`}
+                    position={[side * (cW * 0.5 + 0.1), cH * 0.1, zPos]}
+                    rotation={[0, 0, Math.PI / 2]}
+                  >
+                    <cylinderGeometry args={[wheelRadius * 1.02, wheelRadius * 1.02, 0.16, 24]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'wheels'} isHovered={isTargetHovered && activeGhostCategory === 'wheels'} />
+                  </mesh>
+                ))
+              )}
+            </group>
+          )}
+
+          {/* Armor Ghost Outline */}
+          {!isAssembled('armor') && (showFullBlueprint || activeGhostCategory === 'armor') && (
+            <group>
+              {/* Front Armor Ghost */}
+              <mesh position={[0, cH * 0.5, cL * 0.5 + plateThickness * 0.6]}>
+                <boxGeometry args={[cW * 1.04, cH * 0.96, plateThickness * 1.1]} />
+                <GhostMaterial isActive={activeGhostCategory === 'armor'} isHovered={isTargetHovered && activeGhostCategory === 'armor'} />
+              </mesh>
+              {/* Side Armor Ghosts */}
+              {[-1, 1].map((side) => (
+                <mesh key={side} position={[side * (cW * 0.5 + plateThickness * 0.6), cH * 0.5, 0]}>
+                  <boxGeometry args={[plateThickness * 1.1, cH * 0.94, cL * 0.98]} />
+                  <GhostMaterial isActive={activeGhostCategory === 'armor'} isHovered={isTargetHovered && activeGhostCategory === 'armor'} />
+                </mesh>
+              ))}
+              {/* Top Deck Lid */}
+              <mesh position={[0, cH + plateThickness * 0.6, 0]}>
+                <boxGeometry args={[cW * 0.96, plateThickness * 1.1, cL * 0.9]} />
+                <GhostMaterial isActive={activeGhostCategory === 'armor'} isHovered={isTargetHovered && activeGhostCategory === 'armor'} />
+              </mesh>
+            </group>
+          )}
+
+          {/* Weapon Ghost Outline */}
+          {!isAssembled('weapon') && (showFullBlueprint || activeGhostCategory === 'weapon') && (
+            <group>
+              {config.weaponId.includes('horizontal') ? (
+                <group position={[0, cH * 0.8, cL * 0.38]}>
+                  <mesh>
+                    <cylinderGeometry args={[0.34, 0.34, 0.08, 24]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                  </mesh>
+                  <mesh>
+                    <boxGeometry args={[cW * 1.3, 0.08, 0.18]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                  </mesh>
+                </group>
+              ) : config.weaponId.includes('flipper') || config.weaponId.includes('wedge') ? (
+                <mesh position={[0, cH * 0.45, cL * 0.55]} rotation={[-0.35, 0, 0]}>
+                  <boxGeometry args={[cW * 0.85, 0.08, cL * 0.7]} />
+                  <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                </mesh>
+              ) : (
+                <group position={[0, cH * 0.6, cL * 0.48]}>
+                  <mesh rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.34, 0.34, 0.14, 24]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                  </mesh>
+                  <mesh position={[0, -0.15, -0.05]}>
+                    <boxGeometry args={[cW * 0.45, 0.22, 0.12]} />
+                    <GhostMaterial isActive={activeGhostCategory === 'weapon'} isHovered={isTargetHovered && activeGhostCategory === 'weapon'} />
+                  </mesh>
+                </group>
+              )}
+            </group>
+          )}
+
+          {/* Utility Ghost Outline */}
+          {!isAssembled('utility') && (showFullBlueprint || activeGhostCategory === 'utility') && (
+            <mesh position={[0, cH + 0.22, 0]}>
+              <boxGeometry args={[cW * 0.75, 0.05, 0.05]} />
+              <GhostMaterial isActive={activeGhostCategory === 'utility'} isHovered={isTargetHovered && activeGhostCategory === 'utility'} />
+            </mesh>
+          )}
         </group>
       )}
     </group>
