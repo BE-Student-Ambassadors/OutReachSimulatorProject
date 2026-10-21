@@ -319,6 +319,26 @@ const ArenaPosterBillboard: React.FC<{
   );
 };
 
+interface ProceduralDebrisPiece {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  vRotX: number;
+  vRotY: number;
+  vRotZ: number;
+  type: 'plate' | 'wheel' | 'fragment';
+  color: string;
+  size: [number, number, number];
+  isSettled: boolean;
+}
+
 // 3D Arena Scene & Automatic Spectator Camera Controller
 const Arena3DScene: React.FC<{
   simRef: React.MutableRefObject<LiveBattleSimulation | null>;
@@ -337,7 +357,9 @@ const Arena3DScene: React.FC<{
     events: BattleEventLog[],
     report: BattleAnalysisReport | null,
     lastImpact?: CombatImpactEvent | null,
-    lastWedge?: WedgeTelemetry | null
+    lastWedge?: WedgeTelemetry | null,
+    isCritical?: boolean,
+    isFinalHit?: boolean
   ) => void;
 }> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, teamProject, showHitboxes = false, isDevMode = false, onSyncHud }) => {
   const { camera } = useThree();
@@ -352,20 +374,176 @@ const Arena3DScene: React.FC<{
   const lastImpactEventIdRef = useRef<number>(0);
   const hitstopTimerRef = useRef<number>(0);
 
+  // End-of-Battle finish sequence audio & debris refs
+  const criticalAlertPlayedRef = useRef<boolean>(false);
+  const finalHitPlayedRef = useRef<boolean>(false);
+  const debrisRef = useRef<ProceduralDebrisPiece[]>([]);
+
   const [renderState, setRenderState] = useState<{
     player: CombatantTelemetry | null;
     bull: CombatantTelemetry | null;
     sparks: SparkBurst[];
+    debris: ProceduralDebrisPiece[];
+    isFinalHit: boolean;
     debugHitboxes?: LiveBattleSimulation['debugHitboxes'];
   }>({
     player: null,
     bull: null,
     sparks: [],
+    debris: [],
+    isFinalHit: false,
   });
 
   useFrame((state, delta) => {
     const sim = simRef.current;
     if (!sim) return;
+
+    if (battlePhase === 'tutorial' || battlePhase === 'countdown') {
+      criticalAlertPlayedRef.current = false;
+      finalHitPlayedRef.current = false;
+      debrisRef.current = [];
+    }
+
+    // Arcade Critical State Sound Cue
+    if (sim.isCriticalState && !criticalAlertPlayedRef.current) {
+      criticalAlertPlayedRef.current = true;
+      soundEngine.playCriticalAlert();
+    }
+
+    // Final Impact Sequence (Audio, Hitstop, Input cutoff, Debris)
+    if (sim.isFinalHitExecuted && !finalHitPlayedRef.current) {
+      finalHitPlayedRef.current = true;
+      soundEngine.playFinalHit();
+      hitstopTimerRef.current = 0.42;
+      keyboardRef.current?.clear();
+      keyboardRef.current?.setEnabled(false);
+
+      const bx = sim.bull.x;
+      const bz = sim.bull.z;
+      debrisRef.current = [
+        {
+          id: 1,
+          x: bx,
+          y: 0.35,
+          z: bz,
+          vx: -0.6 + Math.random() * 1.2,
+          vy: 2.8,
+          vz: 1.4,
+          rotX: 0,
+          rotY: 0,
+          rotZ: 0,
+          vRotX: 12,
+          vRotY: 6,
+          vRotZ: 8,
+          type: 'plate',
+          color: '#b45309',
+          size: [0.24, 0.04, 0.18],
+          isSettled: false,
+        },
+        {
+          id: 2,
+          x: bx + 0.2,
+          y: 0.25,
+          z: bz,
+          vx: 1.8,
+          vy: 2.2,
+          vz: -0.8,
+          rotX: 0,
+          rotY: 0,
+          rotZ: 0,
+          vRotX: 5,
+          vRotY: 15,
+          vRotZ: 4,
+          type: 'wheel',
+          color: '#1e293b',
+          size: [0.12, 0.12, 0.08],
+          isSettled: false,
+        },
+        {
+          id: 3,
+          x: bx - 0.15,
+          y: 0.28,
+          z: bz,
+          vx: -1.6,
+          vy: 2.4,
+          vz: -0.6,
+          rotX: 0,
+          rotY: 0,
+          rotZ: 0,
+          vRotX: 10,
+          vRotY: 8,
+          vRotZ: 14,
+          type: 'fragment',
+          color: '#64748b',
+          size: [0.08, 0.04, 0.08],
+          isSettled: false,
+        },
+        {
+          id: 4,
+          x: bx,
+          y: 0.32,
+          z: bz + 0.15,
+          vx: 0.8,
+          vy: 3.1,
+          vz: 1.8,
+          rotX: 0,
+          rotY: 0,
+          rotZ: 0,
+          vRotX: 14,
+          vRotY: 11,
+          vRotZ: 7,
+          type: 'fragment',
+          color: '#475569',
+          size: [0.07, 0.04, 0.07],
+          isSettled: false,
+        },
+        {
+          id: 5,
+          x: bx + 0.1,
+          y: 0.3,
+          z: bz - 0.1,
+          vx: -1.2,
+          vy: 2.0,
+          vz: -1.5,
+          rotX: 0,
+          rotY: 0,
+          rotZ: 0,
+          vRotX: 8,
+          vRotY: 16,
+          vRotZ: 5,
+          type: 'fragment',
+          color: '#94a3b8',
+          size: [0.06, 0.03, 0.06],
+          isSettled: false,
+        },
+      ];
+    }
+
+    // Step procedural mechanical debris
+    for (const p of debrisRef.current) {
+      if (!p.isSettled) {
+        p.vy -= 9.8 * delta;
+        p.x += p.vx * delta;
+        p.y += p.vy * delta;
+        p.z += p.vz * delta;
+        p.rotX += p.vRotX * delta;
+        p.rotY += p.vRotY * delta;
+        p.rotZ += p.vRotZ * delta;
+        if (p.y <= 0.02) {
+          p.y = 0.02;
+          p.vy = -p.vy * 0.28;
+          p.vx *= 0.65;
+          p.vz *= 0.65;
+          p.vRotX *= 0.5;
+          p.vRotY *= 0.5;
+          p.vRotZ *= 0.5;
+          if (Math.abs(p.vy) < 0.25) {
+            p.vy = 0;
+            p.isSettled = true;
+          }
+        }
+      }
+    }
 
     // Presentation-level hitstop freeze on heavy/major impacts
     if (hitstopTimerRef.current > 0) {
@@ -433,7 +611,11 @@ const Arena3DScene: React.FC<{
           { ...sim.bull },
           sim.timeSec,
           [...sim.events],
-          finalReport
+          finalReport,
+          null,
+          null,
+          false,
+          sim.isFinalHitExecuted
         );
       }
     }
@@ -452,13 +634,25 @@ const Arena3DScene: React.FC<{
     const midX = (sim.player.x + sim.bull.x) * 0.5;
     const midZ = (sim.player.z + sim.bull.z) * 0.5;
 
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // Punchy impact camera shake
-    const shakeAmt = sim.cameraImpactShake * 0.22;
+    const shakeAmt = prefersReducedMotion ? 0 : sim.cameraImpactShake * 0.22;
     const shakeX = Math.sin(state.clock.elapsedTime * 65) * shakeAmt;
     const shakeY = Math.cos(state.clock.elapsedTime * 55) * shakeAmt;
 
-    if (battlePhase === 'tutorial' || battlePhase === 'countdown') {
+    if (sim.isFinalHitExecuted) {
+      // Dramatic Low-Angle Heroic Camera:
+      // Glides low to the floor looking up past the student's victorious robot toward the disabled Bull
+      const heroDist = 2.6;
+      const heroCamHeight = 0.95;
+      const targetCamX = sim.player.x - Math.sin(sim.player.headingRad) * heroDist + shakeX;
+      const targetCamZ = sim.player.z - Math.cos(sim.player.headingRad) * heroDist + shakeY;
+      camera.position.lerp(new THREE.Vector3(targetCamX, heroCamHeight, targetCamZ), delta * 4.0);
+      camera.lookAt(midX, 0.45, midZ);
+    } else if (battlePhase === 'tutorial' || battlePhase === 'countdown') {
       // Dramatic establishing orbit around arena center
       const t = state.clock.elapsedTime * 0.22;
       const targetPos = new THREE.Vector3(Math.sin(t) * 6.6, 3.8, Math.cos(t) * 6.6);
@@ -492,10 +686,22 @@ const Arena3DScene: React.FC<{
         player: { ...sim.player },
         bull: { ...sim.bull },
         sparks: [...sim.sparks],
+        debris: [...debrisRef.current],
+        isFinalHit: sim.isFinalHitExecuted,
         debugHitboxes: sim.debugHitboxes ? { ...sim.debugHitboxes } : undefined,
       });
       if (battlePhase === 'fighting' && !sim.isFinished) {
-        onSyncHud({ ...sim.player }, { ...sim.bull }, sim.timeSec, [...sim.events], null, sim.lastImpactEvent, sim.lastWedgeTelemetry);
+        onSyncHud(
+          { ...sim.player },
+          { ...sim.bull },
+          sim.timeSec,
+          [...sim.events],
+          null,
+          sim.lastImpactEvent,
+          sim.lastWedgeTelemetry,
+          sim.isCriticalState,
+          sim.isFinalHitExecuted
+        );
       }
     }
   });
@@ -641,6 +847,27 @@ const Arena3DScene: React.FC<{
         </group>
       )}
 
+      {/* Knockout Procedural Debris (Detached armor plate, broken wheel, hull fragments) */}
+      {renderState.debris.map((p) => (
+        <mesh
+          key={p.id}
+          position={[p.x, p.y, p.z]}
+          rotation={[p.rotX, p.rotY, p.rotZ]}
+          castShadow
+        >
+          {p.type === 'wheel' ? (
+            <cylinderGeometry args={[p.size[0], p.size[1], p.size[2], 16]} />
+          ) : (
+            <boxGeometry args={p.size} />
+          )}
+          <meshStandardMaterial
+            color={p.color}
+            metalness={p.type === 'wheel' ? 0.2 : 0.8}
+            roughness={p.type === 'wheel' ? 0.8 : 0.3}
+          />
+        </mesh>
+      ))}
+
       {/* Student's Exact Assembled Robot3D */}
       <group ref={playerGroupRef} position={[0, 0, 3.8]} rotation={[0, Math.PI, 0]}>
         <Robot3D
@@ -677,29 +904,37 @@ const Arena3DScene: React.FC<{
         />
       </group>
 
-      {/* Active Boss Robot */}
-      <group ref={bullGroupRef} position={[0, 0, -3.8]} rotation={[0, 0, 0]}>
+      {/* Active Boss Robot (Slumps and shuts down on finishing blow) */}
+      <group
+        ref={bullGroupRef}
+        position={[0, 0, -3.8]}
+        rotation={[
+          renderState.isFinalHit ? -0.06 : 0,
+          0,
+          renderState.isFinalHit ? 0.16 : 0,
+        ]}
+      >
         <Robot3D
           config={bossDossier.config}
           bossId={bossId}
           impactFlashIntensity={bState?.impactFlashIntensity ?? 0}
-          wheelSpeedRad={bState ? Math.hypot(bState.vx, bState.vz) * 6 : 0}
-          weaponActive={battlePhase === 'fighting'}
-          weaponSpinPct={bState?.weaponSpinPct ?? 80}
+          wheelSpeedRad={renderState.isFinalHit ? 0 : bState ? Math.hypot(bState.vx, bState.vz) * 6 : 0}
+          weaponActive={battlePhase === 'fighting' && !renderState.isFinalHit}
+          weaponSpinPct={renderState.isFinalHit ? 0 : (bState?.weaponSpinPct ?? 80)}
           weaponActuationPhase={bState?.weaponActuationPhase ?? 0}
-          chassisPitchRad={bState?.pitchRad ?? 0}
-          chassisRollRad={bState?.rollRad ?? 0}
+          chassisPitchRad={(bState?.pitchRad ?? 0) + (renderState.isFinalHit ? -0.06 : 0)}
+          chassisRollRad={(bState?.rollRad ?? 0) + (renderState.isFinalHit ? 0.16 : 0)}
           isFlipped={bState?.isFlipped ?? false}
           motorTempC={bState?.motorTempC ?? bossDossier.stats.expectedMotorTempC}
           damageState={
             bState
               ? {
-                  frontArmorPct: bState.frontArmorPct,
-                  sideArmorPct: bState.sideArmorPct,
+                  frontArmorPct: renderState.isFinalHit ? 0 : bState.frontArmorPct,
+                  sideArmorPct: renderState.isFinalHit ? Math.min(25, bState.sideArmorPct) : bState.sideArmorPct,
                   rearArmorPct: bState.rearArmorPct,
-                  leftDrivePct: bState.leftDriveHealthPct,
-                  rightDrivePct: bState.rightDriveHealthPct,
-                  weaponPct: bState.weaponHealthPct,
+                  leftDrivePct: renderState.isFinalHit ? 0 : bState.leftDriveHealthPct,
+                  rightDrivePct: renderState.isFinalHit ? 0 : bState.rightDriveHealthPct,
+                  weaponPct: renderState.isFinalHit ? 0 : bState.weaponHealthPct,
                 }
               : undefined
           }
@@ -927,6 +1162,8 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   const [, setHudEvents] = useState<BattleEventLog[]>([]);
   const [hudLastImpact, setHudLastImpact] = useState<CombatImpactEvent | null>(null);
   const [hudLastWedge, setHudLastWedge] = useState<WedgeTelemetry | null>(null);
+  const [hudIsCritical, setHudIsCritical] = useState<boolean>(false);
+  const [hudIsFinalHit, setHudIsFinalHit] = useState<boolean>(false);
   const [analysisReport, setAnalysisReport] = useState<BattleAnalysisReport | null>(null);
 
   // Setup keyboard controller
@@ -1011,6 +1248,8 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
     setHudBull(simRef.current.bull);
     setHudTimeSec(0);
     setHudEvents(simRef.current.events);
+    setHudIsCritical(false);
+    setHudIsFinalHit(false);
     setAnalysisReport(null);
     keyboardRef.current?.clear();
     startCountdown();
@@ -1053,11 +1292,13 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             teamProject={teamProject}
             showHitboxes={showHitboxes}
             isDevMode={isDevMode}
-            onSyncHud={(p, b, t, evs, rep, lastImp, lastWedge) => {
+            onSyncHud={(p, b, t, evs, rep, lastImp, lastWedge, isCrit, isFinal) => {
               setHudPlayer(p);
               setHudBull(b);
               setHudTimeSec(t);
               setHudEvents(evs);
+              setHudIsCritical(!!isCrit);
+              setHudIsFinalHit(!!isFinal);
               if (lastImp) {
                 setHudLastImpact(lastImp);
               }
@@ -1489,6 +1730,46 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
                 <Swords className="w-5 h-5" />
                 <span>START BATTLE</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Arcade Critical State Banner (The Bull is Critical - Finish The Fight!) */}
+      {battlePhase === 'fighting' && hudIsCritical && !hudIsFinalHit && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center animate-bounce">
+          <div className="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-red-950/95 via-rose-900/95 to-red-950/95 border-2 border-red-500 shadow-[0_0_30px_rgba(239,68,68,0.7)] flex items-center gap-3 backdrop-blur-md">
+            <span className="w-3.5 h-3.5 rounded-full bg-red-500 animate-ping" />
+            <span className="text-red-300 font-black tracking-widest text-sm md:text-base uppercase font-mono">
+              THE BULL IS CRITICAL!
+            </span>
+            <span className="text-amber-300 font-black text-sm md:text-base tracking-wider flex items-center gap-1">
+              <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+              FINISH THE FIGHT!
+              <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+            </span>
+          </div>
+          <div className="text-[11px] text-amber-200/95 font-mono mt-1.5 bg-slate-950/90 px-3.5 py-1 rounded-full border border-amber-500/40 shadow-md">
+            LAND FINAL HIT — WASD / SPACE
+          </div>
+        </div>
+      )}
+
+      {/* Triumphant Arcade Knockout Overlay */}
+      {battlePhase === 'fighting' && hudIsFinalHit && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center pointer-events-none">
+          {/* Subtle cinematic radial vignette & flash */}
+          <div className="absolute inset-0 bg-radial from-transparent via-amber-500/10 to-slate-950/75 pointer-events-none animate-in fade-in duration-300" />
+
+          <div className="relative z-10 flex flex-col items-center text-center animate-in zoom-in-75 duration-300 px-4">
+            <div className="text-6xl md:text-8xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-amber-100 via-amber-400 to-amber-600 drop-shadow-[0_0_40px_rgba(245,158,11,0.85)] uppercase">
+              KNOCKOUT!
+            </div>
+            <div className="mt-3 text-xl md:text-3xl font-extrabold tracking-widest text-cyan-300 uppercase font-mono drop-shadow-[0_0_20px_rgba(6,182,212,0.7)]">
+              {teamProject?.teamName || 'YOUR TEAM'} DEFEATED THE BULL
+            </div>
+            <div className="mt-3 text-sm md:text-base font-bold text-slate-200 tracking-wide font-mono bg-slate-950/90 px-5 py-1.5 rounded-full border border-cyan-500/50 shadow-lg">
+              YOUR ENGINEERING DESIGN WORKED
             </div>
           </div>
         </div>

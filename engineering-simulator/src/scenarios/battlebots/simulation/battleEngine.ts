@@ -110,6 +110,15 @@ export interface LiveBattleSimulation {
   bullAttackPattern: 'direct' | 'angled' | 'shove' | 'stalk';
   bullPatternTimerSec: number;
 
+  // End-of-Battle Finish Sequence
+  isCriticalState: boolean;
+  criticalTriggered: boolean;
+  criticalTimerSec: number;
+  isFinalHitExecuted: boolean;
+  finalHitTimerSec: number;
+  finalHitType?: 'weapon' | 'ram' | 'wall' | 'burnout';
+  finalHitPoint?: [number, number];
+
   // Hitbox Developer Debug Data
   debugHitboxes?: {
     playerChassis: BoxCollider2D;
@@ -285,7 +294,8 @@ export function createCombatImpactEvent(
 
   // 2. Camera impact shake
   const shakeContribution = severity === 'major' ? 0.95 : severity === 'heavy' ? 0.50 : severity === 'normal' ? 0.18 : 0;
-  sim.cameraImpactShake = Math.min(1.0, Math.max(sim.cameraImpactShake, shakeContribution));
+  const maxShakeLimit = sim.isFinalHitExecuted ? 1.6 : 1.0;
+  sim.cameraImpactShake = Math.min(maxShakeLimit, Math.max(sim.cameraImpactShake, shakeContribution));
 
   // 3. Directional spark burst ejected from contact point
   const sparkCount = severity === 'major' ? 16 : severity === 'heavy' ? 9 : severity === 'normal' ? 4 : 0;
@@ -347,6 +357,92 @@ export function createCombatImpactEvent(
   }
 
   return event;
+}
+
+/**
+ * Triggers the arcade-style final knockout impact sequence:
+ * - Visibly disables the boss (zeroes health, halts velocity, stops weapon).
+ * - Spawns a massive multi-directional spark burst & wreckage fragments.
+ * - Triggers high-impact camera shake.
+ * - Enters a short cinematic finish window before transitioning to analysis.
+ */
+export function triggerFinalHit(
+  sim: LiveBattleSimulation,
+  hitType: 'weapon' | 'ram' | 'wall' | 'burnout',
+  hitPoint?: [number, number]
+): void {
+  if (sim.isFinalHitExecuted) return;
+  sim.isFinalHitExecuted = true;
+  sim.isCriticalState = false;
+  sim.finalHitType = hitType;
+  const point: [number, number] = hitPoint ?? [sim.boss.x, sim.boss.z];
+  sim.finalHitPoint = point;
+  sim.finalHitTimerSec = sim.isManual ? 2.8 : 0.05;
+
+  // Zero out boss combat capability
+  sim.boss.hullIntegrityPct = 0;
+  sim.boss.frontArmorPct = 0;
+  sim.boss.leftDriveHealthPct = 0;
+  sim.boss.rightDriveHealthPct = 0;
+  sim.boss.weaponSpinPct = 0;
+  sim.boss.vx *= 0.12;
+  sim.boss.vz *= 0.12;
+  sim.boss.angularVelocityRad = 0;
+
+  // Punchy cinematic impact shake
+  sim.cameraImpactShake = 1.6;
+
+  // Large multi-directional spark burst at finishing impact point
+  const sparkCount = 32;
+  const baseAngle = Math.random() * Math.PI * 2;
+  for (let i = 0; i < sparkCount; i++) {
+    const spreadAngle = baseAngle + (i / sparkCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+    const speed = 2.4 + Math.random() * 5.2;
+    sim.sparks.push({
+      id: sim.nextSparkId++,
+      x: point[0] + (Math.random() - 0.5) * 0.12,
+      y: 0.28 + Math.random() * 0.2,
+      z: point[1] + (Math.random() - 0.5) * 0.12,
+      color: i % 3 === 0 ? '#ffffff' : i % 3 === 1 ? '#f59e0b' : '#38bdf8',
+      intensity: 3.5,
+      age: 0,
+      vx: Math.cos(spreadAngle) * speed,
+      vy: 1.8 + Math.random() * 3.4,
+      vz: Math.sin(spreadAngle) * speed,
+      maxAge: 0.45 + Math.random() * 0.25,
+    });
+  }
+
+  // Debris chunks ejected on final impact
+  for (let d = 0; d < 6; d++) {
+    const angle = (d / 6) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+    sim.sparks.push({
+      id: sim.nextSparkId++,
+      x: point[0],
+      y: 0.32,
+      z: point[1],
+      color: '#475569',
+      intensity: 1.0,
+      age: 0,
+      vx: Math.cos(angle) * (1.6 + Math.random() * 2.2),
+      vy: 2.4 + Math.random() * 1.8,
+      vz: Math.sin(angle) * (1.6 + Math.random() * 2.2),
+      maxAge: 0.6,
+      isDebris: true,
+    });
+  }
+
+  const reason =
+    hitType === 'weapon'
+      ? `${sim.bossDossier.name}'s chassis was pierced and shattered by your finishing weapon strike!`
+      : hitType === 'wall'
+      ? `${sim.bossDossier.name} slammed into the arena wall, crushing its structural frame!`
+      : hitType === 'ram'
+      ? `A decisive direct ram disabled ${sim.bossDossier.name}'s drivetrain and power systems!`
+      : `${sim.bossDossier.name}'s critical internal circuits overloaded and burned out!`;
+
+  sim.winReason = reason;
+  addEvent(sim, `KNOCKOUT! ${sim.bossDossier.name.toUpperCase()} HAS BEEN DISABLED!`, 'critical');
 }
 
 function applyCombatDamage(
@@ -455,6 +551,11 @@ function applyCombatDamage(
 
     finalHullDmg = (rawDamage * passThroughRatio) / effectiveMitigation;
     targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - finalHullDmg);
+  }
+
+  // Trigger arcade final knockout if boss is struck while in critical state
+  if (!isPlayerBot && sim.isCriticalState && !sim.isFinalHitExecuted) {
+    triggerFinalHit(sim, isKineticStrike ? 'weapon' : 'ram', [targetBot.x, targetBot.z]);
   }
 
   let damageSeverity: DamageSeverity = 'minimal';
@@ -632,6 +733,13 @@ export function createBattleSimulation(
     wedgePhase: 'none',
     wedgeTimerSec: 0,
     lastWedgeTelemetry: null,
+    isCriticalState: false,
+    criticalTriggered: false,
+    criticalTimerSec: 0,
+    isFinalHitExecuted: false,
+    finalHitTimerSec: 0,
+    finalHitType: undefined,
+    finalHitPoint: undefined,
     softwareRules,
     electricalLimiterA,
     coolingTempReductionC,
@@ -667,11 +775,41 @@ export function stepBattleSimulation(
   playerInput?: PlayerInput
 ): void {
   if (sim.isFinished) return;
+
+  const dt = Math.min(rawDt, 0.04);
+
+  // Cinematic End-of-Battle Finish Window:
+  // Freezes combat updates while letting sparks, debris, and camera settle,
+  // then cleanly calls finishBattle after the dramatic payoff.
+  if (sim.isFinalHitExecuted) {
+    sim.finalHitTimerSec -= dt;
+    sim.boss.vx *= 0.90;
+    sim.boss.vz *= 0.90;
+    sim.boss.angularVelocityRad = 0;
+    sim.boss.weaponSpinPct = 0;
+    sim.cameraImpactShake = Math.max(0, sim.cameraImpactShake - dt * 2.2);
+
+    for (let i = sim.sparks.length - 1; i >= 0; i--) {
+      sim.sparks[i].age += dt;
+      if (sim.sparks[i].age > 0.65) {
+        sim.sparks.splice(i, 1);
+      }
+    }
+
+    if (sim.finalHitTimerSec <= 0) {
+      finishBattle(
+        sim,
+        'player',
+        sim.winReason || `${sim.bossDossier.name}'s structural armor was breached and destroyed!`
+      );
+    }
+    return;
+  }
+
   if (playerInput) {
     sim.playerInput = playerInput;
     sim.isManual = true;
   }
-  const dt = Math.min(rawDt, 0.04);
   sim.timeSec += dt;
 
   const { player, boss, playerStats, bossStats, strategy, bossId, playerConfig } = sim;
@@ -818,7 +956,9 @@ export function stepBattleSimulation(
   }
 
   // Boss weapon spin
-  if (boss.weaponHealthPct > 20 && !boss.isFlipped && boss.batteryPct > 2) {
+  if (sim.isCriticalState) {
+    boss.weaponSpinPct = Math.max(0, boss.weaponSpinPct - dt * 55);
+  } else if (boss.weaponHealthPct > 20 && !boss.isFlipped && boss.batteryPct > 2) {
     if (bossStats.weaponSpinUpSec > 0) {
       const spinRate = 100 / Math.max(0.35, bossStats.weaponSpinUpSec);
       boss.weaponSpinPct = Math.min(100, boss.weaponSpinPct + spinRate * dt);
@@ -1148,8 +1288,15 @@ export function stepBattleSimulation(
     let desiredBossHeading = angleBossToPlayer;
     let desiredBossSpeed = bossMaxSpeed;
 
-    switch (bossId) {
-      case 'bull': {
+    if (sim.isCriticalState) {
+      // Reeling / staggered critical condition: slow retreat, cannot charge
+      desiredBossSpeed = bossMaxSpeed * 0.25;
+      desiredBossHeading = normalizeAngle(angleBossToPlayer + Math.PI);
+      boss.aiStateLabel = 'RECOVER';
+      sim.bossChargeActiveSec = 0;
+    } else {
+      switch (bossId) {
+        case 'bull': {
         const headingDiff = normalizeAngle(angleBossToPlayer - boss.headingRad);
         const nearWall = Math.abs(boss.x) > ARENA_HALF_SIZE - 1.2 || Math.abs(boss.z) > ARENA_HALF_SIZE - 1.2;
 
@@ -1281,6 +1428,7 @@ export function stepBattleSimulation(
         break;
       }
     }
+  }
 
     const bAuthority = boss.tractionBreakTimerSec > 0 ? 0.08 : 1.0;
     const bSteerAuthority = boss.tractionBreakTimerSec > 0 ? 0.12 : 1.0;
@@ -1389,6 +1537,11 @@ export function stepBattleSimulation(
       }
 
       if (collided) {
+        // Trigger arcade final knockout if boss collides with wall while in critical state
+        if (!isPlayerBot && sim.isCriticalState && !sim.isFinalHitExecuted && impactSpeed > 0.6) {
+          triggerFinalHit(sim, 'wall', [bot.x + wallNx * 0.15, bot.z + wallNz * 0.15]);
+        }
+
         // Wall rebound angular deflection and traction break on strong hit
         bot.angularVelocityRad += (wallNz * bot.vx - wallNx * bot.vz) * 1.8;
         if (impactSpeed > 1.4) {
@@ -1630,6 +1783,10 @@ export function stepBattleSimulation(
           applyCombatDamage(sim, boss, false, ramDmg * 0.6, 'front', false);
         }
 
+        if (sim.isCriticalState && !sim.isFinalHitExecuted && vRel > 0.8) {
+          triggerFinalHit(sim, 'ram', chassisTest.contactPoint);
+        }
+
         // Authoritative impact event on first contact or after cooldown
         if (!sim.contactActive || sim.timeSec - sim.lastImpactTimeSec > 0.22) {
           createCombatImpactEvent(
@@ -1736,18 +1893,47 @@ export function stepBattleSimulation(
     sim.bullPushSustainedSec = Math.max(0, sim.bullPushSustainedSec - dt * 1.5);
   }
 
-  // 6. CHECK KNOCKOUT / WIN CONDITIONS
+  // 6. CHECK KNOCKOUT / CRITICAL STATE / WIN CONDITIONS
   const bossDriveAvg = (boss.leftDriveHealthPct + boss.rightDriveHealthPct) * 0.5;
   const playerDriveAvg = (player.leftDriveHealthPct + player.rightDriveHealthPct) * 0.5;
 
-  if (boss.hullIntegrityPct <= 0 || bossDriveAvg <= 8) {
-    finishBattle(
-      sim,
-      'player',
-      bossDriveAvg <= 8
-        ? `${sim.bossDossier.name}'s drivetrain was disabled and immobilized!`
-        : `${sim.bossDossier.name}'s structural armor was breached and destroyed!`
-    );
+  const isBossCritical = boss.hullIntegrityPct <= 15 || bossDriveAvg <= 14;
+  if (isBossCritical && !sim.criticalTriggered && !sim.isFinalHitExecuted) {
+    sim.criticalTriggered = true;
+    sim.isCriticalState = true;
+    sim.criticalTimerSec = 9.0;
+    // Clamp boss health to minimum 6% so student can land the finishing blow
+    boss.hullIntegrityPct = Math.max(6, boss.hullIntegrityPct);
+    addEvent(sim, `${sim.bossDossier.name.toUpperCase()} IS CRITICAL — FINISH THE FIGHT!`, 'critical');
+  }
+
+  if (sim.isCriticalState) {
+    sim.criticalTimerSec -= dt;
+    // Sputter tiny sparks/smoke periodically from damaged chassis
+    if (Math.random() < dt * 4.5) {
+      sim.sparks.push({
+        id: sim.nextSparkId++,
+        x: boss.x + (Math.random() - 0.5) * 0.22,
+        y: 0.24,
+        z: boss.z + (Math.random() - 0.5) * 0.22,
+        color: '#f97316',
+        intensity: 1.3,
+        age: 0,
+        vx: (Math.random() - 0.5) * 1.4,
+        vy: 1.2 + Math.random() * 1.6,
+        vz: (Math.random() - 0.5) * 1.4,
+        maxAge: 0.28,
+      });
+    }
+
+    if (sim.criticalTimerSec <= 0) {
+      triggerFinalHit(sim, 'burnout', [boss.x, boss.z]);
+      return;
+    }
+  }
+
+  if (!sim.isCriticalState && !sim.isFinalHitExecuted && (boss.hullIntegrityPct <= 0 || bossDriveAvg <= 8)) {
+    triggerFinalHit(sim, 'weapon', [boss.x, boss.z]);
     return;
   }
 
