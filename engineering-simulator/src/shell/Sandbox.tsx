@@ -524,12 +524,7 @@ function StatusPill({ status, variantLabel, run }: { status: Status; variantLabe
         </div>
       </div>
     )
-  return (
-    <span className="flex items-center gap-2 rounded-full bg-mint px-3 py-1.5 text-xs font-semibold text-forest">
-      <span className="size-2 rounded-full bg-leaf" />
-      {status === 'results' ? 'Reviewing results' : 'Design mode'}
-    </span>
-  )
+  return null
 }
 
 function BarButton({

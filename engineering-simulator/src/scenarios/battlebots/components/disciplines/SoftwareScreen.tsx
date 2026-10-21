@@ -31,8 +31,10 @@ const BOT_COMMANDS = new Set(['drive', 'weapon', 'sensor', 'self_right']);
 const BOT_VALUES = new Set(['FORWARD', 'BACKWARD', 'STOP', 'SPIN', 'READY', 'ON', 'OFF']);
 const BOT_SUBJECTS = new Set(['opponent', 'distance', 'detected', 'close', 'robot', 'flipped']);
 
-/** Colors one line of BotCode. */
-function highlightBotCode(line: string): ReactNode[] {
+const BAD_TOKEN = 'rounded-sm bg-[#ef6b5a]/30 text-[#ffc2b8] underline decoration-[#ef6b5a] decoration-wavy underline-offset-4';
+
+/** Colors one line of BotCode. Words in `bad` are marked as errors. */
+function highlightBotCode(line: string, bad: Set<string> = new Set()): ReactNode[] {
   const out: ReactNode[] = [];
   const re = /(\/\/.*$)|([A-Za-z_][A-Za-z0-9_]*)|(\d+(?:\.\d+)?)|(\s+)|(.)/g;
   let m: RegExpExecArray | null;
@@ -41,7 +43,8 @@ function highlightBotCode(line: string): ReactNode[] {
   while ((m = re.exec(line))) {
     const [tok, comment, word, num] = m;
     const k = i++;
-    if (comment) out.push(<span key={k} className="text-[#7d8a80]">{tok}</span>);
+    if (word && bad.has(word)) out.push(<span key={k} className={BAD_TOKEN}>{tok}</span>);
+    else if (comment) out.push(<span key={k} className="text-[#7d8a80]">{tok}</span>);
     else if (word && BOT_KEYWORDS.has(word)) out.push(<span key={k} className="font-semibold text-[#c79bff]">{tok}</span>);
     else if (word && BOT_COMMANDS.has(word)) out.push(<span key={k} className="text-[#8fd19e]">{tok}</span>);
     else if (word && BOT_VALUES.has(word)) out.push(<span key={k} className="text-[#ffd479]">{tok}</span>);
@@ -53,16 +56,35 @@ function highlightBotCode(line: string): ReactNode[] {
   return out;
 }
 
-/** Line-level problems a compiler would report: words BotCode doesn't know, and IF lines without a colon. */
-function findLineProblems(code: string): { line: number; message: string }[] {
+interface LineProblem {
+  line: number;
+  message: string;
+  /** The word to mark on that line; null marks the whole line. */
+  word: string | null;
+}
+
+/**
+ * Problems a compiler would point at, line by line: words BotCode doesn't know, IF lines without a
+ * colon, and settings that are switched off or reversed. Each one states what the line says, as a fact.
+ */
+function findLineProblems(code: string): LineProblem[] {
   const known = new Set([...BOT_KEYWORDS, ...BOT_COMMANDS, ...BOT_VALUES, ...BOT_SUBJECTS]);
-  const out: { line: number; message: string }[] = [];
+  const out: LineProblem[] = [];
+  let block: string | null = null;
   code.split('\n').forEach((raw, idx) => {
+    const n = idx + 1;
     const line = raw.replace(/\/\/.*$/, '').trim();
     if (!line || /^BOT\s/.test(line)) return;
-    const unknown = (line.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []).filter((w) => !known.has(w));
-    if (unknown.length) out.push({ line: idx + 1, message: `"${unknown[0]}" is not a BotCode word.` });
-    if (/^IF\b/.test(line) && !line.endsWith(':')) out.push({ line: idx + 1, message: 'an IF line has to end with a colon.' });
+    if (/^IF\b/.test(line)) block = line.replace(/:$/, '').replace(/^IF\s+/, '');
+    for (const w of line.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) if (!known.has(w)) out.push({ line: n, message: `"${w}" is not a BotCode word.`, word: w });
+    if (/^IF\b/.test(line) && !line.endsWith(':')) out.push({ line: n, message: 'this IF line has no colon at the end.', word: null });
+    if (/^sensor\s+opponent\s*=\s*OFF\b/.test(line)) out.push({ line: n, message: 'the opponent sensor is set to OFF.', word: 'OFF' });
+    if (/^weapon\s*=\s*OFF\b/.test(line)) out.push({ line: n, message: 'the weapon is set to OFF.', word: 'OFF' });
+    const drive = line.match(/^drive\s+(BACKWARD|STOP)\b/);
+    if (drive) out.push({ line: n, message: `the robot drives ${drive[1]} when "${block ?? 'START'}".`, word: drive[1] });
+    if (/^weapon\s+STOP\b/.test(line)) out.push({ line: n, message: `the weapon stops when "${block ?? 'START'}".`, word: 'STOP' });
+    if (/^self_right$/.test(line)) out.push({ line: n, message: 'self_right has no ON or OFF after it.', word: 'self_right' });
+    if (/^self_right\s+OFF\b/.test(line)) out.push({ line: n, message: 'self_right is set to OFF.', word: 'OFF' });
   });
   return out;
 }
@@ -147,9 +169,11 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
 
   const currentEval = evaluateBotCode(code);
   const lines = code.split('\n');
-  // Line markers show what the last Check found, like a compiler run.
-  const lineProblems = lastCheck ? findLineProblems(code) : [];
+  // Marked live as you type, like a compiler running in the editor.
+  const lineProblems = findLineProblems(code);
   const problemLines = new Set(lineProblems.map((p) => p.line));
+  const badWords = (n: number) => new Set(lineProblems.filter((p) => p.line === n && p.word).map((p) => p.word!));
+  const wholeLine = new Set(lineProblems.filter((p) => !p.word).map((p) => p.line));
   const editedSinceUpload = soft.softwareUploaded && (soft.codeContent ?? '') !== code;
   const fileName = `${project.teamName.toLowerCase().replace(/[^a-z0-9]+/g, '_') || 'robot'}.bot`;
 
@@ -498,8 +522,12 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
               <div className="relative min-w-0 flex-1">
                 <pre ref={pre} aria-hidden className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre px-4 py-3 text-[#e7efe9]" style={{ lineHeight: `${LINE_H}px` }}>
                   {lines.map((l, i) => (
-                    <div key={i} className={problemLines.has(i + 1) ? 'bg-[#ef6b5a]/15 underline decoration-[#ef6b5a] decoration-wavy underline-offset-4' : ''} style={{ height: LINE_H }}>
-                      {highlightBotCode(l)}
+                    <div
+                      key={i}
+                      className={problemLines.has(i + 1) ? `bg-[#ef6b5a]/10 ${wholeLine.has(i + 1) ? 'underline decoration-[#ef6b5a] decoration-wavy underline-offset-4' : ''}` : ''}
+                      style={{ height: LINE_H }}
+                    >
+                      {highlightBotCode(l, badWords(i + 1))}
                       {'\u200b'}
                     </div>
                   ))}
@@ -534,32 +562,29 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
             {/* Problems / output */}
             <div className="h-[128px] shrink-0 overflow-y-auto border-t border-white/10 bg-[#0f1813] px-4 py-2 font-mono text-[12.5px]">
               <div className="mb-1 flex items-center gap-3 text-[11px] uppercase tracking-wider text-white/45">
-                <span>Problems ({lastCheck ? lineProblems.length + lastCheck.diagnostics.length : 0})</span>
+                <span>Problems ({lineProblems.length + (lastCheck?.diagnostics.length ?? 0)})</span>
                 <span className={soft.softwareUploaded && !editedSinceUpload ? 'text-[#8fd19e]' : 'text-[#e3b341]'}>
                   {soft.softwareUploaded ? (editedSinceUpload ? '● edited since last upload' : '● running on the robot') : '● not uploaded yet'}
                 </span>
               </div>
               {isUploading && <div className="text-[#e3b341]">Flashing onboard memory… {uploadProgress}%</div>}
-              {!lastCheck ? (
-                <div className="text-white/50">Not checked yet. Click Check code to test every subsystem.</div>
-              ) : lastCheck.allVerified && lineProblems.length === 0 ? (
+              {lineProblems.map((p, i) => (
+                <div key={`l${i}`} className="text-[#f2a093]">
+                  <span className="text-white/45">line {p.line}:</span> {p.message}
+                </div>
+              ))}
+              {lastCheck?.diagnostics.map((d, i) => (
+                <div key={`d${i}`} className="text-[#f2a093]">
+                  <span className="text-white/45">check:</span> {d}
+                </div>
+              ))}
+              {lastCheck && lastCheck.allVerified && lineProblems.length === 0 && (
                 <div className="flex items-center gap-1.5 text-[#8fd19e]">
                   <CheckCircle2 className="size-3.5" /> No problems found. Every subsystem passes.
                 </div>
-              ) : (
-                <>
-                  {lineProblems.map((p, i) => (
-                    <div key={`l${i}`} className="text-[#f2a093]">
-                      <span className="text-white/45">line {p.line}:</span> {p.message}
-                    </div>
-                  ))}
-                  {lastCheck.diagnostics.map((d, i) => (
-                    <div key={`d${i}`} className="text-[#f2a093]">
-                      <span className="text-white/45">check:</span> {d}
-                    </div>
-                  ))}
-                </>
               )}
+              {!lastCheck && lineProblems.length === 0 && <div className="text-white/50">No line problems. Click Check code to test every subsystem.</div>}
+              {!lastCheck && lineProblems.length > 0 && <div className="mt-1 text-white/45">Click Check code to test every subsystem.</div>}
             </div>
           </div>
 
