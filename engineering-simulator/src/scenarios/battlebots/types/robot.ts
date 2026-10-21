@@ -367,12 +367,86 @@ export interface BattleEventLog {
   type: 'info' | 'impact' | 'warning' | 'critical';
 }
 
+export type ImpactSeverity = 'tiny' | 'normal' | 'heavy' | 'major';
+
+export type WedgeOutcomeType =
+  | 'FLIP'
+  | 'RIDE_OVER'
+  | 'WEAPON_COUNTER'
+  | 'SIDE_DEFLECTION'
+  | 'NORMAL_SEPARATION';
+
+export interface WedgeTelemetry {
+  relativeClosingSpeed: number;
+  playerFwdSpeed: number;
+  bullFwdSpeed: number;
+  contactAngleDeg: number;
+  contactPoint: [number, number];
+  contactLateralOffset: number;
+  tangentialSpeed: number;
+  normalSpeed: number;
+  playerPitchRad: number;
+  playerOmega: number;
+  playerStability: number;
+  playerCoM: 'LOW' | 'MODERATE' | 'HIGH';
+  weaponActive: boolean;
+  weaponRpmPct: number;
+  outcome: WedgeOutcomeType;
+}
+
+export type WedgeCondition = 'healthy' | 'damaged' | 'heavily-damaged' | 'critical';
+
+export type DamageSeverity = 'minimal' | 'moderate' | 'high' | 'severe' | 'critical';
+export type AttackClassification = 'NEW_STRIKE' | 'SUSTAINED_CONTACT' | 'WALL_IMPACT' | 'SECONDARY_COLLISION';
+
+export interface CombatImpactEvent {
+  id: number;
+  timeSec: number;
+  point: [number, number];
+  normal: [number, number];
+  relativeVelocity: number;
+  impulse: number;
+  severity: ImpactSeverity;
+  severity01: number;
+  damageSeverity?: DamageSeverity;
+  attackClassification?: AttackClassification;
+  attackType?: string;
+  type: 'chassis' | 'weapon' | 'wall';
+  sourceRobot: 'player' | 'boss' | 'wall';
+  targetRobot: 'player' | 'boss';
+  weaponEnergyJ?: number;
+  hitstopMs: number;
+  targetDeltaV?: number;
+  targetDeltaOmega?: number;
+  attackerReactionImpulse?: number;
+  attackerDeltaV?: number;
+  attackerDeltaOmega?: number;
+  weaponRpmBefore?: number;
+  weaponEnergyBefore?: number;
+  weaponRpmAfter?: number;
+  weaponEnergyAfter?: number;
+  tractionBreakDurationSec?: number;
+  hitSector?: 'front' | 'corner' | 'side' | 'rear';
+  rawDamage?: number;
+  armorMitigation?: number;
+  armorAbsorbed?: number;
+  componentDamage?: number;
+  finalDamage?: number;
+  targetHealthBefore?: number;
+  targetHealthAfter?: number;
+}
+
 export interface CombatantTelemetry {
   x: number;
   z: number;
   headingRad: number;
   vx: number;
   vz: number;
+  angularVelocityRad: number;
+  skidVx: number;
+  skidVz: number;
+  tractionBreakTimerSec: number;
+  impactFlashIntensity: number;
   pitchRad: number;
   rollRad: number;
   isFlipped: boolean;
@@ -391,8 +465,12 @@ export interface CombatantTelemetry {
   leftDriveHealthPct: number;
   rightDriveHealthPct: number;
   weaponHealthPct: number;
+  electricalHealthPct: number;
 
-  aiStateLabel: 'SENSE' | 'APPROACH' | 'FLANK' | 'ENGAGE' | 'RECOVER' | 'EVADE' | 'PUSH';
+  wedgeCondition?: WedgeCondition;
+  wedgeDeformationMm?: number;
+
+  aiStateLabel: 'SENSE' | 'APPROACH' | 'FLANK' | 'ENGAGE' | 'RECOVER' | 'EVADE' | 'PUSH' | 'CHARGE' | 'ACQUIRE' | 'REPOSITION';
 }
 
 export interface SparkBurst {
@@ -403,6 +481,11 @@ export interface SparkBurst {
   color: string;
   intensity: number;
   age: number;
+  vx?: number;
+  vy?: number;
+  vz?: number;
+  maxAge?: number;
+  isDebris?: boolean;
 }
 
 export type BossId = 'bull' | 'scorpion' | 'cyclone' | 'spider' | 'titan';

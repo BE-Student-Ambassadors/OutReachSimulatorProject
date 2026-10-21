@@ -35,6 +35,15 @@ import { computeTeamEngineeringSummary } from './simulation/integrationValidator
 import { createInitialTeamProject } from './data/teamData';
 import { ARMOR_CATALOG, ARMOR_THICKNESS_OPTIONS, BATTERY_CATALOG, CHASSIS_CATALOG, DRIVE_CATALOG, INITIAL_ROBOT_CONFIG, UTILITY_CATALOG, WEAPON_CATALOG, WHEELS_CATALOG } from './data/components';
 import { BOSS_LADDER, getBossById } from './data/bosses';
+import {
+  isBattlebotDevMode,
+  resolveDevArenaRobot,
+  getStoredDevRobotSource,
+  setStoredDevRobotSource,
+  getStoredDevWeapon,
+  setStoredDevWeapon,
+  type DevRobotSource,
+} from './services/devMode';
 import { calculateEngineeringStats, computeInstallConsequences } from './simulation/engineering';
 import {
   type AppScreen,
@@ -77,6 +86,20 @@ const CATEGORY_TABS: {
 const ACCENT_SWATCHES = ['#22d3ee', '#f59e0b', '#10b981', '#ec4899', '#a855f7'];
 
 export function BattlebotApp() {
+  const isDevMode = useMemo(() => isBattlebotDevMode(), []);
+  const [devRobotSource, setDevRobotSource] = useState<DevRobotSource>(() => getStoredDevRobotSource());
+  const [devWeaponId, setDevWeaponId] = useState<WeaponId>(() => getStoredDevWeapon());
+
+  const handleDevChangeWeapon = (weaponId: WeaponId) => {
+    setDevWeaponId(weaponId);
+    setStoredDevWeapon(weaponId);
+  };
+
+  const handleDevChangeRobotSource = (source: DevRobotSource) => {
+    setDevRobotSource(source);
+    setStoredDevRobotSource(source);
+  };
+
   const [screen, setScreen] = useState<AppScreen>('team-dashboard');
   const [project, setProject] = useState<TeamRobotProject>(() => {
     try {
@@ -524,15 +547,25 @@ export function BattlebotApp() {
 
   // 7. COMBAT ARENA SCREEN (VS THE BULL ONLY - Manual Combat Arena)
   if (screen === 'arena') {
+    const arenaBot = isDevMode
+      ? resolveDevArenaRobot(config, project, { robotSource: devRobotSource, weaponId: devWeaponId })
+      : { config, isDefaultTestBot: false, stats };
+    const arenaStats = isDevMode ? arenaBot.stats : stats;
+
     return (
       <ArenaScreen
-        playerConfig={config}
-        playerStats={stats}
+        playerConfig={arenaBot.config}
+        playerStats={arenaStats}
         bossId="bull"
         teamProject={project}
         onDefeatBoss={handleDefeatBoss}
         onReturnToWorkshop={() => setScreen('team-dashboard')}
         onReturnToDashboard={() => setScreen('team-dashboard')}
+        isDevMode={isDevMode}
+        devRobotSource={devRobotSource}
+        devWeaponId={devWeaponId}
+        onDevChangeWeapon={handleDevChangeWeapon}
+        onDevChangeRobotSource={handleDevChangeRobotSource}
       />
     );
   }
@@ -630,24 +663,38 @@ export function BattlebotApp() {
         checklistSteps={getDisciplineChecklist()}
         spentUsd={teamSummary.totalCostUsd}
         availableUsd={totalFunding}
+        isDevMode={isDevMode}
+        onDevEnterArena={() => setScreen('arena')}
       >
         {screen === 'team-dashboard' && (
           <TeamDashboardScreen
             project={project}
+            currentConfig={config}
             onSelectRole={(role) => setScreen(role)}
             onCheckRobot={() => setScreen('integration')}
             onEnterArena={() => setScreen('arena')}
             onResetProject={handleResetProject}
             hideHeader={true}
+            isDevMode={isDevMode}
+            devRobotSource={devRobotSource}
+            devWeaponId={devWeaponId}
+            onDevChangeWeapon={handleDevChangeWeapon}
+            onDevChangeRobotSource={handleDevChangeRobotSource}
           />
         )}
 
         {screen === 'integration' && (
           <SystemsTeamScreen
             project={project}
+            currentConfig={config}
             onEnterArena={() => setScreen('arena')}
             onReturnToTeam={() => setScreen('team-dashboard')}
             onSelectRole={(role) => setScreen(role)}
+            isDevMode={isDevMode}
+            devRobotSource={devRobotSource}
+            devWeaponId={devWeaponId}
+            onDevChangeWeapon={handleDevChangeWeapon}
+            onDevChangeRobotSource={handleDevChangeRobotSource}
           />
         )}
 

@@ -160,9 +160,9 @@ export function getRobotCollisionModel(
     const wId = config.weaponId;
     if (wId === 'horizontal-spinner') {
       // 1.65m long spinning AR500 bar centered at front
-      wCenterOffset = hz + 0.26;
-      wHalfWidth = 0.82; // 1.64m full span
-      wHalfDepth = 0.28;
+      wCenterOffset = hz + 0.24;
+      wHalfWidth = 0.38; // ~30" total frontal sweep
+      wHalfDepth = 0.24;
     } else if (wId === 'vertical-spinner') {
       // 0.76m diameter vertical disc protruding forward
       wCenterOffset = hz + 0.28;

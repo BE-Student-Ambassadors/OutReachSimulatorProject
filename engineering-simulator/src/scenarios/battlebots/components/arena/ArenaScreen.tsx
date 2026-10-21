@@ -29,12 +29,21 @@ import {
   type BattleEventLog,
   type BossId,
   type CombatantTelemetry,
+  type CombatImpactEvent,
   type EngineeringStats,
   type RobotConfiguration,
   type SparkBurst,
   type TeamRobotProject,
+  type WedgeTelemetry,
+  type WeaponId,
 } from '../../types/robot';
 import { Robot3D } from '../three/Robot3D';
+import { DevLoadoutCard } from '../dev/DevLoadoutCard';
+import {
+  DEV_AVAILABLE_WEAPONS,
+  formatWeaponOptionLabel,
+  type DevRobotSource,
+} from '../../services/devMode';
 
 interface ArenaScreenProps {
   playerConfig: RobotConfiguration;
@@ -44,6 +53,11 @@ interface ArenaScreenProps {
   onReturnToWorkshop: (resetToStarter?: boolean) => void;
   onReturnToDashboard?: () => void;
   onDefeatBoss?: (bossId: BossId) => void;
+  isDevMode?: boolean;
+  devRobotSource?: DevRobotSource;
+  devWeaponId?: WeaponId;
+  onDevChangeWeapon?: (weaponId: WeaponId) => void;
+  onDevChangeRobotSource?: (source: DevRobotSource) => void;
 }
 
 type SpectatorCamMode = 'director' | 'wide' | 'chase';
@@ -128,19 +142,24 @@ const Arena3DScene: React.FC<{
   playerConfig: RobotConfiguration;
   bossId: BossId;
   showHitboxes?: boolean;
+  isDevMode?: boolean;
   onSyncHud: (
     player: CombatantTelemetry,
     bull: CombatantTelemetry,
     timeSec: number,
     events: BattleEventLog[],
-    report: BattleAnalysisReport | null
+    report: BattleAnalysisReport | null,
+    lastImpact?: CombatImpactEvent | null,
+    lastWedge?: WedgeTelemetry | null
   ) => void;
-}> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, onSyncHud }) => {
+}> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, isDevMode = false, onSyncHud }) => {
   const { camera } = useThree();
   const playerGroupRef = useRef<THREE.Group>(null);
   const bullGroupRef = useRef<THREE.Group>(null);
   const hudTimerRef = useRef<number>(0);
   const lastEventIdRef = useRef<number>(0);
+  const lastImpactEventIdRef = useRef<number>(0);
+  const hitstopTimerRef = useRef<number>(0);
 
   const [renderState, setRenderState] = useState<{
     player: CombatantTelemetry | null;
@@ -157,18 +176,57 @@ const Arena3DScene: React.FC<{
     const sim = simRef.current;
     if (!sim) return;
 
-    if (battlePhase === 'fighting' && !sim.isFinished) {
+    // Presentation-level hitstop freeze on heavy/major impacts
+    if (hitstopTimerRef.current > 0) {
+      hitstopTimerRef.current = Math.max(0, hitstopTimerRef.current - delta);
+    } else if (battlePhase === 'fighting' && !sim.isFinished) {
       const input = keyboardRef.current ? keyboardRef.current.getInput() : undefined;
       stepBattleSimulation(sim, delta, input);
 
-      // Play sound effects when new impact events arrive
-      const newest = sim.events[0];
-      if (newest && newest.id !== lastEventIdRef.current) {
-        lastEventIdRef.current = newest.id;
-        if (newest.type === 'impact') {
-          soundEngine.playImpact('heavy');
-        } else if (newest.type === 'critical') {
-          soundEngine.playImpact('medium');
+      // Play sound and trigger hitstop from authoritative CombatImpactEvent
+      if (sim.lastImpactEvent && sim.lastImpactEvent.id !== lastImpactEventIdRef.current) {
+        lastImpactEventIdRef.current = sim.lastImpactEvent.id;
+        const imp = sim.lastImpactEvent;
+        soundEngine.playCombatImpact(imp.severity, imp.type);
+        if (imp.hitstopMs > 0) {
+          hitstopTimerRef.current = imp.hitstopMs / 1000;
+        }
+        if (isDevMode) {
+          console.log('[DEV IMPACT TELEMETRY]', {
+            classification: imp.attackClassification ?? 'NEW_STRIKE',
+            attackType: imp.attackType ?? imp.type,
+            sector: imp.hitSector ?? 'front',
+            impactSeverity: imp.severity,
+            damageSeverity: imp.damageSeverity ?? 'moderate',
+            source: imp.sourceRobot,
+            target: imp.targetRobot,
+            relativeSpeed: `${imp.relativeVelocity} m/s`,
+            targetImpulse: `${imp.impulse} N*s`,
+            attackerReactionImpulse: imp.attackerReactionImpulse ? `${imp.attackerReactionImpulse} N*s` : 'N/A',
+            targetDeltaV: imp.targetDeltaV ? `${imp.targetDeltaV} m/s` : 'N/A',
+            attackerDeltaV: imp.attackerDeltaV ? `${imp.attackerDeltaV} m/s` : 'N/A',
+            targetDeltaOmega: imp.targetDeltaOmega ? `${(imp.targetDeltaOmega * (180 / Math.PI)).toFixed(0)} deg/s` : '0 deg/s',
+            attackerDeltaOmega: imp.attackerDeltaOmega ? `${(imp.attackerDeltaOmega * (180 / Math.PI)).toFixed(0)} deg/s` : '0 deg/s',
+            weaponRpmBefore: imp.weaponRpmBefore !== undefined ? `${imp.weaponRpmBefore.toFixed(0)}%` : 'N/A',
+            weaponRpmAfter: imp.weaponRpmAfter !== undefined ? `${imp.weaponRpmAfter.toFixed(0)}%` : 'N/A',
+            weaponEnergyBefore: imp.weaponEnergyBefore !== undefined ? `${imp.weaponEnergyBefore} J` : 'N/A',
+            weaponEnergyAfter: imp.weaponEnergyAfter !== undefined ? `${imp.weaponEnergyAfter} J` : 'N/A',
+            rawDamage: imp.rawDamage !== undefined ? imp.rawDamage : 'N/A',
+            armorAbsorbed: imp.armorAbsorbed !== undefined ? imp.armorAbsorbed : 'N/A',
+            componentDamage: imp.componentDamage !== undefined ? imp.componentDamage : 'N/A',
+            finalDamage: imp.finalDamage !== undefined ? `${imp.finalDamage}%` : 'N/A',
+            targetHealthBefore: imp.targetHealthBefore !== undefined ? `${imp.targetHealthBefore}%` : 'N/A',
+            targetHealthAfter: imp.targetHealthAfter !== undefined ? `${imp.targetHealthAfter}%` : 'N/A',
+            tractionBreak: imp.tractionBreakDurationSec ? `${Math.round(imp.tractionBreakDurationSec * 1000)} ms` : '0 ms',
+          });
+        }
+      } else {
+        const newest = sim.events[0];
+        if (newest && newest.id !== lastEventIdRef.current) {
+          lastEventIdRef.current = newest.id;
+          if (newest.type === 'impact') {
+            soundEngine.playImpact('heavy');
+          }
         }
       }
 
@@ -200,10 +258,10 @@ const Arena3DScene: React.FC<{
     const midZ = (sim.player.z + sim.bull.z) * 0.5;
 
 
-    // Subtle impact camera shake
-    const shakeAmt = sim.cameraImpactShake * 0.14;
-    const shakeX = Math.sin(state.clock.elapsedTime * 55) * shakeAmt;
-    const shakeY = Math.cos(state.clock.elapsedTime * 48) * shakeAmt;
+    // Punchy impact camera shake
+    const shakeAmt = sim.cameraImpactShake * 0.22;
+    const shakeX = Math.sin(state.clock.elapsedTime * 65) * shakeAmt;
+    const shakeY = Math.cos(state.clock.elapsedTime * 55) * shakeAmt;
 
     if (battlePhase === 'tutorial' || battlePhase === 'countdown') {
       // Dramatic establishing orbit around arena center
@@ -218,13 +276,13 @@ const Arena3DScene: React.FC<{
       camera.position.lerp(targetPos, delta * 3.5);
       camera.lookAt(midX, 0.35, midZ);
     } else if (camMode === 'wide') {
-      const targetPos = new THREE.Vector3(0 + shakeX, 7.0 + shakeY, 7.0);
+      const targetPos = new THREE.Vector3(0 + shakeX, 9.2 + shakeY, 9.2);
       camera.position.lerp(targetPos, delta * 4);
       camera.lookAt(0, 0, 0);
     } else {
       // STABLE PLAYABLE GAMEPLAY CAMERA (Elevated chase with smooth damping following player)
-      const behindDist = 3.6;
-      const camHeight = 3.8;
+      const behindDist = 4.4;
+      const camHeight = 4.5;
       const targetCamX = sim.player.x - Math.sin(sim.player.headingRad) * behindDist + (midX - sim.player.x) * 0.25 + shakeX;
       const targetCamZ = sim.player.z - Math.cos(sim.player.headingRad) * behindDist + (midZ - sim.player.z) * 0.25 + shakeY;
       camera.position.lerp(new THREE.Vector3(targetCamX, camHeight, targetCamZ), delta * 4.5);
@@ -242,7 +300,7 @@ const Arena3DScene: React.FC<{
         debugHitboxes: sim.debugHitboxes ? { ...sim.debugHitboxes } : undefined,
       });
       if (battlePhase === 'fighting' && !sim.isFinished) {
-        onSyncHud({ ...sim.player }, { ...sim.bull }, sim.timeSec, [...sim.events], null);
+        onSyncHud({ ...sim.player }, { ...sim.bull }, sim.timeSec, [...sim.events], null, sim.lastImpactEvent, sim.lastWedgeTelemetry);
       }
     }
   });
@@ -286,13 +344,13 @@ const Arena3DScene: React.FC<{
         </mesh>
 
         {/* Player Starting Box (South - Cyan) */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, 2.35]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, 3.8]}>
           <ringGeometry args={[0.95, 1.05, 4]} />
           <meshStandardMaterial color="#22d3ee" emissive="#22d3ee" emissiveIntensity={1.0} />
         </mesh>
 
         {/* Boss Starting Box (North) */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, -2.35]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, -3.8]}>
           <ringGeometry args={[0.95, 1.05, 4]} />
           <meshStandardMaterial color={bossDossier.config.accentColor} emissive={bossDossier.config.accentColor} emissiveIntensity={1.0} />
         </mesh>
@@ -328,33 +386,49 @@ const Arena3DScene: React.FC<{
         ))}
       </group>
 
-      {/* Active Impact Spark Bursts */}
-      {renderState.sparks.map((sp) => (
-        <group key={sp.id} position={[sp.x, sp.y, sp.z]} rotation={[0, sp.age * 25, 0]}>
-          {[0, 1, 2, 3, 4, 5].map((i) => {
-            const ang = (i * Math.PI) / 3;
-            const spread = 0.15 + sp.age * 1.4;
-            return (
-              <mesh
-                key={i}
-                position={[
-                  Math.cos(ang) * spread,
-                  Math.sin(ang * 2) * 0.2,
-                  Math.sin(ang) * spread,
-                ]}
-                rotation={[ang, ang, 0]}
-              >
-                <boxGeometry args={[0.04, 0.04, 0.26]} />
-                <meshStandardMaterial
-                  color={sp.color}
-                  emissive={sp.color}
-                  emissiveIntensity={2.5}
-                />
-              </mesh>
-            );
-          })}
-        </group>
-      ))}
+      {/* Active Impact Directional Sparks & Procedural Debris */}
+      {renderState.sparks.map((sp) => {
+        const t = sp.age;
+        const posX = sp.x + (sp.vx ?? 0) * t;
+        const posY = Math.max(0.02, sp.y + (sp.vy ?? 0) * t - 0.5 * 9.8 * t * t);
+        const posZ = sp.z + (sp.vz ?? 0) * t;
+        const maxT = sp.maxAge ?? 0.35;
+        const lifeRatio = Math.max(0, 1 - t / maxT);
+
+        if (sp.isDebris) {
+          return (
+            <mesh
+              key={sp.id}
+              position={[posX, posY, posZ]}
+              rotation={[t * 12, t * 15, 0]}
+            >
+              <boxGeometry args={[0.065, 0.025, 0.065]} />
+              <meshStandardMaterial color="#475569" metalness={0.9} roughness={0.3} />
+            </mesh>
+          );
+        }
+
+        const speed = Math.hypot(sp.vx ?? 0, sp.vz ?? 0);
+        const streakLen = Math.max(0.08, Math.min(0.35, speed * 0.05 * lifeRatio));
+        const angle = Math.atan2(sp.vx ?? 0, sp.vz ?? 0);
+
+        return (
+          <mesh
+            key={sp.id}
+            position={[posX, posY, posZ]}
+            rotation={[0, angle, 0]}
+          >
+            <boxGeometry args={[0.025, 0.025, streakLen]} />
+            <meshStandardMaterial
+              color={sp.color}
+              emissive={sp.color}
+              emissiveIntensity={2.8 * lifeRatio}
+              transparent
+              opacity={Math.min(1.0, lifeRatio * 1.5)}
+            />
+          </mesh>
+        );
+      })}
 
       {/* Subtle Cyan Driver Ring under Player Robot */}
       {pState && (
@@ -367,9 +441,10 @@ const Arena3DScene: React.FC<{
       )}
 
       {/* Student's Exact Assembled Robot3D */}
-      <group ref={playerGroupRef} position={[0, 0, 2.35]} rotation={[0, Math.PI, 0]}>
+      <group ref={playerGroupRef} position={[0, 0, 3.8]} rotation={[0, Math.PI, 0]}>
         <Robot3D
           config={playerConfig}
+          impactFlashIntensity={pState?.impactFlashIntensity ?? 0}
           wheelSpeedRad={
             pState ? Math.hypot(pState.vx, pState.vz) * 6 : 0
           }
@@ -396,10 +471,11 @@ const Arena3DScene: React.FC<{
       </group>
 
       {/* Active Boss Robot */}
-      <group ref={bullGroupRef} position={[0, 0, -2.35]} rotation={[0, 0, 0]}>
+      <group ref={bullGroupRef} position={[0, 0, -3.8]} rotation={[0, 0, 0]}>
         <Robot3D
           config={bossDossier.config}
           bossId={bossId}
+          impactFlashIntensity={bState?.impactFlashIntensity ?? 0}
           wheelSpeedRad={bState ? Math.hypot(bState.vx, bState.vz) * 6 : 0}
           weaponActive={battlePhase === 'fighting'}
           weaponSpinPct={bState?.weaponSpinPct ?? 80}
@@ -408,6 +484,18 @@ const Arena3DScene: React.FC<{
           chassisRollRad={bState?.rollRad ?? 0}
           isFlipped={bState?.isFlipped ?? false}
           motorTempC={bState?.motorTempC ?? bossDossier.stats.expectedMotorTempC}
+          damageState={
+            bState
+              ? {
+                  frontArmorPct: bState.frontArmorPct,
+                  sideArmorPct: bState.sideArmorPct,
+                  rearArmorPct: bState.rearArmorPct,
+                  leftDrivePct: bState.leftDriveHealthPct,
+                  rightDrivePct: bState.rightDriveHealthPct,
+                  weaponPct: bState.weaponHealthPct,
+                }
+              : undefined
+          }
         />
       </group>
 
@@ -592,6 +680,11 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   onReturnToWorkshop,
   onReturnToDashboard,
   onDefeatBoss,
+  isDevMode = false,
+  devRobotSource,
+  devWeaponId,
+  onDevChangeWeapon,
+  onDevChangeRobotSource,
 }) => {
   const [battlePhase, setBattlePhase] = useState<'tutorial' | 'countdown' | 'fighting' | 'finished'>('tutorial');
   const [countdownNumber, setCountdownNumber] = useState<number | 'FIGHT!'>(3);
@@ -607,13 +700,14 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
       ? 24
       : 0;
 
+  const devDefaultLimiter = isDevMode && !teamProject?.electrical.currentLimiterA ? 120 : teamProject?.electrical.currentLimiterA;
   const [initialSim] = useState(() =>
     createBattleSimulation(
       playerConfig,
       'control',
       'bull',
       teamProject?.software.rules,
-      teamProject?.electrical.currentLimiterA,
+      devDefaultLimiter,
       coolingDrop,
       true
     )
@@ -624,6 +718,8 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
   const [hudBull, setHudBull] = useState<CombatantTelemetry>(() => initialSim.bull);
   const [hudTimeSec, setHudTimeSec] = useState<number>(0);
   const [, setHudEvents] = useState<BattleEventLog[]>([]);
+  const [hudLastImpact, setHudLastImpact] = useState<CombatImpactEvent | null>(null);
+  const [hudLastWedge, setHudLastWedge] = useState<WedgeTelemetry | null>(null);
   const [analysisReport, setAnalysisReport] = useState<BattleAnalysisReport | null>(null);
 
   // Setup keyboard controller
@@ -674,14 +770,33 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
     }, 1000);
   };
 
-  const handleStartBattle = () => {
+  useEffect(() => {
+    if (battlePhase === 'tutorial') {
+      const effectiveLimiter = isDevMode && !teamProject?.electrical.currentLimiterA ? 120 : teamProject?.electrical.currentLimiterA;
+      simRef.current = createBattleSimulation(
+        playerConfig,
+        'control',
+        'bull',
+        teamProject?.software.rules,
+        effectiveLimiter,
+        coolingDrop,
+        true
+      );
+      setHudPlayer(simRef.current.player);
+      setHudBull(simRef.current.bull);
+    }
+  }, [playerConfig, battlePhase, coolingDrop, isDevMode, teamProject]);
+
+  const handleStartBattle = (overrideConfig?: RobotConfiguration) => {
     soundEngine.playClick();
+    const activeCfg = overrideConfig || playerConfig;
+    const effectiveLimiter = isDevMode && !teamProject?.electrical.currentLimiterA ? 120 : teamProject?.electrical.currentLimiterA;
     simRef.current = createBattleSimulation(
-      playerConfig,
+      activeCfg,
       'control',
       'bull',
       teamProject?.software.rules,
-      teamProject?.electrical.currentLimiterA,
+      effectiveLimiter,
       coolingDrop,
       true
     );
@@ -720,7 +835,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
     <div className="relative w-full h-full bg-[#0a0f1d] overflow-hidden flex flex-col justify-between select-none">
       {/* 3D Combat Arena Canvas */}
       <div className="absolute inset-0 z-0">
-        <Canvas shadows camera={{ position: [0, 4.2, 6.4], fov: 44 }}>
+        <Canvas shadows camera={{ position: [0, 5.0, 8.2], fov: 46 }}>
           <Arena3DScene
             simRef={simRef}
             keyboardRef={keyboardRef}
@@ -729,11 +844,18 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             playerConfig={playerConfig}
             bossId={bossId}
             showHitboxes={showHitboxes}
-            onSyncHud={(p, b, t, evs, rep) => {
+            isDevMode={isDevMode}
+            onSyncHud={(p, b, t, evs, rep, lastImp, lastWedge) => {
               setHudPlayer(p);
               setHudBull(b);
               setHudTimeSec(t);
               setHudEvents(evs);
+              if (lastImp) {
+                setHudLastImpact(lastImp);
+              }
+              if (lastWedge) {
+                setHudLastWedge(lastWedge);
+              }
               if (rep) {
                 setAnalysisReport(rep);
                 setBattlePhase('finished');
@@ -747,6 +869,148 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
           />
         </Canvas>
       </div>
+
+      {/* Developer Mode Live Impact Telemetry HUD (Section 18) */}
+      {isDevMode && (battlePhase === 'fighting' || battlePhase === 'countdown' || battlePhase === 'tutorial') && (
+        <div className="absolute top-20 right-4 z-30 pointer-events-auto bg-slate-950/90 border border-amber-500/50 rounded-xl p-3 text-xs font-mono shadow-xl backdrop-blur max-w-xs">
+          <div className="flex items-center justify-between border-b border-amber-500/30 pb-1.5 mb-2">
+            <span className="font-bold text-amber-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              IMPACT TELEMETRY
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] text-amber-300 uppercase font-bold">
+              {hudLastImpact ? hudLastImpact.severity : 'STANDBY'}
+            </span>
+          </div>
+          {/* Bull Combat Balance Telemetry (Section 22) */}
+          <div className="mb-2 pb-2 border-b border-amber-500/30">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                BULL COMBAT STATUS
+              </span>
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                hudBull.wedgeCondition === 'critical' || hudBull.frontArmorPct < 20
+                  ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                  : hudBull.wedgeCondition === 'heavily-damaged' || hudBull.frontArmorPct < 45
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : hudBull.wedgeCondition === 'damaged' || hudBull.frontArmorPct < 75
+                  ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40'
+                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+              }`}>
+                WEDGE: {hudBull.wedgeCondition ?? (hudBull.frontArmorPct >= 75 ? 'HEALTHY' : hudBull.frontArmorPct >= 45 ? 'DAMAGED' : hudBull.frontArmorPct >= 20 ? 'HEAVILY DAMAGED' : 'CRITICAL')}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+              <span className="text-slate-400">Total Health:</span>
+              <span className="text-white font-bold">{bullOverallCondition}% (Hull: {hudBull.hullIntegrityPct.toFixed(0)}%)</span>
+              <span className="text-slate-400">Wedge Armor:</span>
+              <span className="text-amber-300 font-bold">{hudBull.frontArmorPct.toFixed(0)}% (Deform: {(hudBull.wedgeDeformationMm ?? (100 - hudBull.frontArmorPct) * 0.35).toFixed(0)}mm)</span>
+              <span className="text-slate-400">Drive Condition:</span>
+              <span className="text-cyan-300">L: {hudBull.leftDriveHealthPct.toFixed(0)}% | R: {hudBull.rightDriveHealthPct.toFixed(0)}%</span>
+              <span className="text-slate-400">Traction:</span>
+              <span className={hudBull.tractionBreakTimerSec > 0 ? "text-rose-400 font-bold animate-pulse" : "text-emerald-400 font-bold"}>
+                {hudBull.tractionBreakTimerSec > 0 ? `SLIP (${(hudBull.tractionBreakTimerSec * 1000).toFixed(0)}ms)` : 'NOMINAL 100%'}
+              </span>
+            </div>
+          </div>
+
+          {hudLastImpact ? (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-slate-400">Class:</span>
+              <span className={`font-bold uppercase ${
+                hudLastImpact.attackClassification === 'NEW_STRIKE' ? 'text-emerald-400' :
+                hudLastImpact.attackClassification === 'SUSTAINED_CONTACT' ? 'text-amber-400' : 'text-sky-400'
+              }`}>{hudLastImpact.attackClassification ?? 'NEW_STRIKE'}</span>
+              <span className="text-slate-400">Attack Type:</span>
+              <span className="text-white font-bold uppercase">{hudLastImpact.attackType ?? hudLastImpact.type} ({hudLastImpact.sourceRobot} → {hudLastImpact.targetRobot})</span>
+              <span className="text-slate-400">Hit Sector:</span>
+              <span className="text-emerald-300 font-bold uppercase">{hudLastImpact.hitSector ?? 'FRONT'}</span>
+              <span className="text-slate-400">Severity:</span>
+              <span className="text-purple-300 font-bold uppercase">IMP: {hudLastImpact.severity} | DMG: {hudLastImpact.damageSeverity ?? 'MOD'}</span>
+              <span className="text-slate-400">Rel Speed:</span>
+              <span className="text-white font-bold">{hudLastImpact.relativeVelocity.toFixed(2)} m/s</span>
+              <span className="text-slate-400">Weapon RPM:</span>
+              <span className="text-amber-300 font-bold">
+                {hudLastImpact.weaponRpmBefore !== undefined ? `${hudLastImpact.weaponRpmBefore.toFixed(0)}% → ${hudLastImpact.weaponRpmAfter?.toFixed(0) ?? '?'}%` : 'N/A'}
+              </span>
+              <span className="text-slate-400">Weapon Energy:</span>
+              <span className="text-amber-300 font-bold">
+                {hudLastImpact.weaponEnergyBefore !== undefined ? `${hudLastImpact.weaponEnergyBefore}J → ${hudLastImpact.weaponEnergyAfter ?? 0}J` : hudLastImpact.weaponEnergyJ ? `${hudLastImpact.weaponEnergyJ}J` : 'N/A'}
+              </span>
+              <span className="text-slate-400">Raw / Absorbed:</span>
+              <span className="text-amber-400 font-bold">
+                {hudLastImpact.rawDamage !== undefined ? hudLastImpact.rawDamage.toFixed(1) : 'N/A'} / {hudLastImpact.armorAbsorbed !== undefined ? `${hudLastImpact.armorAbsorbed.toFixed(1)} abs` : '0 abs'}
+              </span>
+              <span className="text-slate-400">Comp / Final Dmg:</span>
+              <span className="text-rose-400 font-bold">
+                {hudLastImpact.componentDamage !== undefined ? `${hudLastImpact.componentDamage.toFixed(1)}c` : '0c'} | {hudLastImpact.finalDamage !== undefined ? `${hudLastImpact.finalDamage.toFixed(1)}%` : 'N/A'}
+              </span>
+              <span className="text-slate-400">Target Impulse:</span>
+              <span className="text-cyan-300 font-bold">{hudLastImpact.impulse.toFixed(1)} N·s (ΔV: {hudLastImpact.targetDeltaV ?? 0}m/s)</span>
+              <span className="text-slate-400">Attacker Recoil:</span>
+              <span className="text-purple-300 font-bold">
+                {hudLastImpact.attackerReactionImpulse !== undefined ? `${hudLastImpact.attackerReactionImpulse.toFixed(1)} N·s (ΔV: ${hudLastImpact.attackerDeltaV ?? 0}m/s)` : 'N/A'}
+              </span>
+              <span className="text-slate-400">Angular Impulse:</span>
+              <span className="text-purple-300 font-bold">
+                Tgt: {hudLastImpact.targetDeltaOmega !== undefined ? `${(hudLastImpact.targetDeltaOmega * (180 / Math.PI)).toFixed(0)}°/s` : '0°/s'} | Atk: {hudLastImpact.attackerDeltaOmega !== undefined ? `${(hudLastImpact.attackerDeltaOmega * (180 / Math.PI)).toFixed(0)}°/s` : '0°/s'}
+              </span>
+              <span className="text-slate-400">Traction Break:</span>
+              <span className="text-rose-400 font-bold">{hudLastImpact.tractionBreakDurationSec !== undefined ? `${Math.round(hudLastImpact.tractionBreakDurationSec * 1000)} ms` : '0 ms'}</span>
+              <span className="text-slate-400">Health Before/After:</span>
+              <span className="text-white font-bold">
+                {hudLastImpact.targetHealthBefore !== undefined ? `${hudLastImpact.targetHealthBefore.toFixed(1)}% → ${hudLastImpact.targetHealthAfter?.toFixed(1) ?? '?'}%` : 'N/A'}
+              </span>
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-500 italic py-1">
+              Awaiting first collision impact...
+            </div>
+          )}
+
+          {/* Section 17 Wedge Engagement Telemetry */}
+          {hudLastWedge && (
+            <div className="mt-2.5 pt-2 border-t border-amber-500/30">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
+                  Bull Wedge Dynamics
+                </span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                  hudLastWedge.outcome === 'FLIP'
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                    : hudLastWedge.outcome === 'RIDE_OVER'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : hudLastWedge.outcome === 'WEAPON_COUNTER'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : hudLastWedge.outcome === 'SIDE_DEFLECTION'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                    : 'bg-slate-500/20 text-slate-300 border border-slate-500/40'
+                }`}>
+                  {hudLastWedge.outcome}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                <span className="text-slate-400">Closing Speed:</span>
+                <span className="text-white font-bold">{hudLastWedge.relativeClosingSpeed.toFixed(2)} m/s</span>
+                <span className="text-slate-400">Player / Bull Fwd:</span>
+                <span className="text-white">{hudLastWedge.playerFwdSpeed.toFixed(2)} / {hudLastWedge.bullFwdSpeed.toFixed(2)} m/s</span>
+                <span className="text-slate-400">Contact Angle:</span>
+                <span className="text-white">{hudLastWedge.contactAngleDeg.toFixed(0)}°</span>
+                <span className="text-slate-400">Lateral Offset:</span>
+                <span className="text-white">{hudLastWedge.contactLateralOffset.toFixed(2)} m</span>
+                <span className="text-slate-400">Tangential / Norm:</span>
+                <span className="text-cyan-300">{hudLastWedge.tangentialSpeed.toFixed(2)} / {hudLastWedge.normalSpeed.toFixed(2)}</span>
+                <span className="text-slate-400">Pitch / Yaw Rate:</span>
+                <span className="text-purple-300">{(hudLastWedge.playerPitchRad * (180 / Math.PI)).toFixed(0)}° / {(hudLastWedge.playerOmega * (180 / Math.PI)).toFixed(0)}°/s</span>
+                <span className="text-slate-400">CoM / Stability:</span>
+                <span className="text-emerald-400 font-bold">{hudLastWedge.playerCoM} ({hudLastWedge.playerStability})</span>
+                <span className="text-slate-400">Weapon State:</span>
+                <span className="text-amber-300 font-bold">{hudLastWedge.weaponActive ? `ACTIVE (${hudLastWedge.weaponRpmPct.toFixed(0)}%)` : 'IDLE'}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ============================================================
           LIVE TELEMETRY HUD (Only shown during countdown & battle)
@@ -894,8 +1158,15 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-5">
               <div>
-                <div className="text-xs font-mono uppercase tracking-widest text-cyan-400 mb-1 font-bold">
-                  FINAL COMBAT ARENA
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="text-xs font-mono uppercase tracking-widest text-cyan-400 font-bold">
+                    FINAL COMBAT ARENA
+                  </div>
+                  {isDevMode && (
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono font-bold text-amber-300">
+                      DEV MODE
+                    </span>
+                  )}
                 </div>
                 <h2 className="font-display text-2xl md:text-3xl font-black text-white">
                   {teamName} VS THE BULL
@@ -911,6 +1182,21 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             </div>
 
             {/* Visual Controls Schematic Card */}
+            {isDevMode && onDevChangeWeapon && onDevChangeRobotSource && (
+              <div className="mb-5">
+                <DevLoadoutCard
+                  robotSource={devRobotSource || 'default'}
+                  weaponId={devWeaponId || playerConfig.weaponId}
+                  onChangeRobotSource={onDevChangeRobotSource}
+                  onChangeWeapon={onDevChangeWeapon}
+                  totalWeightLb={playerStats.totalWeightLb}
+                  isOverweight={playerStats.isOverweight}
+                  variant="pre-fight"
+                  showEnterButton={false}
+                />
+              </div>
+            )}
+
             <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 text-center mb-6">
               <span className="text-xs font-mono uppercase tracking-widest text-slate-400 font-bold block mb-4">
                 CONTROLS
@@ -983,7 +1269,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
 
               <button
                 type="button"
-                onClick={handleStartBattle}
+                onClick={() => handleStartBattle()}
                 className="cursor-pointer inline-flex items-center gap-3 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-display font-black text-base tracking-wide shadow-lg shadow-amber-500/25 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
               >
                 <Swords className="w-5 h-5" />
@@ -1049,6 +1335,45 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             >
               HITBOXES {showHitboxes ? 'ON' : 'OFF'}
             </button>
+
+            {isDevMode && (
+              <div className="flex items-center gap-1.5">
+                {onDevChangeWeapon && (
+                  <div className="flex items-center gap-1 bg-slate-900 border border-amber-500/50 rounded-lg px-2 py-0.5">
+                    <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">DEV WEAPON:</span>
+                    <select
+                      value={devWeaponId || playerConfig.weaponId}
+                      onChange={(e) => {
+                        const newWId = e.target.value as WeaponId;
+                        onDevChangeWeapon(newWId);
+                        const updatedCfg: RobotConfiguration = { ...playerConfig, weaponId: newWId, customWeapon: null };
+                        handleStartBattle(updatedCfg);
+                      }}
+                      className="cursor-pointer bg-transparent text-amber-300 font-mono font-bold text-xs focus:outline-none"
+                      title="Switch Dev Weapon and Reset Battle"
+                    >
+                      {DEV_AVAILABLE_WEAPONS.map((spec) => (
+                        <option key={spec.id} value={spec.id} className="bg-slate-900 text-amber-300">
+                          {formatWeaponOptionLabel(spec)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    handleStartBattle();
+                  }}
+                  className="cursor-pointer px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30 flex items-center gap-1.5 shadow-sm shadow-amber-500/20"
+                  title="Developer Mode: Reset battle state instantly"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                  <span>RESET TEST BATTLE</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -19,14 +19,24 @@ import {
   type SystemIntegrationReport,
   type TeamRobotProject,
   type TeamRole,
+  type WeaponId,
 } from '../../types/robot';
 import { Robot3D } from '../three/Robot3D';
+import { DevLoadoutCard } from '../dev/DevLoadoutCard';
+import { resolveDevArenaRobot, type DevRobotSource } from '../../services/devMode';
+import { INITIAL_ROBOT_CONFIG } from '../../data/components';
 
 interface SystemsTeamScreenProps {
   project: TeamRobotProject;
   onEnterArena: () => void;
   onReturnToTeam: () => void;
   onSelectRole: (role: TeamRole) => void;
+  isDevMode?: boolean;
+  currentConfig?: RobotConfiguration;
+  devRobotSource?: DevRobotSource;
+  devWeaponId?: WeaponId;
+  onDevChangeWeapon?: (weaponId: WeaponId) => void;
+  onDevChangeRobotSource?: (source: DevRobotSource) => void;
 }
 
 export const SystemsTeamScreen: React.FC<SystemsTeamScreenProps> = ({
@@ -34,9 +44,24 @@ export const SystemsTeamScreen: React.FC<SystemsTeamScreenProps> = ({
   onEnterArena,
   onReturnToTeam,
   onSelectRole,
+  isDevMode = false,
+  currentConfig,
+  devRobotSource,
+  devWeaponId,
+  onDevChangeWeapon,
+  onDevChangeRobotSource,
 }) => {
   const summary = computeTeamEngineeringSummary(project);
   const report: SystemIntegrationReport = validateSystemIntegration(project);
+
+  const devLoadout = useMemo(() => {
+    if (!isDevMode) return null;
+    return resolveDevArenaRobot(
+      currentConfig || INITIAL_ROBOT_CONFIG,
+      project,
+      { robotSource: devRobotSource || 'default', weaponId: devWeaponId || 'vertical-spinner' }
+    );
+  }, [isDevMode, currentConfig, project, devRobotSource, devWeaponId]);
 
   const currentRobotConfig: RobotConfiguration = useMemo(() => ({
     name: project.teamName,
@@ -234,6 +259,34 @@ export const SystemsTeamScreen: React.FC<SystemsTeamScreenProps> = ({
                   </div>
                 ))}
               </div>
+
+              {isDevMode && devLoadout && onDevChangeWeapon && onDevChangeRobotSource ? (
+                <div className="mb-3">
+                  <DevLoadoutCard
+                    robotSource={devRobotSource || 'default'}
+                    weaponId={devWeaponId || 'vertical-spinner'}
+                    onChangeRobotSource={onDevChangeRobotSource}
+                    onChangeWeapon={onDevChangeWeapon}
+                    totalWeightLb={devLoadout.stats.totalWeightLb}
+                    isOverweight={devLoadout.stats.isOverweight}
+                    onEnterArena={onEnterArena}
+                    variant="card"
+                    showEnterButton={true}
+                  />
+                </div>
+              ) : isDevMode ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playArenaHorn();
+                    onEnterArena();
+                  }}
+                  className="cursor-pointer w-full py-3 px-6 mb-2 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-display font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-amber-500/25 transition-all transform active:scale-98 flex items-center justify-center gap-2"
+                >
+                  <Swords className="w-4 h-4" />
+                  <span>TEST ARENA (DEV BYPASS) →</span>
+                </button>
+              ) : null}
 
               <button
                 type="button"
