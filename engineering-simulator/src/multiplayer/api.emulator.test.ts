@@ -155,10 +155,10 @@ describe('multiplayer sessions (emulator)', () => {
     await writeShared(s.db, session.id, g.id, 'design', [], s.uid)
   })
 
-  test('teams have 1 to max students; a late joiner never overfills a team', async () => {
+  test('teams of 2 (3 for an odd one out), nobody alone; late joiners fill a pair before starting a team', async () => {
     const host = await device('instructor')
-    const session = await createSession(host.db, { uid: host.uid, name: 'Host' }, { gameIds: ['rocket', 'battlebots'], teamSize: 3 })
-    expect(session.teamSize).toBe(3)
+    const session = await createSession(host.db, { uid: host.uid, name: 'Host' }, { gameIds: ['rocket', 'battlebots'], teamSize: 2 })
+    expect(session.teamSize).toBe(2)
     const picks = ['rocket', 'rocket', 'rocket', 'rocket', 'battlebots']
     const studs = await Promise.all(picks.map(() => device('student')))
     for (const [i, st] of studs.entries()) {
@@ -168,12 +168,12 @@ describe('multiplayer sessions (emulator)', () => {
     const groups = await makeTeams(host.db, session.id)
     const roster = async () => (await getDocs(collection(host.db, 'sessions', session.id, 'players'))).docs.map((d) => ({ id: d.id, ...d.data() }) as Player)
     const sizes = (ps: Player[], gs: Group[]) => gs.map((g) => ps.filter((p) => p.groupId === g.id).length)
-    // 4 rocket fans with a max of 3: two teams of 2. The lone battlebots fan plays as a team of one.
-    expect(groups.map((g) => g.gameId)).toEqual(['rocket', 'rocket', 'battlebots'])
-    expect(sizes(await roster(), groups)).toEqual([2, 2, 1])
+    // The lone battlebots fan would play alone, so they join rocket: a three and a pair.
+    expect(groups.map((g) => g.gameId)).toEqual(['rocket', 'rocket'])
+    expect(sizes(await roster(), groups)).toEqual([3, 2])
 
     await setSessionState(host.db, session.id, 'playing')
-    // Three more rocket fans arrive: they fill the rocket teams to 3, then a new rocket team starts.
+    // Three more rocket fans arrive: the pair becomes a three, then a new rocket team starts and the next one joins it.
     for (const i of [5, 6, 7]) {
       const st = await device('student')
       await joinSession(st.db, st.uid, session.code, `S${i}`)
@@ -181,11 +181,9 @@ describe('multiplayer sessions (emulator)', () => {
     }
     await placeLateJoiners(host.db, session.id, await roster(), groups, session.teamSize, session.gameIds)
     const now = (await getDocs(collection(host.db, 'sessions', session.id, 'groups'))).docs.map((d) => ({ id: d.id, ...d.data() }) as Group).sort((a, b) => a.order - b.order)
-    expect(now).toHaveLength(4)
-    expect(now[3]).toMatchObject({ gameId: 'rocket', station: 4 })
-    const final = sizes(await roster(), now)
-    expect(final).toEqual([3, 3, 1, 1])
-    expect(Math.max(...final)).toBeLessThanOrEqual(3)
+    expect(now).toHaveLength(3)
+    expect(now[2]).toMatchObject({ gameId: 'rocket', station: 3 })
+    expect(sizes(await roster(), now)).toEqual([3, 3, 2])
   })
 
   test('a whole Battlebots team project syncs through the group design', async () => {
