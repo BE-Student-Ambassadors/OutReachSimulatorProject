@@ -2,7 +2,7 @@ import { useFrame } from '@react-three/fiber';
 import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { ARMOR_CATALOG, ARMOR_THICKNESS_OPTIONS, CHASSIS_CATALOG } from '../../data/components';
-import { type BossId, type ComponentCategory, type CustomComponentSpec, type RobotConfiguration } from '../../types/robot';
+import { type ActiveSponsorship, type BossId, type ComponentCategory, type CustomComponentSpec, type RobotConfiguration } from '../../types/robot';
 
 export interface Robot3DProps {
   config: RobotConfiguration;
@@ -33,6 +33,7 @@ export interface Robot3DProps {
     rightDrivePct: number;
     weaponPct: number;
   };
+  sponsor?: ActiveSponsorship | null;
 
   // Visual ghost blueprint placement outlines (Assembly Workbench)
   ghostMode?: boolean;
@@ -238,6 +239,337 @@ const ProceduralCustomComponent3D: React.FC<{
   );
 };
 
+// High-Contrast Procedural Canvas Texture for Sponsor Decals
+function createSponsorCanvasTexture(sponsor: ActiveSponsorship): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const w = 1024;
+  const h = 512;
+  const brandColor =
+    sponsor.brandColor ||
+    (sponsor.tier === 'Gold' ? '#06b6d4' : sponsor.tier === 'Silver' ? '#3b82f6' : '#e11d48');
+
+  // Background badge plate
+  ctx.clearRect(0, 0, w, h);
+  ctx.save();
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(14, 14, w - 28, h - 28, 44);
+  } else {
+    ctx.rect(14, 14, w - 28, h - 28);
+  }
+  ctx.fillStyle = '#060a12';
+  ctx.fill();
+
+  // Dual outer brand color glow & border
+  ctx.strokeStyle = brandColor;
+  ctx.lineWidth = 20;
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.restore();
+
+  // Vector Logo Emblem Mark (Left third of badge: center at x = 180, y = 256)
+  const iconX = 180;
+  const iconY = 256;
+  ctx.save();
+
+  if (sponsor.logoKey === 'nova' || sponsor.tier === 'Gold') {
+    // Nova Dynamics: 4-Point Faceted Diamond Starburst
+    ctx.translate(iconX, iconY);
+    ctx.shadowColor = brandColor;
+    ctx.shadowBlur = 24;
+
+    ctx.fillStyle = brandColor;
+    ctx.beginPath();
+    ctx.moveTo(0, -135);
+    ctx.lineTo(28, -32);
+    ctx.lineTo(135, 0);
+    ctx.lineTo(28, 32);
+    ctx.lineTo(0, 135);
+    ctx.lineTo(-28, 32);
+    ctx.lineTo(-135, 0);
+    ctx.lineTo(-28, -32);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.moveTo(0, -48);
+    ctx.lineTo(48, 0);
+    ctx.lineTo(0, 48);
+    ctx.lineTo(-48, 0);
+    ctx.closePath();
+    ctx.fill();
+  } else if (sponsor.logoKey === 'apex') {
+    // Apex Robotics: Dual Upward Spearhead Chevrons
+    ctx.translate(iconX, iconY);
+    ctx.shadowColor = brandColor;
+    ctx.shadowBlur = 24;
+
+    ctx.fillStyle = brandColor;
+    ctx.beginPath();
+    ctx.moveTo(0, -130);
+    ctx.lineTo(110, 45);
+    ctx.lineTo(60, 45);
+    ctx.lineTo(0, -42);
+    ctx.lineTo(-60, 45);
+    ctx.lineTo(-110, 45);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(0, -20);
+    ctx.lineTo(75, 105);
+    ctx.lineTo(40, 105);
+    ctx.lineTo(0, 48);
+    ctx.lineTo(-40, 105);
+    ctx.lineTo(-75, 105);
+    ctx.closePath();
+    ctx.fill();
+  } else if (sponsor.logoKey === 'voltworks' || sponsor.tier === 'Silver') {
+    // VoltWorks Energy: High-Voltage Lightning Bolt
+    ctx.translate(iconX, iconY);
+    ctx.shadowColor = '#eab308';
+    ctx.shadowBlur = 24;
+
+    ctx.fillStyle = '#eab308';
+    ctx.beginPath();
+    ctx.moveTo(18, -140);
+    ctx.lineTo(-70, -5);
+    ctx.lineTo(-5, -5);
+    ctx.lineTo(-28, 140);
+    ctx.lineTo(70, 5);
+    ctx.lineTo(5, 5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(10, -80);
+    ctx.lineTo(-30, -5);
+    ctx.lineTo(0, -5);
+    ctx.lineTo(-10, 80);
+    ctx.lineTo(30, 5);
+    ctx.lineTo(0, 5);
+    ctx.closePath();
+    ctx.fill();
+  } else if (sponsor.logoKey === 'vector') {
+    // Vector Systems: Dual Forward Arrow Chevrons (>>)
+    ctx.translate(iconX, iconY);
+    ctx.shadowColor = brandColor;
+    ctx.shadowBlur = 24;
+
+    ctx.fillStyle = brandColor;
+    [-45, 45].forEach((xOff) => {
+      ctx.beginPath();
+      ctx.moveTo(xOff - 40, -100);
+      ctx.lineTo(xOff + 40, 0);
+      ctx.lineTo(xOff - 40, 100);
+      ctx.lineTo(xOff - 75, 100);
+      ctx.lineTo(xOff + 5, 0);
+      ctx.lineTo(xOff - 75, -100);
+      ctx.closePath();
+      ctx.fill();
+    });
+  } else {
+    // Forge Industries: Heavy Anvil & Molten Core
+    ctx.translate(iconX, iconY);
+    ctx.shadowColor = brandColor;
+    ctx.shadowBlur = 24;
+
+    ctx.fillStyle = brandColor;
+    ctx.beginPath();
+    ctx.moveTo(-115, -60);
+    ctx.lineTo(110, -60);
+    ctx.lineTo(90, -20);
+    ctx.lineTo(50, 10);
+    ctx.lineTo(80, 95);
+    ctx.lineTo(-80, 95);
+    ctx.lineTo(-50, 10);
+    ctx.lineTo(-80, -20);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#fde047';
+    ctx.fillRect(-40, -45, 80, 22);
+  }
+  ctx.restore();
+
+  // Vertical Divider
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(330, 60);
+  ctx.lineTo(330, h - 60);
+  ctx.stroke();
+
+  // Typography (Right Two-Thirds)
+  const textX = 365;
+  ctx.textAlign = 'left';
+
+  // Sponsor Name
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '900 68px "Bricolage Grotesque", "Arial Black", "Impact", sans-serif';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  ctx.shadowBlur = 12;
+  const nameUpper = (sponsor.sponsorName || 'OFFICIAL SPONSOR').toUpperCase();
+  ctx.fillText(nameUpper, textX, 210);
+
+  // Tier Badge
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = brandColor;
+  ctx.font = '700 36px "IBM Plex Mono", "Courier New", monospace';
+  const tierText = `★ ${(sponsor.tier || 'OFFICIAL').toUpperCase()} SPONSOR ★`;
+  ctx.fillText(tierText, textX, 280);
+
+  // Tagline
+  if (sponsor.tagline) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '500 24px "Instrument Sans", "Arial", sans-serif';
+    ctx.fillText(sponsor.tagline, textX, 335);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+// Procedural 3D Sponsor Decal attached flush to top deck, rear transom, and chassis side panels
+const SponsorDecal3D: React.FC<{
+  sponsor: ActiveSponsorship;
+  cW: number;
+  cH: number;
+  cL: number;
+  hasArmor: boolean;
+  plateThickness: number;
+  utilityId?: string | null;
+}> = ({ sponsor, cW, cH, cL, hasArmor, plateThickness, utilityId }) => {
+  const decalTexture = useMemo(() => {
+    return createSponsorCanvasTexture(sponsor);
+  }, [sponsor.sponsorId, sponsor.tier, sponsor.brandColor, sponsor.sponsorName, sponsor.tagline]);
+
+  const hasWheelGuards = utilityId === 'wheel-guards';
+  const armorOff = hasArmor ? plateThickness : 0;
+  // Calculate top height guaranteed above chassis, rails, viewport, and top armor
+  const topY = Math.max(cH * 0.53 + armorOff, 0.24) + 0.015;
+
+  return (
+    <group>
+      {/* 1. TOP DECK SPONSOR EMBLEM (Visible from Above / Isometric Orbit / Workbench) */}
+      <group position={[0, topY, -cL * 0.12]}>
+        {/* Subtle Anodized Mounting Plate */}
+        <mesh receiveShadow castShadow position={[0, -0.003, 0]}>
+          <boxGeometry args={[0.66, 0.006, 0.33]} />
+          <meshStandardMaterial
+            color="#080d1a"
+            metalness={0.8}
+            roughness={0.25}
+            polygonOffset
+            polygonOffsetFactor={-2}
+            polygonOffsetUnits={-2}
+          />
+        </mesh>
+        {/* High-Resolution Printed Decal Plane */}
+        <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.004, 0]}>
+          <planeGeometry args={[0.64, 0.32]} />
+          <meshStandardMaterial
+            map={decalTexture ?? undefined}
+            color={decalTexture ? '#ffffff' : sponsor.brandColor || '#06b6d4'}
+            roughness={0.2}
+            metalness={0.1}
+            polygonOffset
+            polygonOffsetFactor={-4}
+            polygonOffsetUnits={-4}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
+
+      {/* 2. REAR BULKHEAD SPONSOR BADGE (Directly Facing Arena Chase Camera) */}
+      <group position={[0, 0.04, -(cL * 0.5 + armorOff + 0.01)]} rotation={[0, Math.PI, 0]}>
+        {/* Subtle Anodized Mounting Plate */}
+        <mesh receiveShadow castShadow position={[0, 0, -0.003]}>
+          <boxGeometry args={[0.60, 0.25, 0.006]} />
+          <meshStandardMaterial
+            color="#080d1a"
+            metalness={0.8}
+            roughness={0.25}
+            polygonOffset
+            polygonOffsetFactor={-2}
+            polygonOffsetUnits={-2}
+          />
+        </mesh>
+        {/* High-Resolution Printed Decal Plane */}
+        <mesh receiveShadow position={[0, 0, 0.004]}>
+          <planeGeometry args={[0.58, 0.24]} />
+          <meshStandardMaterial
+            map={decalTexture ?? undefined}
+            color={decalTexture ? '#ffffff' : sponsor.brandColor || '#06b6d4'}
+            roughness={0.2}
+            metalness={0.1}
+            polygonOffset
+            polygonOffsetFactor={-4}
+            polygonOffsetUnits={-4}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
+
+      {/* 3. LEFT & RIGHT FLANK DECALS (Visible from Sides during Turns / Orbiting) */}
+      {[-1, 1].map((side) => {
+        const sideX = side * ((cW * 0.5 + (hasWheelGuards ? 0.31 : armorOff)) + 0.01);
+        const sideY = hasWheelGuards ? 0.06 : 0.04;
+        return (
+          <group
+            key={side}
+            position={[sideX, sideY, -cL * 0.06]}
+            rotation={[0, side > 0 ? Math.PI / 2 : -Math.PI / 2, 0]}
+          >
+            {/* Subtle Anodized Mounting Plate */}
+            <mesh receiveShadow castShadow position={[0, 0, -0.003]}>
+              <boxGeometry args={[0.52, 0.20, 0.006]} />
+              <meshStandardMaterial
+                color="#080d1a"
+                metalness={0.8}
+                roughness={0.25}
+                polygonOffset
+                polygonOffsetFactor={-2}
+                polygonOffsetUnits={-2}
+              />
+            </mesh>
+            {/* High-Resolution Printed Decal Plane */}
+            <mesh receiveShadow position={[0, 0, 0.004]}>
+              <planeGeometry args={[0.50, 0.18]} />
+              <meshStandardMaterial
+                map={decalTexture ?? undefined}
+                color={decalTexture ? '#ffffff' : sponsor.brandColor || '#06b6d4'}
+                roughness={0.2}
+                metalness={0.1}
+                polygonOffset
+                polygonOffsetFactor={-4}
+                polygonOffsetUnits={-4}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+};
+
 export const Robot3D: React.FC<Robot3DProps> = ({
   config,
   bossId = null,
@@ -257,6 +589,7 @@ export const Robot3D: React.FC<Robot3DProps> = ({
   motorTempC = 45,
   impactFlashIntensity = 0,
   damageState,
+  sponsor,
   ghostMode = false,
   activeGhostCategory = null,
   isTargetHovered = false,
@@ -1344,6 +1677,19 @@ export const Robot3D: React.FC<Robot3DProps> = ({
             </mesh>
           )}
         </group>
+      )}
+
+      {/* Visual Sponsor Decal Branding (Attached Flush to Chassis / Armor) */}
+      {!effectiveBossId && !isBullBoss && sponsor && (
+        <SponsorDecal3D
+          sponsor={sponsor}
+          utilityId={config.utilityId}
+          cW={cW}
+          cH={cH}
+          cL={cL}
+          hasArmor={isAssembled('armor')}
+          plateThickness={plateThickness}
+        />
       )}
     </group>
   );

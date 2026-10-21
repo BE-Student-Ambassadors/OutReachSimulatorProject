@@ -337,6 +337,7 @@ export const AssemblyWorkbench: React.FC<AssemblyWorkbenchProps> = ({
                 showFullBlueprint={showBlueprint}
                 wheelSpeedRad={0}
                 motorTempC={42}
+                sponsor={project.projectLead.activeSponsors?.[0] || null}
               />
             </group>
           </Canvas>

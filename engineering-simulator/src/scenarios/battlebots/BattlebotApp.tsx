@@ -174,6 +174,20 @@ export function BattlebotApp() {
     setProject((prev) => ({ ...prev, projectLead: nextLead }));
   };
 
+  const handleUpdateTeamName = (teamName: string) => {
+    setProject((prev) => ({
+      ...prev,
+      teamName,
+      projectLead: {
+        ...prev.projectLead,
+        campaign: prev.projectLead.campaign
+          ? { ...prev.projectLead.campaign, robotName: teamName }
+          : null,
+      },
+    }));
+    setConfig((prev) => ({ ...prev, name: teamName }));
+  };
+
   const handleResetProject = () => {
     const fresh = createInitialTeamProject();
     setProject(fresh);
@@ -730,6 +744,8 @@ export function BattlebotApp() {
             project={project}
             onUpdateProjectLead={handleUpdateProjectLead}
             onReturnToDashboard={() => setScreen('team-dashboard')}
+            onNavigateToIntegration={() => setScreen('integration')}
+            onUpdateTeamName={handleUpdateTeamName}
             hideHeader={true}
           />
         )}
@@ -811,6 +827,7 @@ export function BattlebotApp() {
           }}
           cameraResetTrigger={cameraResetTrigger}
           activeTest={activeTest}
+          sponsor={project.projectLead.activeSponsors?.[0] || null}
         />
       </div>
 

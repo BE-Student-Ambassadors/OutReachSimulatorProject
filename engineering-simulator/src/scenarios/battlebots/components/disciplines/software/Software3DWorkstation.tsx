@@ -821,6 +821,7 @@ export const Software3DWorkstation: React.FC<Software3DWorkstationProps> = ({
               config={robotConfig}
               assembledCategories={assembledCategories}
               wheelSpeedRad={0}
+              sponsor={project.projectLead.activeSponsors?.[0] || null}
             />
             {/* Elevated Service Deck mounted on robot upper rear */}
             <ControllerBoard3D

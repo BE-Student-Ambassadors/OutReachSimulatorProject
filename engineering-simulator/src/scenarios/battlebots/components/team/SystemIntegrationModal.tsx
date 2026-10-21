@@ -162,10 +162,12 @@ export const SystemIntegrationModal: React.FC<SystemIntegrationModalProps> = ({
               )}
             </div>
             <div className="text-xs font-mono-num text-slate-200 font-bold">
-              {summary.effectivePeakDemandA}A / {summary.batteryContinuousA}A
+              {report.electricalPassed ? 'HARNESS VERIFIED'
+                : `${project.electrical.wires?.length || 0} / 14 WIRES`}
             </div>
             <div className="text-[10px] font-mono-num text-slate-400 mt-0.5">
-              {report.electricalPassed ? 'POWER VERIFIED' : 'CIRCUIT INCOMPLETE'}
+              {report.electricalPassed ? 'STANDARD HARNESS ✓'
+                : 'WIRING INCOMPLETE'}
             </div>
           </button>
 

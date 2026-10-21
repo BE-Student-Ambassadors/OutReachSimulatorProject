@@ -1057,6 +1057,123 @@ export function checkBotCodeBugs(code: string): {
 }
 
 // ==========================================
+// FICTIONAL SPONSOR CATALOG & LOGO BRANDING
+// ==========================================
+
+export interface FictionalSponsor {
+  id: string;
+  name: string;
+  tier: 'Bronze' | 'Silver' | 'Gold';
+  tagline: string;
+  amountUsd: number;
+  brandColor: string;
+  secondaryColor: string;
+  badgeBg: string;
+  description: string;
+  logoKey: 'nova' | 'apex' | 'voltworks' | 'vector' | 'forge';
+}
+
+export const FICTIONAL_SPONSORS: Record<string, FictionalSponsor> = {
+  'nova-dynamics': {
+    id: 'nova-dynamics',
+    name: 'Nova Dynamics',
+    tier: 'Gold',
+    tagline: 'Advanced Aerospace & Kinetic Power Systems',
+    amountUsd: 700,
+    brandColor: '#06b6d4',
+    secondaryColor: '#f59e0b',
+    badgeBg: '#083344',
+    description: 'Premier tier sponsor providing high-power systems funding for championship robotics teams.',
+    logoKey: 'nova',
+  },
+  'apex-robotics': {
+    id: 'apex-robotics',
+    name: 'Apex Robotics',
+    tier: 'Gold',
+    tagline: 'Precision Mechatronics & Drivetrain Engineering',
+    amountUsd: 700,
+    brandColor: '#f59e0b',
+    secondaryColor: '#0f172a',
+    badgeBg: '#451a03',
+    description: 'High-performance automation firm backing ambitious engineering and combat supremacy.',
+    logoKey: 'apex',
+  },
+  'voltworks': {
+    id: 'voltworks',
+    name: 'VoltWorks Energy',
+    tier: 'Silver',
+    tagline: 'High-Discharge LiPo & Power Electronics',
+    amountUsd: 400,
+    brandColor: '#3b82f6',
+    secondaryColor: '#eab308',
+    badgeBg: '#172554',
+    description: 'Battery & electronic powertrain partner investing in high-voltage competitive robotics.',
+    logoKey: 'voltworks',
+  },
+  'vector-systems': {
+    id: 'vector-systems',
+    name: 'Vector Systems',
+    tier: 'Silver',
+    tagline: 'Autonomous Sensors & High-Speed Telemetry',
+    amountUsd: 400,
+    brandColor: '#10b981',
+    secondaryColor: '#334155',
+    badgeBg: '#064e3b',
+    description: 'Sensor navigation company funding intelligent tactical robot control algorithms.',
+    logoKey: 'vector',
+  },
+  'forge-industries': {
+    id: 'forge-industries',
+    name: 'Forge Industries',
+    tier: 'Bronze',
+    tagline: 'Heavy Structural Alloys & Ballistic AR500 Armor',
+    amountUsd: 200,
+    brandColor: '#e11d48',
+    secondaryColor: '#64748b',
+    badgeBg: '#4c0519',
+    description: 'Industrial metalworking and armor fabrication partner supporting grassroots combat teams.',
+    logoKey: 'forge',
+  },
+};
+
+export const TEAM_NAME_PRESETS = [
+  'Titan Circuit',
+  'Iron Comet',
+  'Voltage Vipers',
+  'Steel Storm',
+  'Turbo Turtles',
+  'Circuit Breakers',
+  'Chrome Crushers',
+  'Robo Raptors',
+  'Quantum Hammers',
+  'Spark Squad',
+  'Kinetic Kings',
+  'Apex Predators',
+] as const;
+
+export function getSponsorForTier(
+  tier: 'None' | 'Bronze' | 'Silver' | 'Gold',
+  prompt = '',
+  theme = 'tech'
+): FictionalSponsor | null {
+  if (tier === 'None') return null;
+  const p = prompt.toLowerCase();
+  if (tier === 'Gold') {
+    if (theme === 'tech' || p.includes('nova') || p.includes('aerospace') || p.includes('energy')) {
+      return FICTIONAL_SPONSORS['nova-dynamics'];
+    }
+    return FICTIONAL_SPONSORS['apex-robotics'];
+  }
+  if (tier === 'Silver') {
+    if (theme === 'speed' || p.includes('volt') || p.includes('power') || p.includes('battery')) {
+      return FICTIONAL_SPONSORS['voltworks'];
+    }
+    return FICTIONAL_SPONSORS['vector-systems'];
+  }
+  return FICTIONAL_SPONSORS['forge-industries'];
+}
+
+// ==========================================
 // BUSINESS NATURAL LANGUAGE AD EVALUATION
 // ==========================================
 
@@ -1084,9 +1201,11 @@ export interface AdCampaignEvaluation {
     clearMessage?: AdRubricCriterion;
   };
   sponsorFeedback: string;
+  improvementSuggestions: string[];
+  suggestedSponsor: FictionalSponsor | null;
 }
 
-export function evaluateAdCampaignPrompt(rawPrompt: string): AdCampaignEvaluation {
+export function evaluateAdCampaignPrompt(rawPrompt: string, teamName?: string): AdCampaignEvaluation {
   const prompt = (rawPrompt || '').trim();
   const lower = prompt.toLowerCase();
   const words = prompt.split(/\s+/).filter(Boolean);
@@ -1108,16 +1227,24 @@ export function evaluateAdCampaignPrompt(rawPrompt: string): AdCampaignEvaluatio
         clearMessage: { label: 'Call to Action', passed: false, score: 0, maxScore: 15, hint: 'Include a direct call to action.' },
       },
       sponsorFeedback: 'No campaign prompt provided. Enter a prompt describing your BattleBot advertisement.',
+      improvementSuggestions: [
+        'Give your team and robot a bold identity and name.',
+        'Describe your robot engineering specs, weapon, and armor.',
+        'Explain what the sponsor gains by backing your team.',
+      ],
+      suggestedSponsor: null,
     };
   }
 
   // 1. Robot Identity (0 to 20 pts)
   let identityScore = 0;
   let identityHint = '';
+  const teamMentioned = teamName && teamName.trim().length > 2 && lower.includes(teamName.toLowerCase().trim());
   const hasName =
+    Boolean(teamMentioned) ||
     /[A-Z]{3,}/.test(prompt) ||
     /["'][^"']+["']/.test(prompt) ||
-    /call it|named|battlebot|nightfall|titan|bull|apex|viper|shadow|beast|thunder|claw/i.test(prompt);
+    /call it|named|battlebot|nightfall|titan|bull|apex|viper|shadow|beast|thunder|claw|circuit|raptor|hammer|squad|comet|turtle|crusher/i.test(prompt);
   const hasTone = /futuristic|dramatic|aggressive|sleek|unstoppable|champion|dominant|lethal|fearless|powerful|heavyweight|high-impact|arena|combat/i.test(prompt);
 
   if (hasName) identityScore += 10;
@@ -1132,7 +1259,7 @@ export function evaluateAdCampaignPrompt(rawPrompt: string): AdCampaignEvaluatio
   let engHint = '';
   const mentionsWeapon = /spinner|vertical|horizontal|wedge|hammer|lifter|grabber|blade|weapon|kinetic|joule|rpm|drum/i.test(prompt);
   const mentionsSpecs = /speed|fast|mph|traction|torque|motor|brushless|armor|titanium|steel|ar500|aluminum|chassis|power|battery|esc|cooling|autonomous|ai|sensor|telemetry|lidar|ultrasonic|technology/i.test(prompt);
-  const mentionsPerformance = /kinetic energy|rotational|leverage|low-clearance|penetration|impact resistance|shock|spin-up|acceleration|traction|deadly|advanced/i.test(prompt);
+  const mentionsPerformance = /kinetic|destruction|rotational|leverage|low-clearance|penetration|impact|shock|spin-up|acceleration|velocity|traction|deadly|advanced|power/i.test(prompt);
 
   if (mentionsWeapon) engScore += 8;
   if (mentionsSpecs) engScore += 9;
@@ -1208,6 +1335,45 @@ export function evaluateAdCampaignPrompt(rawPrompt: string): AdCampaignEvaluatio
   else if (/armor|tank|titanium|ar500/i.test(lower)) theme = 'armored';
   else if (/speed|fast|lightning/i.test(lower)) theme = 'speed';
 
+  // Prioritized 1-3 actionable improvement suggestions based on actual missing points
+  const candidateSuggestions: { priority: number; text: string }[] = [];
+
+  if (sponsorScore < 20) {
+    candidateSuggestions.push({
+      priority: 30 - sponsorScore,
+      text: 'Explain why supporting your robotics team is valuable (e.g. brand visibility on the chassis, supporting student STEM education, or tournament championship partnership).',
+    });
+  }
+  if (ctaScore < 10) {
+    candidateSuggestions.push({
+      priority: 15 - ctaScore + 6,
+      text: 'Add a direct call to action inviting prospective companies or sponsors to partner with your team today.',
+    });
+  }
+  if (engScore < 18) {
+    candidateSuggestions.push({
+      priority: 25 - engScore,
+      text: 'Tell the sponsor what makes your robot or engineering approach interesting (e.g. weapon RPM, kinetic energy, AR500 armor, or drivetrain torque).',
+    });
+  }
+  if (identityScore < 16) {
+    candidateSuggestions.push({
+      priority: 20 - identityScore,
+      text: 'Make your team or robot identity more prominent with a bold capitalized name and combat persona.',
+    });
+  }
+  if (clarityScore < 8) {
+    candidateSuggestions.push({
+      priority: 10 - clarityScore,
+      text: 'Expand your prompt into complete descriptive sentences with clear creative and visual direction.',
+    });
+  }
+
+  candidateSuggestions.sort((a, b) => b.priority - a.priority);
+  const improvementSuggestions = totalScore >= 85 ? [] : candidateSuggestions.slice(0, 3).map((s) => s.text);
+
+  const suggestedSponsor = getSponsorForTier(tier, prompt, theme);
+
   const criteriaObj = {
     robotIdentity: { label: 'Robot Identity', passed: identityScore >= 16, score: identityScore, maxScore: 20, hint: identityHint },
     engineeringStory: { label: 'Engineering Story', passed: engScore >= 18, score: engScore, maxScore: 25, hint: engHint },
@@ -1226,6 +1392,8 @@ export function evaluateAdCampaignPrompt(rawPrompt: string): AdCampaignEvaluatio
     theme,
     criteria: criteriaObj,
     sponsorFeedback,
+    improvementSuggestions,
+    suggestedSponsor,
   };
 }
 

@@ -13,9 +13,10 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { soundEngine } from '../../audio/soundEngine';
+import { getSponsorForTier } from '../../data/teamData';
 import { getBossById } from '../../data/bosses';
 import {
   ARENA_HALF_SIZE,
@@ -133,6 +134,190 @@ const OrientationDebugArrows: React.FC<{
   );
 };
 
+// 3D Tournament Arena Billboard displaying the team's accepted sponsorship poster
+const ArenaPosterBillboard: React.FC<{
+  teamProject?: TeamRobotProject;
+  playerConfig: RobotConfiguration;
+}> = ({ teamProject, playerConfig }) => {
+  const teamName = (teamProject?.teamName || playerConfig.name || 'TITAN ROBOTICS').toUpperCase();
+  const lead = teamProject?.projectLead;
+  const campaign = lead?.campaign;
+  const activeSponsor = lead?.activeSponsors?.[0];
+  const headline = campaign?.headline || lead?.adHeadline || 'BUILT TO STRIKE • ENGINEERED TO WIN';
+  const hasCustomPoster = Boolean(lead?.campaignScore && lead.campaignScore > 0 && (campaign?.approved || lead.isCompleted));
+
+  const texture = useMemo(() => {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    // 1. Dark Tournament Backdrop
+    const grad = ctx.createLinearGradient(0, 0, 1024, 512);
+    if (hasCustomPoster && campaign?.theme === 'tech') {
+      grad.addColorStop(0, '#02182b');
+      grad.addColorStop(0.5, '#061c38');
+      grad.addColorStop(1, '#021020');
+    } else if (hasCustomPoster && campaign?.theme === 'speed') {
+      grad.addColorStop(0, '#0c1222');
+      grad.addColorStop(0.5, '#1e1b4b');
+      grad.addColorStop(1, '#090d16');
+    } else if (hasCustomPoster && campaign?.theme === 'armored') {
+      grad.addColorStop(0, '#1c1917');
+      grad.addColorStop(0.5, '#292524');
+      grad.addColorStop(1, '#0c0a09');
+    } else {
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(0.5, '#1e1b4b');
+      grad.addColorStop(1, '#090d16');
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1024, 512);
+
+    // 2. High-Tech Grid & Angled Racing Accents
+    ctx.strokeStyle = hasCustomPoster ? 'rgba(6, 182, 212, 0.22)' : 'rgba(239, 68, 68, 0.22)';
+    ctx.lineWidth = 2;
+    for (let x = 40; x < 1024; x += 64) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 512);
+      ctx.stroke();
+    }
+    for (let y = 40; y < 512; y += 64) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1024, y);
+      ctx.stroke();
+    }
+
+    // Outer Neon Framing Border
+    ctx.strokeStyle = hasCustomPoster ? '#06b6d4' : '#f59e0b';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(12, 12, 1000, 488);
+
+    // Inner Subtle Border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(24, 24, 976, 464);
+
+    // Top Header Banner
+    ctx.fillStyle = hasCustomPoster ? '#06b6d4' : '#f59e0b';
+    ctx.fillRect(24, 24, 976, 52);
+
+    ctx.font = 'bold 22px monospace';
+    ctx.fillStyle = '#0f172a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      hasCustomPoster
+        ? '★ BESA COMBAT ROBOTICS TOURNAMENT • OFFICIAL TEAM POSTER ★'
+        : '★ BESA COMBAT CHAMPIONSHIP • TOURNAMENT ARENA ★',
+      512,
+      50
+    );
+
+    // Center Team Name (Massive, Bold)
+    ctx.font = '900 68px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = hasCustomPoster ? '#06b6d4' : '#ef4444';
+    ctx.shadowBlur = 18;
+    ctx.fillText(teamName, 512, 180);
+    ctx.shadowBlur = 0;
+
+    // Sub-Headline
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(`"${headline}"`, 512, 255);
+
+    // Divider Line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(120, 310);
+    ctx.lineTo(904, 310);
+    ctx.stroke();
+
+    // Bottom Sponsor / Partner Badge Strip
+    if (activeSponsor) {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillRect(160, 345, 704, 95);
+      ctx.strokeStyle = activeSponsor.brandColor || '#06b6d4';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(160, 345, 704, 95);
+
+      ctx.font = 'bold 18px monospace';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(`OFFICIAL ${activeSponsor.tier.toUpperCase()} SPONSOR`, 512, 375);
+
+      ctx.font = '900 32px sans-serif';
+      ctx.fillStyle = activeSponsor.brandColor || '#38bdf8';
+      ctx.fillText(activeSponsor.sponsorName.toUpperCase(), 512, 412);
+    } else {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillRect(200, 345, 624, 95);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(200, 345, 624, 95);
+
+      ctx.font = 'bold 20px monospace';
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillText('SANCTIONED 30 LB COMBAT ROBOT ENTRY', 512, 380);
+
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText('SPONSORSHIP STUDIO • ARENA DIVISION', 512, 414);
+    }
+
+    const t = new THREE.CanvasTexture(canvas);
+    t.needsUpdate = true;
+    return t;
+  }, [teamName, headline, activeSponsor, hasCustomPoster, campaign?.theme]);
+
+  return (
+    <group position={[0, 2.65, -(ARENA_HALF_SIZE + 0.85)]}>
+      {/* Billboard Main Screen Board */}
+      <mesh castShadow receiveShadow position={[0, 0, 0]}>
+        <planeGeometry args={[4.8, 2.4]} />
+        {texture ? (
+          <meshStandardMaterial
+            map={texture}
+            roughness={0.25}
+            metalness={0.3}
+            emissive="#1e293b"
+            emissiveIntensity={0.25}
+          />
+        ) : (
+          <meshStandardMaterial color="#0f172a" />
+        )}
+      </mesh>
+
+      {/* Frame surround bevel */}
+      <mesh position={[0, 0, -0.06]}>
+        <boxGeometry args={[4.95, 2.55, 0.1]} />
+        <meshStandardMaterial color="#0b0f19" roughness={0.5} metalness={0.8} />
+      </mesh>
+
+      {/* Top Billboard Floodlight Bar */}
+      <mesh position={[0, 1.25, 0.2]}>
+        <boxGeometry args={[4.6, 0.08, 0.35]} />
+        <meshStandardMaterial color="#334155" metalness={0.8} roughness={0.3} />
+      </mesh>
+
+      {/* Left & Right Support Truss Pillars down to Floor */}
+      {[-2.2, 2.2].map((x, i) => (
+        <group key={i} position={[x, -1.325, 0]}>
+          <mesh position={[0, 0, -0.05]}>
+            <boxGeometry args={[0.14, 2.65, 0.14]} />
+            <meshStandardMaterial color="#1e293b" metalness={0.85} roughness={0.3} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+};
+
 // 3D Arena Scene & Automatic Spectator Camera Controller
 const Arena3DScene: React.FC<{
   simRef: React.MutableRefObject<LiveBattleSimulation | null>;
@@ -141,6 +326,7 @@ const Arena3DScene: React.FC<{
   camMode: SpectatorCamMode;
   playerConfig: RobotConfiguration;
   bossId: BossId;
+  teamProject?: TeamRobotProject;
   showHitboxes?: boolean;
   isDevMode?: boolean;
   onSyncHud: (
@@ -152,7 +338,7 @@ const Arena3DScene: React.FC<{
     lastImpact?: CombatImpactEvent | null,
     lastWedge?: WedgeTelemetry | null
   ) => void;
-}> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, showHitboxes = false, isDevMode = false, onSyncHud }) => {
+}> = ({ simRef, keyboardRef, battlePhase, camMode, playerConfig, bossId, teamProject, showHitboxes = false, isDevMode = false, onSyncHud }) => {
   const { camera } = useThree();
   const playerGroupRef = useRef<THREE.Group>(null);
   const bullGroupRef = useRef<THREE.Group>(null);
@@ -386,6 +572,12 @@ const Arena3DScene: React.FC<{
         ))}
       </group>
 
+      {/* North Wall High-Impact Arena Poster Billboard */}
+      <ArenaPosterBillboard
+        teamProject={teamProject}
+        playerConfig={playerConfig}
+      />
+
       {/* Active Impact Directional Sparks & Procedural Debris */}
       {renderState.sparks.map((sp) => {
         const t = sp.age;
@@ -444,6 +636,12 @@ const Arena3DScene: React.FC<{
       <group ref={playerGroupRef} position={[0, 0, 3.8]} rotation={[0, Math.PI, 0]}>
         <Robot3D
           config={playerConfig}
+          sponsor={
+            teamProject?.projectLead?.activeSponsors?.[0] ||
+            (teamProject?.projectLead?.sponsorTier && teamProject.projectLead.sponsorTier !== 'None'
+              ? (getSponsorForTier(teamProject.projectLead.sponsorTier) as any)
+              : null)
+          }
           impactFlashIntensity={pState?.impactFlashIntensity ?? 0}
           wheelSpeedRad={
             pState ? Math.hypot(pState.vx, pState.vz) * 6 : 0
@@ -843,6 +1041,7 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             camMode={camMode}
             playerConfig={playerConfig}
             bossId={bossId}
+            teamProject={teamProject}
             showHitboxes={showHitboxes}
             isDevMode={isDevMode}
             onSyncHud={(p, b, t, evs, rep, lastImp, lastWedge) => {
@@ -877,6 +1076,12 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
             <span className="font-bold text-amber-400 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
               IMPACT TELEMETRY
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[10px] text-slate-300 pb-1 mb-1 border-b border-amber-500/20">
+            <span>SPONSOR:</span>
+            <span className="font-bold text-cyan-300">
+              {teamProject?.projectLead?.activeSponsors?.[0]?.sponsorName || 'NONE (NO DECAL)'}
             </span>
             <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] text-amber-300 uppercase font-bold">
               {hudLastImpact ? hudLastImpact.severity : 'STANDBY'}

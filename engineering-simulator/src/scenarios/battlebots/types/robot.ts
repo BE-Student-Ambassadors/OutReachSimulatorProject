@@ -311,6 +311,9 @@ export interface ActiveSponsorship {
   sponsorName: string;
   amountUsd: number;
   tier: 'Bronze' | 'Silver' | 'Gold';
+  logoKey?: string;
+  brandColor?: string;
+  tagline?: string;
 }
 
 export interface MarketingCampaign {
@@ -318,6 +321,9 @@ export interface MarketingCampaign {
   headline: string;
   theme: 'aggressive' | 'tech' | 'armored' | 'speed';
   approved: boolean;
+  posterTemplate?: 'hero-poster' | 'diagonal-action' | 'tech-blueprint' | 'arena-showdown' | 'clean-sponsor';
+  sponsorName?: string;
+  sponsorTier?: 'Bronze' | 'Silver' | 'Gold';
 }
 
 export interface ProjectLeadConfiguration {
