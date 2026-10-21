@@ -1,11 +1,13 @@
 import {
   ArrowLeft,
+  Check,
   CheckCircle2,
   Lightbulb,
   Power,
   RotateCcw,
   ShieldAlert,
   X,
+  Zap,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { uid } from '../../../../core/format';
@@ -19,6 +21,7 @@ import {
 } from '../../data/teamData';
 import { computeTeamEngineeringSummary } from '../../simulation/integrationValidator';
 import {
+  type BatteryType,
   type DriveEscRating,
   type ElectricalConfiguration,
   type TeamRobotProject,
@@ -45,30 +48,14 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
 
   const [activeTab, setActiveTab] = useState<'wiring' | 'specs'>('wiring');
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showPowerModal, setShowPowerModal] = useState(false);
   const [selectedPortId, setSelectedPortId] = useState<string | null>(null);
   const [isPoweringOn, setIsPoweringOn] = useState(false);
-  const [powerOnComplete, setPowerOnComplete] = useState(elec.wiringVerified);
+  const [powerOnComplete, setPowerOnComplete] = useState(elec.wiringVerified && elec.isCompleted);
   const [diagnosticReport, setDiagnosticReport] = useState<string[]>([]);
   const [hintsUsed, setHintsUsed] = useState(0);
   const [hintStage, setHintStage] = useState<Record<string, number>>({});
   const [activeHint, setActiveHint] = useState<{ title: string; text: string } | null>(null);
-
-  const handleResetElectrical = () => {
-    soundEngine.playInstall();
-    setSelectedPortId(null);
-    setPowerOnComplete(false);
-    setDiagnosticReport([]);
-    setHintsUsed(0);
-    setHintStage({});
-    setActiveHint(null);
-    onUpdateElectrical({
-      ...INITIAL_ELECTRICAL_CONFIG,
-      wires: [],
-      wiringVerified: false,
-      isCompleted: false,
-    });
-    setShowResetModal(false);
-  };
 
   const wires = useMemo(() => elec.wires || [], [elec.wires]);
 
@@ -89,6 +76,25 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
   const toggleComplete = () => {
     soundEngine.playClick();
     onUpdateElectrical({ ...elec, isCompleted: !elec.isCompleted });
+  };
+
+  const handleResetElectrical = () => {
+    soundEngine.playInstall();
+    setSelectedPortId(null);
+    setPowerOnComplete(false);
+    setShowPowerModal(false);
+    setDiagnosticReport([]);
+    setHintsUsed(0);
+    setHintStage({});
+    setActiveHint(null);
+    setActiveTab('wiring');
+    onUpdateElectrical({
+      ...INITIAL_ELECTRICAL_CONFIG,
+      wires: [],
+      wiringVerified: false,
+      isCompleted: false,
+    });
+    setShowResetModal(false);
   };
 
   // Simplified Electrical Validation State (14 connections across 5 subsystems)
@@ -166,7 +172,7 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
     if (targetSubsystem === 'complete') {
       setActiveHint({
         title: 'ALL SUBSYSTEMS WIRED',
-        text: 'All required robot circuits appear connected! Click [POWER ON ROBOT] to verify voltages and boot the system.',
+        text: 'All 14 robot circuits are connected! Click [POWER ON ROBOT] to energize rails and complete Electrical inspection.',
       });
       return;
     }
@@ -276,26 +282,31 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
 
   const handlePowerOn = () => {
     soundEngine.playClick();
-    setIsPoweringOn(true);
     setDiagnosticReport([]);
+
+    const res = validateSimplifiedElectrical(wires);
+    if (!res.valid) {
+      soundEngine.playWarning();
+      setPowerOnComplete(false);
+      setDiagnosticReport(
+        res.observations.length > 0
+          ? res.observations
+          : ['System check failed: Harness incomplete (all 14 connections required). Route remaining wires.']
+      );
+      return;
+    }
+
+    // Harness is 100% valid! Open connection sequence modal
+    setIsPoweringOn(true);
+    setShowPowerModal(true);
 
     window.setTimeout(() => {
       setIsPoweringOn(false);
-      const res = validateSimplifiedElectrical(wires);
-      if (res.valid) {
-        soundEngine.playInstall();
-        setPowerOnComplete(true);
-        updateWires(wires, true);
-      } else {
-        soundEngine.playWarning();
-        setPowerOnComplete(false);
-        setDiagnosticReport(
-          res.observations.length > 0
-            ? res.observations
-            : ['System check failed: Harness incomplete or circuit short detected. Check connections.']
-        );
-      }
-    }, 900);
+      setPowerOnComplete(true);
+      soundEngine.playInstall();
+      // Crucial: Standard Electrical is complete with 14 verified wires
+      updateWires(wires, true);
+    }, 700);
   };
 
   // Port coordinates on the 1000x480 canvas
@@ -415,13 +426,13 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
           </p>
           {powerOnComplete && (
             <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-              <CheckCircle2 className="w-3.5 h-3.5" /> All Systems Online
+              <CheckCircle2 className="w-3.5 h-3.5" /> All Circuits Online
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Sub-tab Switcher: Wiring (dominant) vs Specs */}
+          {/* Sub-tab Switcher: Wiring vs Specs */}
           <div className="flex rounded-xl bg-slate-200/70 p-1 text-xs">
             <button
               type="button"
@@ -453,28 +464,32 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={handleGetHint}
-            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-sans font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors shadow-xs"
-          >
-            <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
-            <span>Get Hint</span>
-            {hintsUsed > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 bg-amber-200 text-amber-900 text-[10px] font-mono rounded-full font-bold">
-                {hintsUsed}
-              </span>
-            )}
-          </button>
+          {activeTab === 'wiring' && (
+            <>
+              <button
+                type="button"
+                onClick={handleGetHint}
+                className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-sans font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors shadow-xs"
+              >
+                <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
+                <span>Get Hint</span>
+                {hintsUsed > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 bg-amber-200 text-amber-900 text-[10px] font-mono rounded-full font-bold">
+                    {hintsUsed}
+                  </span>
+                )}
+              </button>
 
-          <button
-            type="button"
-            onClick={handleClearWires}
-            className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-sans font-semibold bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-colors shadow-xs"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Clear Board</span>
-          </button>
+              <button
+                type="button"
+                onClick={handleClearWires}
+                className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-sans font-semibold bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-colors shadow-xs"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Clear Board</span>
+              </button>
+            </>
+          )}
 
           <button
             type="button"
@@ -486,19 +501,21 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
             <span>↻ Reset Task</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handlePowerOn}
-            disabled={isPoweringOn}
-            className={`cursor-pointer inline-flex items-center gap-2 px-5 py-2 rounded-xl font-display font-black text-xs uppercase transition-all shadow-md active:scale-98 ${
-              powerOnComplete
-                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
-                : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'
-            }`}
-          >
-            <Power className="w-4 h-4" />
-            <span>{isPoweringOn ? 'Energizing...' : powerOnComplete ? 'System Online ✓' : '⚡ Power On Robot'}</span>
-          </button>
+          {activeTab === 'wiring' && (
+            <button
+              type="button"
+              onClick={handlePowerOn}
+              disabled={isPoweringOn}
+              className={`cursor-pointer inline-flex items-center gap-2 px-5 py-2 rounded-xl font-display font-black text-xs uppercase transition-all shadow-md active:scale-98 ${
+                powerOnComplete
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                  : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'
+              }`}
+            >
+              <Power className="w-4 h-4" />
+              <span>{isPoweringOn ? 'Energizing...' : powerOnComplete ? 'System Online ✓' : '⚡ Power On Robot'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -510,10 +527,94 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
         onCancel={() => setShowResetModal(false)}
       />
 
+      {/* ============================================================
+         POWER ON CHECKLIST CELEBRATION MODAL
+         ============================================================ */}
+      {showPowerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-6 shadow-2xl relative">
+            <button
+              type="button"
+              onClick={() => setShowPowerModal(false)}
+              className="cursor-pointer absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 rounded-2xl bg-emerald-100 text-emerald-700">
+                <Zap className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-800 font-bold block">
+                  ELECTRICAL INSPECTION
+                </span>
+                <h3 className="font-display font-black text-xl text-slate-900">
+                  {isPoweringOn ? 'Checking Connections...' : '✓ ELECTRICAL SYSTEM ONLINE'}
+                </h3>
+              </div>
+            </div>
+
+            {/* 8 Subsystems Checklist */}
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 mb-5">
+              <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 block mb-2 font-bold">
+                Connection Verification:
+              </span>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {[
+                  'Battery Circuit',
+                  'Main Switch',
+                  'Power Distribution',
+                  'Drive System',
+                  'Weapon System',
+                  '5V Regulator',
+                  'Robot Computer',
+                  'Sensor Telemetry',
+                ].map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-1.5 text-slate-700">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="font-medium">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-600 mb-6 space-y-2">
+              <div className="flex items-center gap-2 font-mono text-emerald-700 font-bold text-[11px]">
+                <span>Connect ✓</span>
+                <span>•</span>
+                <span>Wire ✓</span>
+                <span>•</span>
+                <span>Test ✓</span>
+                <span>•</span>
+                <span>Electrical ✓</span>
+              </div>
+              <p className="text-slate-700 font-sans leading-relaxed">
+                All 14 required wiring connections are verified and operational. Your team has passed Electrical inspection!
+              </p>
+            </div>
+
+            {/* Action Button */}
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                setShowPowerModal(false);
+                onReturnToDashboard();
+              }}
+              className="cursor-pointer w-full py-3 px-4 rounded-xl text-xs font-display font-black uppercase text-white bg-emerald-600 hover:bg-emerald-500 transition-all shadow-md shadow-emerald-600/20 text-center flex items-center justify-center gap-1.5"
+            >
+              <Check className="w-4 h-4" />
+              <span>Continue to Dashboard</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+         TAB 1: WIRING HARNESS BOARD
+         ============================================================ */}
       {activeTab === 'wiring' ? (
-        /* ============================================================
-           100% FULL-WIDTH DOMINANT WIRING HARNESS BOARD WORKSTATION
-           ============================================================ */
         <div className="flex-1 w-full flex flex-col justify-between min-h-[520px]">
           {/* Active Hint Banner */}
           {activeHint && (
@@ -799,17 +900,33 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
               </svg>
             </div>
 
-            {/* Bottom Inspect Action */}
+            {/* Bottom Harness Status & Power Action Bar */}
             <div className="pt-3 mt-1 border-t border-slate-200 flex items-center justify-between z-10 text-xs">
-              <span className="text-slate-500 font-sans">
-                Peak Current Draw: <strong className={summary.isOverCurrent ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}>{summary.effectivePeakDemandA}A / {summary.batteryContinuousA}A</strong>
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-slate-600 font-sans font-medium">
+                  Harness Connections: <strong className={wires.length === 14 ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>{wires.length} / 14 Wires Routed</strong>
+                </span>
+                {wires.length === 14 && !powerOnComplete && (
+                  <span className="text-[11px] font-sans text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full font-semibold animate-pulse">
+                    Circuit Complete — Click Power On Robot
+                  </span>
+                )}
+                {powerOnComplete && (
+                  <span className="text-[11px] font-sans text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full font-semibold">
+                    ✓ Electrical System Online
+                  </span>
+                )}
+              </div>
 
               <button
                 type="button"
                 onClick={handlePowerOn}
                 disabled={isPoweringOn}
-                className="cursor-pointer inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-display font-black text-xs uppercase transition-all shadow-md bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20 active:scale-98"
+                className={`cursor-pointer inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-display font-black text-xs uppercase transition-all shadow-md active:scale-98 ${
+                  powerOnComplete
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                    : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'
+                }`}
               >
                 <Power className="w-4 h-4" />
                 <span>{isPoweringOn ? 'Energizing Rails...' : powerOnComplete ? 'System Online ✓' : '⚡ Power On Robot'}</span>
@@ -823,9 +940,12 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
            ============================================================ */
         <div className="flex-1 my-3 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
-            <h3 className="font-display font-bold text-sm text-slate-900 mb-3">Battery Capacity Selection</h3>
+            <h3 className="font-display font-bold text-sm text-slate-900 mb-1">Battery Specifications</h3>
+            <p className="text-xs text-slate-500 mb-3">
+              Review continuous current discharge limits and battery cell capacity.
+            </p>
             <div className="space-y-2">
-              {(Object.keys(BATTERY_OPTIONS) as (keyof typeof BATTERY_OPTIONS)[]).map((key) => {
+              {(Object.keys(BATTERY_OPTIONS) as BatteryType[]).map((key) => {
                 const opt = BATTERY_OPTIONS[key];
                 const isSelected = elec.batteryId === key;
                 return (
@@ -899,6 +1019,10 @@ export const ElectricalScreen: React.FC<ElectricalScreenProps> = ({
               <div className="flex justify-between text-slate-600 mb-1 font-sans">
                 <span>Estimated Runtime:</span>
                 <span className="font-bold text-slate-900 font-mono">{summary.runtimeSeconds} Seconds</span>
+              </div>
+              <div className="flex justify-between text-slate-600 font-sans">
+                <span>Continuous Pack Rating:</span>
+                <span className="font-bold text-slate-900 font-mono">{summary.batteryContinuousA} A</span>
               </div>
             </div>
           </div>

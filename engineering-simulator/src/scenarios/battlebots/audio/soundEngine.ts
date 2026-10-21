@@ -241,6 +241,80 @@ class SoundEngine {
       osc.stop(start + 0.46);
     });
   }
+
+  /**
+   * Arcade-style critical alert: rapid pulsing tone with rising harmonics
+   * announcing that the boss is in a critical finish state.
+   */
+  public playCriticalAlert(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [0, 0.12, 0.24].forEach((offset) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(740, now + offset);
+      osc.frequency.exponentialRampToValueAtTime(880, now + offset + 0.07);
+      gain.gain.setValueAtTime(0.14, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.08);
+      osc.connect(gain);
+      gain.connect(this.out!);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.09);
+    });
+  }
+
+  /**
+   * Heavy cinematic final knockout impact sound:
+   * 1. Sub-bass shockwave boom
+   * 2. Metallic structure collapse
+   * 3. Electrical short-circuit blowout transient
+   */
+  public playFinalHit(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    // 1. Deep sub-bass impact boom
+    const sub = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(140, now);
+    sub.frequency.exponentialRampToValueAtTime(26, now + 0.65);
+    subGain.gain.setValueAtTime(0.48, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.68);
+    sub.connect(subGain);
+    subGain.connect(this.out!);
+    sub.start(now);
+    sub.stop(now + 0.7);
+
+    // 2. Heavy crunch & metallic resonance
+    const crunch = ctx.createOscillator();
+    const crunchGain = ctx.createGain();
+    crunch.type = 'sawtooth';
+    crunch.frequency.setValueAtTime(540, now);
+    crunch.frequency.exponentialRampToValueAtTime(80, now + 0.38);
+    crunchGain.gain.setValueAtTime(0.36, now);
+    crunchGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    crunch.connect(crunchGain);
+    crunchGain.connect(this.out!);
+    crunch.start(now);
+    crunch.stop(now + 0.42);
+
+    // 3. Electrical circuit burnout crack
+    const snap = ctx.createOscillator();
+    const snapGain = ctx.createGain();
+    snap.type = 'square';
+    snap.frequency.setValueAtTime(2600, now);
+    snap.frequency.exponentialRampToValueAtTime(160, now + 0.16);
+    snapGain.gain.setValueAtTime(0.26, now);
+    snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
+    snap.connect(snapGain);
+    snapGain.connect(this.out!);
+    snap.start(now);
+    snap.stop(now + 0.18);
+  }
 }
 
 export const soundEngine = new SoundEngine();

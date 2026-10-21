@@ -32,6 +32,7 @@ export function projectFromDesign(design: DesignObject[]): TeamRobotProject {
     const p = o as BattlebotPartObject
     if ((PART_KEYS as readonly string[]).includes(p.part)) (project as Record<PartKey, unknown>)[p.part] = p.data
   }
+  if (project.projectLead.teamName) project.teamName = project.projectLead.teamName
   return project
 }
 

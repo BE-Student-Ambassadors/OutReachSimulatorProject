@@ -961,6 +961,109 @@ describe('BATTLEBOT COMBAT IMPACTS & GAME FEEL SYSTEM', () => {
       expect(sim.bossChargeActiveSec).toBe(0);
       expect(sim.bossRepositionTimerSec).toBeGreaterThan(0.5);
     });
+
+    it('enters arcade critical state when The Bull drops below 15% health without instantly ending the match', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull', undefined, 0, 0, true);
+
+      // Set Bull to critical threshold
+      sim.boss.hullIntegrityPct = 14;
+      sim.boss.leftDriveHealthPct = 12;
+      sim.boss.rightDriveHealthPct = 12;
+
+      stepBattleSimulation(sim, 0.05, { throttle: 0, steering: 0, weaponActive: false });
+
+      expect(sim.isCriticalState).toBe(true);
+      expect(sim.criticalTriggered).toBe(true);
+      expect(sim.isFinished).toBe(false);
+      expect(sim.isFinalHitExecuted).toBe(false);
+      expect(sim.criticalTimerSec).toBeGreaterThan(8.0);
+      expect(sim.events.some((e) => e.text.includes('CRITICAL'))).toBe(true);
+    });
+
+    it('triggers dramatic final hit when player lands a strike on critical Bull', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull', undefined, 0, 0, true);
+
+      // Pre-set Bull to critical state
+      sim.boss.hullIntegrityPct = 12;
+      sim.boss.leftDriveHealthPct = 10;
+      sim.boss.rightDriveHealthPct = 10;
+      stepBattleSimulation(sim, 0.05, { throttle: 0, steering: 0, weaponActive: false });
+      expect(sim.isCriticalState).toBe(true);
+
+      // Position player with spinning weapon right on top of Bull
+      sim.player.x = 0;
+      sim.player.z = 0.45;
+      sim.player.headingRad = Math.PI;
+      sim.player.weaponSpinPct = 100;
+      sim.boss.x = 0;
+      sim.boss.z = 0;
+      sim.boss.headingRad = 0;
+
+      // Deliver finishing weapon hit
+      stepBattleSimulation(sim, 0.04, { throttle: 1, steering: 0, weaponActive: true });
+
+      // Final hit should be executed
+      expect(sim.isFinalHitExecuted).toBe(true);
+      expect(sim.cameraImpactShake).toBeGreaterThan(1.2);
+      expect(sim.boss.hullIntegrityPct).toBe(0);
+      expect(sim.boss.leftDriveHealthPct).toBe(0);
+      expect(sim.boss.rightDriveHealthPct).toBe(0);
+      expect(sim.boss.weaponSpinPct).toBe(0);
+      expect(sim.sparks.length).toBeGreaterThan(20);
+      expect(sim.events.some((e) => e.text.includes('KNOCKOUT'))).toBe(true);
+
+      // Advances until finish timer expires
+      for (let f = 0; f < 80; f++) {
+        stepBattleSimulation(sim, 0.04, { throttle: 0, steering: 0, weaponActive: false });
+      }
+      expect(sim.isFinished).toBe(true);
+      expect(sim.winner).toBe('player');
+    });
+
+    it('triggers final hit if critical Bull slams into arena wall', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull', undefined, 0, 0, true);
+      sim.isCriticalState = true;
+      sim.criticalTriggered = true;
+
+      // Slam Bull against arena wall
+      sim.boss.x = ARENA_HALF_SIZE - 0.2;
+      sim.boss.vx = 2.5;
+      sim.boss.z = 0;
+
+      stepBattleSimulation(sim, 0.04, { throttle: 0, steering: 0, weaponActive: false });
+
+      expect(sim.isFinalHitExecuted).toBe(true);
+      expect(sim.finalHitType).toBe('wall');
+    });
+
+    it('triggers circuit burnout if player fails to land finishing hit within 9 seconds', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull', undefined, 0, 0, true);
+      sim.isCriticalState = true;
+      sim.criticalTriggered = true;
+      sim.criticalTimerSec = 0.02; // Expiring timer
+
+      // Step simulation without player hitting Bull
+      sim.player.x = -4.0;
+      sim.boss.x = 4.0;
+      stepBattleSimulation(sim, 0.05, { throttle: 0, steering: 0, weaponActive: false });
+
+      expect(sim.isFinalHitExecuted).toBe(true);
+      expect(sim.finalHitType).toBe('burnout');
+    });
+
+    it('does not trigger victory finish sequence when player loses', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull', undefined, 0, 0, true);
+
+      // Player loses all hull integrity
+      sim.player.hullIntegrityPct = 0;
+
+      stepBattleSimulation(sim, 0.05, { throttle: 0, steering: 0, weaponActive: false });
+
+      expect(sim.isFinished).toBe(true);
+      expect(sim.winner).toBe('boss');
+      expect(sim.isFinalHitExecuted).toBe(false);
+      expect(sim.isCriticalState).toBe(false);
+    });
   });
 });
 

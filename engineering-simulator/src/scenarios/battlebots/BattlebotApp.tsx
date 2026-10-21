@@ -141,6 +141,16 @@ export function BattlebotApp({ project, onUpdatePart, onResetProject, team }: Ba
   const handleUpdateSoftware = (nextSoft: SoftwareConfiguration) => onUpdatePart('software', nextSoft);
   const handleUpdateProjectLead = (nextLead: ProjectLeadConfiguration) => onUpdatePart('projectLead', nextLead);
 
+  const handleUpdateTeamName = (teamName: string) => {
+    // The name lives on the project lead's part, so it syncs to teammates like the rest of it.
+    onUpdatePart('projectLead', {
+      ...project.projectLead,
+      teamName,
+      campaign: project.projectLead.campaign ? { ...project.projectLead.campaign, robotName: teamName } : null,
+    });
+    setConfig((prev) => ({ ...prev, name: teamName }));
+  };
+
   const handleResetProject = () => {
     onResetProject();
     setScreen('team-dashboard');
@@ -682,6 +692,8 @@ export function BattlebotApp({ project, onUpdatePart, onResetProject, team }: Ba
             project={project}
             onUpdateProjectLead={handleUpdateProjectLead}
             onReturnToDashboard={() => setScreen('team-dashboard')}
+            onNavigateToIntegration={() => setScreen('integration')}
+            onUpdateTeamName={handleUpdateTeamName}
             hideHeader={true}
           />
         )}
@@ -763,6 +775,7 @@ export function BattlebotApp({ project, onUpdatePart, onResetProject, team }: Ba
           }}
           cameraResetTrigger={cameraResetTrigger}
           activeTest={activeTest}
+          sponsor={project.projectLead.activeSponsors?.[0] || null}
         />
       </div>
 

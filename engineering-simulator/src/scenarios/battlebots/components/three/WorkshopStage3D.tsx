@@ -3,7 +3,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { type ComponentCategory, type EngineeringStats, type RobotConfiguration, type TestLabType } from '../../types/robot';
+import { type ActiveSponsorship, type ComponentCategory, type EngineeringStats, type RobotConfiguration, type TestLabType } from '../../types/robot';
 import { Robot3D } from './Robot3D';
 
 export interface ActiveTestVisualState {
@@ -21,6 +21,7 @@ interface WorkshopSceneContentProps {
   onSelectCategory: (cat: ComponentCategory) => void;
   cameraResetTrigger: number;
   activeTest: ActiveTestVisualState;
+  sponsor?: ActiveSponsorship | null;
 }
 
 const CameraController: React.FC<{
@@ -76,6 +77,7 @@ const WorkshopSceneContent: React.FC<WorkshopSceneContentProps> = ({
   onSelectCategory,
   cameraResetTrigger,
   activeTest,
+  sponsor,
 }) => {
   const ringRef = useRef<THREE.Mesh>(null);
   const botGroupRef = useRef<THREE.Group>(null);
@@ -344,6 +346,7 @@ const WorkshopSceneContent: React.FC<WorkshopSceneContentProps> = ({
           chassisPitchRad={chassisPitchRad}
           chassisRollRad={chassisRollRad}
           motorTempC={liveTempC}
+          sponsor={sponsor}
         />
       </group>
     </>

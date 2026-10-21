@@ -182,9 +182,14 @@ export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
           </div>
 
           <div>
-            <h2 className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold mb-3">
-              Your Team
-            </h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
+                Your Team
+              </h2>
+              <span className="text-xs font-mono font-bold uppercase text-slate-700 bg-white border border-slate-200 px-2.5 py-0.5 rounded-full shadow-2xs">
+                {project.teamName || 'TEAM TITAN'}
+              </span>
+            </div>
             {team && (
               <p className="-mt-1.5 mb-3 text-xs text-slate-600">
                 {team.size === 1

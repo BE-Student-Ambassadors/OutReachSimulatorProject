@@ -209,42 +209,42 @@ export function validateSystemIntegration(project: TeamRobotProject): SystemInte
   }
 
   // ==========================================
-  // 2. ELECTRICAL VALIDATION
+  // 2. ELECTRICAL VALIDATION (Standard Wiring Only)
   // ==========================================
-  if (!project.electrical.wiringVerified) {
+  if (!project.electrical.wiringVerified || !project.electrical.isCompleted) {
     electricalPassed = false;
     failures.push(
-      `Electrical: Wiring harness has not passed electrical safety inspection. Route and verify all power, ESC, and logic wires.`
+      'Electrical: Wiring harness has not passed electrical safety inspection. Route and verify all 14 power, ESC, and logic wires.'
     );
   }
 
+  // NOTE: Amperage sizing and power system headroom are part of the optional
+  // Advanced Power Challenge. They provide engineering feedback/warnings but
+  // NEVER block Standard Electrical completion or System Integration gating.
   if (summary.isOverCurrent) {
-    electricalPassed = false;
-    failures.push(
-      `Electrical: Peak current demand (${summary.effectivePeakDemandA} A) exceeds continuous battery capability (${summary.batteryContinuousA} A). High risk of voltage sag, BMS cutoff, or battery fire.`
+    warnings.push(
+      `Electrical Note: Peak current demand (${summary.effectivePeakDemandA} A) exceeds continuous battery capability (${summary.batteryContinuousA} A).`
     );
   }
 
   if (!summary.driveEscSafe) {
-    electricalPassed = false;
-    failures.push(
-      `Electrical: Drive ESC rating (${project.electrical.driveEscRatingA} A) is below drive motor peak draw (${summary.stats.driveTorqueNm > 45 ? 52 : 42} A). Controller thermal shutdown likely under heavy push.`
+    warnings.push(
+      `Electrical Note: Drive ESC rating (${project.electrical.driveEscRatingA} A) is near or below drive motor peak draw (${summary.stats.driveTorqueNm > 45 ? 52 : 42} A).`
     );
   }
 
   if (!summary.weaponEscSafe) {
-    electricalPassed = false;
-    failures.push(
-      `Electrical: Weapon ESC rating (${project.electrical.weaponEscRatingA} A) is below weapon peak draw. Risk of controller MOSFET failure.`
+    warnings.push(
+      `Electrical Note: Weapon ESC rating (${project.electrical.weaponEscRatingA} A) is near or below weapon peak draw.`
     );
   }
 
   if (summary.runtimeSeconds < 120) {
-    electricalPassed = false;
-    failures.push(
-      `Electrical: Estimated runtime is ${Math.floor(summary.runtimeSeconds / 60)}m ${summary.runtimeSeconds % 60}s. Competition matches require minimum 2:00 endurance.`
+    warnings.push(
+      `Electrical Note: Estimated runtime is ${Math.floor(summary.runtimeSeconds / 60)}m ${summary.runtimeSeconds % 60}s. Match endurance may be limited under continuous run.`
     );
   }
+
 
   if (project.electrical.currentLimiterA > 0) {
     warnings.push(

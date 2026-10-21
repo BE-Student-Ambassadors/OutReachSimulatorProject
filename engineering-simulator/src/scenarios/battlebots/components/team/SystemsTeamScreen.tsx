@@ -152,6 +152,7 @@ export const SystemsTeamScreen: React.FC<SystemsTeamScreenProps> = ({
               config={currentRobotConfig}
               assembledCategories={assembledCategories}
               wheelSpeedRad={0}
+              sponsor={project.projectLead.activeSponsors?.[0] || null}
             />
           </group>
 

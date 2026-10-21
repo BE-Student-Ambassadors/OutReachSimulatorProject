@@ -5,6 +5,7 @@ import {
   Crosshair,
   Building2,
   Flame,
+  Megaphone,
 } from 'lucide-react';
 import {
   type ChassisId,
@@ -13,7 +14,11 @@ import {
   type ArmorId,
   type TeamRobotProject,
 } from '../../../types/robot';
-import { type AdCampaignEvaluation } from '../../../data/teamData';
+import {
+  type AdCampaignEvaluation,
+  FICTIONAL_SPONSORS,
+  getSponsorForTier,
+} from '../../../data/teamData';
 
 export type PosterTemplate =
   | 'hero-poster'
@@ -312,6 +317,48 @@ export const CampaignPoster: React.FC<CampaignPosterProps> = ({
 
   const activeTemplate = selectedTemplate || detectedTemplate;
 
+  const isUncompleted =
+    !evaluation &&
+    !lead.isCompleted &&
+    !lead.campaign?.approved &&
+    lead.campaignScore === 0;
+
+  if (isUncompleted) {
+    return (
+      <div className="w-full flex flex-col items-center gap-3">
+        <div className="relative w-full max-w-2xl rounded-3xl overflow-hidden border-2 border-dashed border-slate-300 bg-slate-50/70 p-8 md:p-12 flex flex-col items-center justify-center aspect-[16/11] min-h-[460px] text-center select-none shadow-xs">
+          <div className="size-16 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center mb-4 text-emerald-600">
+            <Megaphone className="w-8 h-8" />
+          </div>
+          <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 mb-2">
+            Ad Studio Preview
+          </span>
+          <h3 className="font-display font-black text-2xl text-slate-900 tracking-tight mb-2">
+            YOUR POSTER WILL APPEAR HERE
+          </h3>
+          <p className="text-xs text-slate-500 max-w-md mb-6 leading-relaxed">
+            Describe your BattleBot’s engineering, combat strategy, and value proposition on the left, then click <strong className="text-emerald-700 font-semibold font-mono">GENERATE AD</strong> to produce your official team sponsorship poster.
+          </p>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-w-md w-full text-left">
+            <div className="p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
+              <span className="text-[10px] font-mono uppercase text-slate-400 block font-bold">Step 1</span>
+              <span className="text-xs font-bold text-slate-700">Team Name & Pitch</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
+              <span className="text-[10px] font-mono uppercase text-slate-400 block font-bold">Step 2</span>
+              <span className="text-xs font-bold text-slate-700">Review Score & Tips</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
+              <span className="text-[10px] font-mono uppercase text-slate-400 block font-bold">Step 3</span>
+              <span className="text-xs font-bold text-slate-700">Accept Sponsor</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Headline derivation
   const headline =
     evaluation?.headline ||
@@ -321,6 +368,25 @@ export const CampaignPoster: React.FC<CampaignPosterProps> = ({
 
   const sponsorTier = evaluation?.tier || lead.sponsorTier || 'Bronze';
   const fundingAmount = evaluation?.fundingUsd || lead.sponsorshipUsd || 400;
+
+  const sponsor =
+    evaluation?.suggestedSponsor ||
+    (lead.activeSponsors?.[0]
+      ? FICTIONAL_SPONSORS[lead.activeSponsors[0].sponsorId] || {
+          id: lead.activeSponsors[0].sponsorId,
+          name: lead.activeSponsors[0].sponsorName,
+          tier: lead.activeSponsors[0].tier,
+          brandColor: lead.activeSponsors[0].brandColor || '#06b6d4',
+          secondaryColor: '#f59e0b',
+          badgeBg: '#083344',
+          tagline: lead.activeSponsors[0].tagline || '',
+          amountUsd: lead.activeSponsors[0].amountUsd,
+          description: '',
+          logoKey: 'nova' as const,
+        }
+      : getSponsorForTier(sponsorTier, promptText, evaluation?.theme || 'tech'));
+
+  const sponsorName = sponsor?.name || (sponsorTier === 'Gold' ? 'NOVA DYNAMICS' : sponsorTier === 'Silver' ? 'VOLTWORKS ENERGY' : 'FORGE INDUSTRIES');
 
   return (
     <div className="w-full flex flex-col items-center gap-3">
@@ -389,7 +455,7 @@ export const CampaignPoster: React.FC<CampaignPosterProps> = ({
                 </h1>
               </div>
               <span className="px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 border border-amber-400 text-amber-300">
-                ★ {sponsorTier.toUpperCase()} PARTNER
+                ★ {sponsorName.toUpperCase()} • {sponsorTier.toUpperCase()} PARTNER
               </span>
             </div>
 

@@ -114,14 +114,16 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
       project.electrical.batteryId = 'small'; // 80A continuous
       project.electrical.currentLimiterA = 0; // Uncapped
       project.electrical.wiringVerified = true;
+      project.electrical.isCompleted = true;
 
       const summary = computeTeamEngineeringSummary(project);
       expect(summary.isOverCurrent).toBe(true);
 
       const integration = validateSystemIntegration(project);
-      expect(integration.electricalPassed).toBe(false);
-      expect(integration.overallPassed).toBe(false);
-      expect(integration.failures.some((f) => f.includes('continuous battery capability'))).toBe(true);
+      // Crucial: Standard wiring complete passes Electrical role without amperage blocking
+      expect(integration.electricalPassed).toBe(true);
+      // Overcurrent is reported as an advisory/warning
+      expect(integration.warnings.some((w) => w.includes('continuous battery capability'))).toBe(true);
     });
 
     it('resolves overcurrent when Electrical applies a current limiter governor', () => {
@@ -891,5 +893,67 @@ describe('Collaborative 4-Student BattleBot Incubator', () => {
       expect(project.software.bugsFixed).toBe(true);
     });
   });
+
+  describe('Discipline 2: Electrical Standard Wiring & Overcurrent Independence', () => {
+    it('standard mode completes when all 14 wires are verified, even with 120A demand on 115A battery', () => {
+      const project = createInitialTeamProject();
+      project.mechanical.weaponId = 'vertical-spinner'; // 75A
+      project.mechanical.driveId = 'speed'; // 45A
+      project.electrical.batteryId = 'medium'; // 115A continuous
+      project.electrical.currentLimiterA = 120; // 120A effective demand
+
+      const summary = computeTeamEngineeringSummary(project);
+      expect(summary.effectivePeakDemandA).toBe(120);
+      expect(summary.batteryContinuousA).toBe(115);
+      expect(summary.isOverCurrent).toBe(true); // 5A deficit
+
+      // Incomplete harness (0/14 or 13/14)
+      project.electrical.wires = [];
+      project.electrical.wiringVerified = false;
+      project.electrical.isCompleted = false;
+      expect(validateSystemIntegration(project).electricalPassed).toBe(false);
+
+      const partialWires = DEFAULT_SIMPLIFIED_WIRES.slice(0, 13);
+      project.electrical.wires = [...partialWires];
+      expect(validateSimplifiedElectrical(project.electrical.wires).valid).toBe(false);
+      expect(validateSystemIntegration(project).electricalPassed).toBe(false);
+
+      // All 14 wires verified + Power On
+      project.electrical.wires = [...DEFAULT_SIMPLIFIED_WIRES];
+      expect(project.electrical.wires).toHaveLength(14);
+      expect(validateSimplifiedElectrical(project.electrical.wires).valid).toBe(true);
+
+      project.electrical.wiringVerified = true;
+      project.electrical.isCompleted = true;
+
+      // Passes Standard Electrical without amperage blocking!
+      const report = validateSystemIntegration(project);
+      expect(report.electricalPassed).toBe(true);
+      expect(report.warnings.some((w) => w.includes('120 A') && w.includes('115 A'))).toBe(true);
+    });
+
+    it('validates System Integration accepts Electrical once 14-wire harness is complete', () => {
+      const project = createInitialTeamProject();
+      project.mechanical.isCompleted = true;
+      project.software.isCompleted = true;
+      project.software.softwareUploaded = true;
+      project.software.testPassed = true;
+      project.projectLead.isCompleted = true;
+      project.projectLead.complianceSigned = true;
+
+      // 1. Incomplete wiring -> Electrical fails
+      project.electrical.wiringVerified = false;
+      project.electrical.isCompleted = false;
+      expect(validateSystemIntegration(project).electricalPassed).toBe(false);
+
+      // 2. Complete wiring -> Electrical passes even with 120A / 115A load
+      project.electrical.wires = [...DEFAULT_SIMPLIFIED_WIRES];
+      project.electrical.wiringVerified = true;
+      project.electrical.isCompleted = true;
+      const passReport = validateSystemIntegration(project);
+      expect(passReport.electricalPassed).toBe(true);
+    });
+  });
+
 });
 
