@@ -104,6 +104,74 @@ class SoundEngine {
     osc.stop(now + durationSec + 0.02);
   }
 
+  public playCombatImpact(severity: 'tiny' | 'normal' | 'heavy' | 'major', type: 'chassis' | 'weapon' | 'wall' = 'chassis'): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    if (severity === 'tiny') {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(240, now);
+      osc.frequency.exponentialRampToValueAtTime(80, now + 0.06);
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.065);
+      return;
+    }
+    const isMajor = severity === 'major';
+    const isHeavy = severity === 'heavy';
+    const dur = isMajor ? 0.34 : isHeavy ? 0.24 : 0.14;
+    const vol = isMajor ? 0.38 : isHeavy ? 0.26 : 0.14;
+
+    // 1. Low physical impact thump
+    const thump = ctx.createOscillator();
+    const thumpGain = ctx.createGain();
+    thump.type = 'triangle';
+    const startFreq = type === 'wall' ? 130 : isMajor ? 210 : isHeavy ? 175 : 150;
+    const endFreq = type === 'wall' ? 32 : 35;
+    thump.frequency.setValueAtTime(startFreq, now);
+    thump.frequency.exponentialRampToValueAtTime(endFreq, now + dur);
+    thumpGain.gain.setValueAtTime(vol, now);
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    thump.connect(thumpGain);
+    thumpGain.connect(ctx.destination);
+    thump.start(now);
+    thump.stop(now + dur + 0.02);
+
+    // 2. Metallic whack resonance
+    const ring = ctx.createOscillator();
+    const ringGain = ctx.createGain();
+    ring.type = type === 'weapon' ? 'sawtooth' : 'square';
+    const ringFreq = type === 'wall' ? 640 : type === 'weapon' ? (isMajor ? 1480 : 1240) : (isMajor ? 1120 : 960);
+    ring.frequency.setValueAtTime(ringFreq, now);
+    ring.frequency.exponentialRampToValueAtTime(260, now + dur * 0.75);
+    ringGain.gain.setValueAtTime(vol * (type === 'weapon' ? 0.45 : 0.28), now);
+    ringGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.75);
+    ring.connect(ringGain);
+    ringGain.connect(ctx.destination);
+    ring.start(now);
+    ring.stop(now + dur * 0.8);
+
+    // 3. Sharp high-frequency transient crack for weapon or heavy impacts
+    if (isHeavy || isMajor || type === 'weapon') {
+      const snap = ctx.createOscillator();
+      const snapGain = ctx.createGain();
+      snap.type = 'square';
+      snap.frequency.setValueAtTime(isMajor ? 2800 : 2100, now);
+      snap.frequency.exponentialRampToValueAtTime(450, now + 0.05);
+      snapGain.gain.setValueAtTime(vol * 0.32, now);
+      snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+      snap.connect(snapGain);
+      snapGain.connect(ctx.destination);
+      snap.start(now);
+      snap.stop(now + 0.055);
+    }
+  }
+
   public playImpact(intensity: 'light' | 'medium' | 'heavy' = 'medium'): void {
     const ctx = this.getContext();
     if (!ctx) return;

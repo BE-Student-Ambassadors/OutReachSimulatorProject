@@ -36,6 +36,15 @@ import { computeTeamEngineeringSummary } from './simulation/integrationValidator
 import type { BattlebotTeam, PartKey } from './teamSync';
 import { ARMOR_CATALOG, ARMOR_THICKNESS_OPTIONS, BATTERY_CATALOG, CHASSIS_CATALOG, DRIVE_CATALOG, INITIAL_ROBOT_CONFIG, UTILITY_CATALOG, WEAPON_CATALOG, WHEELS_CATALOG } from './data/components';
 import { BOSS_LADDER, getBossById } from './data/bosses';
+import {
+  isBattlebotDevMode,
+  resolveDevArenaRobot,
+  getStoredDevRobotSource,
+  setStoredDevRobotSource,
+  getStoredDevWeapon,
+  setStoredDevWeapon,
+  type DevRobotSource,
+} from './services/devMode';
 import { calculateEngineeringStats, computeInstallConsequences } from './simulation/engineering';
 import {
   type AppScreen,
@@ -100,6 +109,20 @@ interface BattlebotAppProps {
 }
 
 export function BattlebotApp({ project, onUpdatePart, onResetProject, team }: BattlebotAppProps) {
+  const isDevMode = useMemo(() => isBattlebotDevMode(), []);
+  const [devRobotSource, setDevRobotSource] = useState<DevRobotSource>(() => getStoredDevRobotSource());
+  const [devWeaponId, setDevWeaponId] = useState<WeaponId>(() => getStoredDevWeapon());
+
+  const handleDevChangeWeapon = (weaponId: WeaponId) => {
+    setDevWeaponId(weaponId);
+    setStoredDevWeapon(weaponId);
+  };
+
+  const handleDevChangeRobotSource = (source: DevRobotSource) => {
+    setDevRobotSource(source);
+    setStoredDevRobotSource(source);
+  };
+
   const [screen, setScreen] = useState<AppScreen>('team-dashboard');
 
   const [config, setConfig] = useState<RobotConfiguration>(() => ({
@@ -474,15 +497,25 @@ export function BattlebotApp({ project, onUpdatePart, onResetProject, team }: Ba
 
   // 7. COMBAT ARENA SCREEN (VS THE BULL ONLY - Manual Combat Arena)
   if (screen === 'arena') {
+    const arenaBot = isDevMode
+      ? resolveDevArenaRobot(config, project, { robotSource: devRobotSource, weaponId: devWeaponId })
+      : { config, isDefaultTestBot: false, stats };
+    const arenaStats = isDevMode ? arenaBot.stats : stats;
+
     return (
       <ArenaScreen
-        playerConfig={config}
-        playerStats={stats}
+        playerConfig={arenaBot.config}
+        playerStats={arenaStats}
         bossId="bull"
         teamProject={project}
         onDefeatBoss={handleDefeatBoss}
         onReturnToWorkshop={() => setScreen('team-dashboard')}
         onReturnToDashboard={() => setScreen('team-dashboard')}
+        isDevMode={isDevMode}
+        devRobotSource={devRobotSource}
+        devWeaponId={devWeaponId}
+        onDevChangeWeapon={handleDevChangeWeapon}
+        onDevChangeRobotSource={handleDevChangeRobotSource}
       />
     );
   }
@@ -581,25 +614,39 @@ export function BattlebotApp({ project, onUpdatePart, onResetProject, team }: Ba
         spentUsd={teamSummary.totalCostUsd}
         availableUsd={totalFunding}
         myRoles={team?.myRoles}
+        isDevMode={isDevMode}
+        onDevEnterArena={() => setScreen('arena')}
       >
         {screen === 'team-dashboard' && (
           <TeamDashboardScreen
             project={project}
+            currentConfig={config}
             onSelectRole={(role) => setScreen(role)}
             onCheckRobot={() => setScreen('integration')}
             onEnterArena={() => setScreen('arena')}
             onResetProject={handleResetProject}
             hideHeader={true}
             team={team}
+            isDevMode={isDevMode}
+            devRobotSource={devRobotSource}
+            devWeaponId={devWeaponId}
+            onDevChangeWeapon={handleDevChangeWeapon}
+            onDevChangeRobotSource={handleDevChangeRobotSource}
           />
         )}
 
         {screen === 'integration' && (
           <SystemsTeamScreen
             project={project}
+            currentConfig={config}
             onEnterArena={() => setScreen('arena')}
             onReturnToTeam={() => setScreen('team-dashboard')}
             onSelectRole={(role) => setScreen(role)}
+            isDevMode={isDevMode}
+            devRobotSource={devRobotSource}
+            devWeaponId={devWeaponId}
+            onDevChangeWeapon={handleDevChangeWeapon}
+            onDevChangeRobotSource={handleDevChangeRobotSource}
           />
         )}
 

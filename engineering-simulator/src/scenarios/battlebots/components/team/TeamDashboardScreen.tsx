@@ -16,11 +16,15 @@ import {
   type RobotConfiguration,
   type TeamRobotProject,
   type TeamRole,
+  type WeaponId,
 } from '../../types/robot';
 import { namesLabel } from '../../../../core/roles';
 import type { BattlebotTeam } from '../../teamSync';
 import { Robot3D } from '../three/Robot3D';
 import { ResetProjectModal } from './ResetProjectModal';
+import { DevLoadoutCard } from '../dev/DevLoadoutCard';
+import { resolveDevArenaRobot, type DevRobotSource } from '../../services/devMode';
+import { INITIAL_ROBOT_CONFIG } from '../../data/components';
 
 interface TeamDashboardScreenProps {
   project: TeamRobotProject;
@@ -31,6 +35,12 @@ interface TeamDashboardScreenProps {
   hideHeader?: boolean;
   /** Multiplayer only: who does which job, and this player's picks. */
   team?: BattlebotTeam;
+  isDevMode?: boolean;
+  currentConfig?: RobotConfiguration;
+  devRobotSource?: DevRobotSource;
+  devWeaponId?: WeaponId;
+  onDevChangeWeapon?: (weaponId: WeaponId) => void;
+  onDevChangeRobotSource?: (source: DevRobotSource) => void;
 }
 
 export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
@@ -40,8 +50,23 @@ export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
   onEnterArena,
   onResetProject,
   team,
+  isDevMode = false,
+  currentConfig,
+  devRobotSource,
+  devWeaponId,
+  onDevChangeWeapon,
+  onDevChangeRobotSource,
 }) => {
   const [showResetModal, setShowResetModal] = React.useState(false);
+
+  const devLoadout = useMemo(() => {
+    if (!isDevMode) return null;
+    return resolveDevArenaRobot(
+      currentConfig || INITIAL_ROBOT_CONFIG,
+      project,
+      { robotSource: devRobotSource || 'default', weaponId: devWeaponId || 'vertical-spinner' }
+    );
+  }, [isDevMode, currentConfig, project, devRobotSource, devWeaponId]);
 
   // Bull configuration for large 3D visual
   const bullConfig: RobotConfiguration = useMemo(() => ({
@@ -313,9 +338,21 @@ export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
             </span>
           </div>
 
-          {/* Bottom Card: Locked or Ready */}
+          {/* Bottom Card: Locked or Ready or DEV LOADOUT */}
           <div className="relative z-10 flex justify-center pointer-events-none">
-            {!allRolesComplete ? (
+            {isDevMode && devLoadout && onDevChangeWeapon && onDevChangeRobotSource ? (
+              <DevLoadoutCard
+                robotSource={devRobotSource || 'default'}
+                weaponId={devWeaponId || 'vertical-spinner'}
+                onChangeRobotSource={onDevChangeRobotSource}
+                onChangeWeapon={onDevChangeWeapon}
+                totalWeightLb={devLoadout.stats.totalWeightLb}
+                isOverweight={devLoadout.stats.isOverweight}
+                onEnterArena={onEnterArena}
+                variant="card"
+                showEnterButton={true}
+              />
+            ) : !allRolesComplete ? (
               <div className="bg-white/90 backdrop-blur-md border border-slate-200 px-5 py-3 rounded-2xl shadow-md text-center max-w-xs">
                 <div className="flex items-center justify-center gap-1.5 text-slate-700 font-bold text-xs">
                   <Lock className="w-3.5 h-3.5 text-slate-400" />
