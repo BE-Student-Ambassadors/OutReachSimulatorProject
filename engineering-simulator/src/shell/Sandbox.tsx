@@ -1,12 +1,14 @@
-import { Bug, CloudRain, Layers, Lock, RotateCcw, Trash2, Undo2, Zap } from 'lucide-react'
+import { Bug, CloudRain, Layers, Lock, RotateCcw, Trash2, Undo2, Volume2, VolumeX, Zap } from 'lucide-react'
 import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from 'react'
 import { money } from '../core/format'
 import { designReducer, initDesignState } from '../core/history'
 import type { AnyScenario, DesignObject, GroupSync, SimRun } from '../core/scenario'
+import { play, toggleMuted, useMuted } from '../shared/audio/sfx'
 import { BrandMark } from './BrandMark'
 import { RequirementsPanel } from './RequirementsPanel'
 import { ResultsModal } from './ResultsModal'
 import { Toolbox } from './Toolbox'
+import { WorldErrorBoundary } from './WorldErrorBoundary'
 
 type Status = 'editing' | 'running' | 'results'
 
@@ -56,11 +58,24 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
   const selected = state.design.find((o) => o.id === state.selectedId) ?? null
   const selectedTool = selected ? scenario.tools.find((t) => t.id === selected.kind) : null
 
-  const commit = useCallback((design: DesignObject[], selectId?: string | null) => {
-    dispatch({ type: 'commit', design, selectId })
-    setOverlay(false)
-  }, [])
-  const undo = useCallback(() => !locked && dispatch({ type: 'undo' }), [locked])
+  // Toolbox scenarios get a sound for every placement; station-style scenarios play their own.
+  const designLength = useRef(state.design.length)
+  useEffect(() => {
+    designLength.current = state.design.length
+  })
+  const commit = useCallback(
+    (design: DesignObject[], selectId?: string | null) => {
+      if (!scenario.minimalShell) play(design.length > designLength.current ? 'place' : design.length < designLength.current ? 'remove' : 'tick')
+      dispatch({ type: 'commit', design, selectId })
+      setOverlay(false)
+    },
+    [scenario],
+  )
+  const undo = useCallback(() => {
+    if (locked || state.past.length === 0) return
+    play('undo')
+    dispatch({ type: 'undo' })
+  }, [locked, state.past.length])
   const deleteSelected = useCallback(() => {
     if (locked || !state.selectedId) return
     commit(scenario.remove(state.design, state.selectedId), null)
@@ -79,6 +94,7 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
     setResultCost(c)
     setResultDesign(design)
     setRun(scenario.createRun(design, v.id))
+    play('start')
     setStatus('running')
     statusRef.current = 'running'
     if (sync && !byTeammate) sync.announceRun(v.id, design)
@@ -136,6 +152,7 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
       const { variant: v, cost: c, passed: wasPassed, mine } = pending.current
       const pass = scenario.requirements.every((q) => q.status(r, c).pass)
       if (mine) sync?.reportResult({ variantId: v.id, pass, summary: scenario.summary(r), cost: c })
+      play(pass ? 'success' : 'fail')
       setResult(r)
       setLog((l) => [...l, { n: l.length + 1, variant: v.label, pass, summary: scenario.summary(r), cost: c }].slice(-8))
       const firstPass = pass && !wasPassed && v.id === scenario.variants[0].id
@@ -266,6 +283,7 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
               {over && <div className="mt-0.5 text-right text-[11px] font-bold uppercase tracking-wide text-rust">Over budget ✕</div>}
             </div>
           )}
+          <SoundToggle />
           <StatusPill status={status} variantLabel={variant.label} run={run} />
         </div>
       </header>
@@ -276,28 +294,33 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
             tools={scenario.tools}
             activeTool={activeTool}
             disabled={locked}
-            onPick={setActiveTool}
+            onPick={(id) => {
+              if (id) play('select')
+              setActiveTool(id)
+            }}
             isProgramOn={(id) => scenario.programs?.isOn(state.design, id) ?? false}
             onToggleProgram={(id) => scenario.programs && !locked && commit(scenario.programs.toggle(state.design, id), null)}
           />
         )}
 
         <main className={`relative min-w-0 flex-1 ${scenario.minimalShell ? 'p-0' : 'p-3'}`}>
-          <World
-            design={state.design}
-            activeTool={activeTool}
-            selectedId={state.selectedId}
-            locked={locked}
-            debug={debug}
-            run={run}
-            lastResult={result}
-            showOverlay={overlay}
-            onCommit={commit}
-            onSelect={(id: string | null) => dispatch({ type: 'select', id })}
-            onToolDone={() => setActiveTool(null)}
-            sync={sync}
-            onStartRun={(vid: string) => startRun(vid)}
-          />
+          <WorldErrorBoundary>
+            <World
+              design={state.design}
+              activeTool={activeTool}
+              selectedId={state.selectedId}
+              locked={locked}
+              debug={debug}
+              run={run}
+              lastResult={result}
+              showOverlay={overlay}
+              onCommit={commit}
+              onSelect={(id: string | null) => dispatch({ type: 'select', id })}
+              onToolDone={() => setActiveTool(null)}
+              sync={sync}
+              onStartRun={(vid: string) => startRun(vid)}
+            />
+          </WorldErrorBoundary>
           {overlay && !!result && scenario.overlayLegend && (
             <div className="pointer-events-none absolute left-6 top-6 rounded-xl bg-white/95 px-3 py-2 shadow ring-1 ring-black/10">
               <div className="font-display text-sm font-semibold">{scenario.overlayLegend.title}</div>
@@ -439,6 +462,7 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
                 style={{ ['--edge' as string]: '#7d2e10' }}
                 className="btn-press rounded-xl bg-rust px-4 py-2 text-sm font-bold text-white"
                 onClick={() => {
+                  play('remove')
                   dispatch({ type: 'reset', design: scenario.initialDesign() })
                   setActiveTool(null)
                   setOverlay(false)
@@ -452,6 +476,24 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
         </div>
       )}
     </div>
+  )
+}
+
+function SoundToggle() {
+  const muted = useMuted()
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        toggleMuted()
+        play('click')
+      }}
+      title={muted ? 'Turn sound on' : 'Turn sound off'}
+      aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+      className={`grid size-9 place-items-center rounded-full ring-1 transition ${muted ? 'text-ink/40 ring-line hover:text-ink' : 'bg-mint text-forest ring-forest/20 hover:bg-white'}`}
+    >
+      {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+    </button>
   )
 }
 
@@ -482,12 +524,7 @@ function StatusPill({ status, variantLabel, run }: { status: Status; variantLabe
         </div>
       </div>
     )
-  return (
-    <span className="flex items-center gap-2 rounded-full bg-mint px-3 py-1.5 text-xs font-semibold text-forest">
-      <span className="size-2 rounded-full bg-leaf" />
-      {status === 'results' ? 'Reviewing results' : 'Design mode'}
-    </span>
-  )
+  return null
 }
 
 function BarButton({

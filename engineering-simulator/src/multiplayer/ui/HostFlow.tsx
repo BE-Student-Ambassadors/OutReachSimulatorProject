@@ -98,8 +98,8 @@ function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: An
         </div>
         <div className="mt-6 flex items-center justify-between">
           <span>
-            <span className="block text-sm font-semibold">Students per team</span>
-            <span className="block text-xs text-ink/55">Teams are split as close to this as possible.</span>
+            <span className="block text-sm font-semibold">Max students per team</span>
+            <span className="block text-xs text-ink/55">Teams have 1 to {teamSize} students. Each team splits its jobs among whoever is on it.</span>
           </span>
           <Stepper value={teamSize} min={MIN_TEAM_SIZE} max={MAX_TEAM_SIZE} onChange={setTeamSize} />
         </div>
@@ -147,11 +147,11 @@ function HostSession({ sid, scenarios, onDone, onNew }: { sid: string; scenarios
   const [minutes, setMinutes] = useState(15)
   const offered = scenarios.filter((s) => session?.gameIds.includes(s.id))
 
-  // While playing, put late joiners on the smallest team, and end the round when time is up.
+  // While playing, put late joiners on a team with room, and end the round when time is up.
   const unassigned = players.filter((p) => !p.groupId).length
   useEffect(() => {
-    if (session?.state === 'playing' && unassigned > 0 && groups.length) void placeLateJoiners(db, sid, players, groups)
-  }, [session?.state, unassigned, groups, players, sid])
+    if (session?.state === 'playing' && unassigned > 0 && groups.length) void placeLateJoiners(db, sid, players, groups, session.teamSize, session.gameIds)
+  }, [session?.state, session?.teamSize, session?.gameIds, unassigned, groups, players, sid])
   useEffect(() => {
     if (session?.state === 'playing' && session.endsAt && now > session.endsAt + 3000) void setSessionState(db, sid, 'ended')
   }, [session?.state, session?.endsAt, now, sid])
@@ -258,7 +258,7 @@ function Lobby({ session, offered, players, groups, minutes, setMinutes }: { ses
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-xl font-bold">Teams</h2>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-ink/60">per team</span>
+              <span className="text-sm text-ink/60">max per team</span>
               <Stepper value={session.teamSize} min={MIN_TEAM_SIZE} max={MAX_TEAM_SIZE} onChange={(v) => void updateSession(db, sid, { teamSize: v })} />
               <SecondaryButton disabled={!players.length} onClick={() => void makeTeams(db, sid)}>
                 <Shuffle className="size-4" /> {groups.length ? 'Remake teams' : 'Make teams'}
@@ -287,7 +287,9 @@ function Lobby({ session, offered, players, groups, minutes, setMinutes }: { ses
                             <span className="flex items-center gap-2">
                               <Users className="size-4" /> {g.name}
                             </span>
-                            <span className="rounded-full bg-paper px-2 py-0.5 font-mono text-xs text-ink ring-1 ring-line">Station {g.station}</span>
+                            <span className="rounded-full bg-paper px-2 py-0.5 font-mono text-xs text-ink ring-1 ring-line">
+                              {players.filter((p) => p.groupId === g.id).length}/{session.teamSize} · Station {g.station}
+                            </span>
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             {players.filter((p) => p.groupId === g.id).map((p) => (
@@ -332,7 +334,7 @@ function Lobby({ session, offered, players, groups, minutes, setMinutes }: { ses
           <Play className="size-4" /> Start game
         </PrimaryButton>
         <p className="mt-2 text-xs text-ink/55">
-          {grouped ? 'Students will see their team and station number.' : 'Make teams first. Students who join later go to the smallest team of their top pick.'}
+          {grouped ? 'Students will see their team and station number.' : 'Make teams first. Students who join later go to a team of their top pick that has room, or start a new one.'}
         </p>
       </Card>
     </div>
@@ -388,9 +390,18 @@ function GroupCard({ sid, group, players, since, now }: { sid: string; group: Gr
       </div>
       <div className="mt-1 flex flex-wrap gap-1.5">
         {players.map((p) => (
-          <span key={p.id} className="flex items-center gap-1 text-xs text-ink/70">
+          <span key={p.id} className="group/p flex items-center gap-1 text-xs text-ink/70">
             <span className={`size-1.5 rounded-full ${isOnline(p.lastSeen, now) ? 'bg-leaf' : 'bg-line'}`} />
             {p.name}
+            {/* A student who left can be removed; the team's jobs re-split among whoever is left. */}
+            <button
+              type="button"
+              title={`Remove ${p.name}`}
+              className="rounded-full text-ink/25 hover:text-rust"
+              onClick={() => confirm(`Remove ${p.name}? Their jobs will be split among the rest of the team.`) && void removePlayer(db, sid, p.id)}
+            >
+              <UserX className="size-3" />
+            </button>
           </span>
         ))}
       </div>

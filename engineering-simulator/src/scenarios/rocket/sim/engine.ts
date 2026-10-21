@@ -4,6 +4,7 @@ import type { RocketObject, RocketVariantId } from '../types'
 import { boardStatus } from './board'
 import { totalFunds } from './business'
 import { partsSpent, resolveBuild, type Build } from './build'
+import { readLines, type PowerState } from './power'
 import { compile, type Instr, type Program, type SettingName, type Value } from './rocketScript'
 
 export type FlightOutcome = 'flight' | 'no-ignition' | 'no-liftoff' | 'breakup'
@@ -14,8 +15,11 @@ export type IgnitionBlock =
   | 'no-avionics'
   | 'no-program'
   | 'no-power'
+  | 'computer-voltage'
   | 'no-ignite-command'
   | 'no-igniter'
+  | 'igniter-voltage'
+  | 'igniter-loose'
   | 'no-motor'
 
 export type ChuteOutcome = 'not-deployed' | 'open' | 'torn' | 'separated' | 'no-parachute' | 'no-charge'
@@ -57,6 +61,13 @@ export interface RocketResult {
   massKg: number
   thrustToWeight: number
   hasTelemetry: boolean
+  /** What the two battery leads delivered on the pad. */
+  computerVolts: number
+  computerState: PowerState
+  igniterVolts: number
+  igniterState: PowerState
+  /** The flight computer's lead shook loose at liftoff and the computer restarted mid-flight. */
+  computerDropped: boolean
   spent: number
   funds: number
   budgetPassed: boolean
@@ -126,7 +137,11 @@ export function simulateFlight(design: RocketObject[], variantId: RocketVariantI
   const variant = VARIANTS[variantId] ?? VARIANTS.standard
   const mech = getMechanical(design)
   const build = resolveBuild(mech)
-  const circuits = boardStatus(getElectrical(design)).connected
+  const el = getElectrical(design)
+  const circuits = boardStatus(el).connected
+  const leads = readLines(el)
+  const computerPowered = leads.computer.state === 'ok'
+  const igniterHot = leads.igniter.state === 'ok' && !leads.igniter.loose
   const software = getSoftware(design)
   const compiled = software?.uploadedSource ? compile(software.uploadedSource) : null
   const program: Program | null = compiled?.ok ? compiled.program : null
@@ -137,7 +152,7 @@ export function simulateFlight(design: RocketObject[], variantId: RocketVariantI
   const motor = build.motor
   const fins = build.fins
   const chuteSpec = build.parachute
-  const computerOn = !!program && circuits.power && build.avionics && !!build.body
+  const computerOn = !!program && circuits.power && computerPowered && build.avionics && !!build.body
 
   const fuelStartKg = build.motor?.fuelKg ?? 0
   const dryMass = build.massKg + ELECTRONICS_KG - fuelStartKg
@@ -202,8 +217,9 @@ export function simulateFlight(design: RocketObject[], variantId: RocketVariantI
     switch (ins.op) {
       case 'ignite': {
         if (!circuits.igniter) blockIgnition('no-igniter')
+        else if (!igniterHot) blockIgnition(leads.igniter.loose ? 'igniter-loose' : 'igniter-voltage')
         if (!motor) blockIgnition('no-motor')
-        if (circuits.igniter && motor && fuel > 0) {
+        if (circuits.igniter && igniterHot && motor && fuel > 0) {
           engineOn = true
           if (!everIgnited) ignitedT = t
           everIgnited = true
@@ -265,14 +281,18 @@ export function simulateFlight(design: RocketObject[], variantId: RocketVariantI
   if (!build.avionics) blockIgnition('no-avionics')
   if (!program) blockIgnition('no-program')
   if (!circuits.power) blockIgnition('no-power')
+  else if (!computerPowered) blockIgnition('computer-voltage')
 
+  // A loose crimp on the computer's lead holds on the pad and shakes apart at liftoff.
+  const computerDrops = computerOn && leads.computer.loose
   while (t < MAX_FLIGHT_S) {
-    if (launch) step(launch)
-    if (fallingBody && !falling && liftoff && v < 0 && alt > 0) {
+    const computerUp = !(computerDrops && liftoff)
+    if (launch && computerUp) step(launch)
+    if (fallingBody && computerUp && !falling && liftoff && v < 0 && alt > 0) {
       sawFalling = true
       falling = new BlockRunner(fallingBody)
     }
-    if (falling) step(falling)
+    if (falling && computerUp) step(falling)
 
     const mass = dryMass + fuel
     const throttle = Math.max(0, Math.min(100, vars.throttle)) / 100
@@ -359,6 +379,7 @@ export function simulateFlight(design: RocketObject[], variantId: RocketVariantI
   if (!everIgnited) {
     if (computerOn && !(launch?.body.some((i) => i.op === 'ignite') ?? false)) blockIgnition('no-ignite-command')
     if (!circuits.igniter) blockIgnition('no-igniter')
+    else if (!igniterHot) blockIgnition(leads.igniter.loose ? 'igniter-loose' : 'igniter-voltage')
     if (!motor) blockIgnition('no-motor')
   }
 
@@ -396,7 +417,12 @@ export function simulateFlight(design: RocketObject[], variantId: RocketVariantI
     flightSeconds: Number((landed ? t - liftoffT : 0).toFixed(1)),
     massKg: Number(totalMass.toFixed(2)),
     thrustToWeight: Number(maxTW.toFixed(1)),
-    hasTelemetry: circuits.radio && circuits.power,
+    hasTelemetry: circuits.radio && circuits.power && computerPowered,
+    computerVolts: leads.computer.volts,
+    computerState: leads.computer.state,
+    igniterVolts: leads.igniter.volts,
+    igniterState: leads.igniter.state,
+    computerDropped: computerDrops && liftoff,
     spent,
     funds,
     budgetPassed: spent <= funds,
@@ -441,6 +467,8 @@ export interface LiveSimFrame {
 
 const TOTAL_TICKS = 360
 const LANDED_HOLD_S = 2.6
+/** Countdown on the pad before ignition: time for everyone to fly their drone into position. */
+export const LAUNCH_COUNTDOWN_S = 6
 
 export class RocketRun implements SimRun<RocketResult> {
   readonly totalTicks = TOTAL_TICKS
@@ -473,7 +501,7 @@ export class RocketRun implements SimRun<RocketResult> {
     this.flight = simulateFlight(design, variantId)
     const f = this.flight
     const r = f.result
-    const pre = 1.2 // countdown beat on the pad
+    const pre = LAUNCH_COUNTDOWN_S
     if (r.outcome === 'breakup' && f.breakupT !== null) {
       const climb = Math.max(1.6, f.breakupT * 1.1)
       this.timeMap = [
@@ -490,7 +518,8 @@ export class RocketRun implements SimRun<RocketResult> {
       ]
       this.durationSeconds = pre + Math.max(2.5, f.endT) + 0.8
     } else {
-      const up = Math.min(9, Math.max(3.5, f.apogeeT * 0.75))
+      // The climb plays faster than real time: the rocket is hard to keep in frame.
+      const up = Math.min(7, Math.max(3, f.apogeeT * 0.55))
       const down = Math.min(8, Math.max(3, (f.endT - f.apogeeT) * 0.11))
       this.timeMap = [
         [0, -pre],

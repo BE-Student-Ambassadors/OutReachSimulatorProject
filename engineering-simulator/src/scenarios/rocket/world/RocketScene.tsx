@@ -3,9 +3,12 @@ import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import type { RocketRun } from '../sim/engine'
 import type { RocketLook } from './look'
+import type { DroneLink } from './droneLink'
+import { DroneRig } from './DroneView'
 import { BreakupDebris, SmokeTrail } from './RocketFx'
 import { makeEmitters } from './smokeEmitters'
 import { ALT_SCALE, DIST_SCALE, PAD_X, PAD_Y } from './sceneScale'
+import { WorldErrorBoundary } from '../../../shell/WorldErrorBoundary'
 
 /** Speed of sound at the launch site in ft/s, for the vapor cone. */
 const MACH1_FPS = 1115
@@ -39,17 +42,56 @@ function lineBetween(a: THREE.Vector3, b: THREE.Vector3) {
   return { pos: mid, quat: q, len: dir.length() }
 }
 
-export function RocketScene({ look, run }: { look: RocketLook; run: RocketRun | null }) {
+/** While a drone is flying, it owns the camera (see DroneView). */
+export interface DroneCamera {
+  linkRef: { current: DroneLink }
+  active: boolean
+}
+
+export function RocketScene({ look, run, drone }: { look: RocketLook; run: RocketRun | null; drone?: DroneCamera }) {
   return (
     <div className="relative h-full w-full overflow-hidden bg-gradient-to-b from-[#7fa7c6] via-[#b9cfd9] to-[#e8dcc3]">
-      <Canvas shadows camera={{ position: [10, 9, 18], fov: 42, near: 0.5, far: 2400 }}>
-        <SceneContents look={look} run={run} />
-      </Canvas>
+      <WorldErrorBoundary>
+        <Canvas shadows camera={{ position: [10, 9, 18], fov: 42, near: 0.5, far: 2400 }}>
+          <Sky />
+          <SceneContents look={look} run={run} droneFlying={!!drone?.active} />
+          {drone && run && <DroneRig linkRef={drone.linkRef} run={run} active={drone.active} />}
+        </Canvas>
+      </WorldErrorBoundary>
     </div>
   )
 }
 
-function SceneContents({ look, run }: { look: RocketLook; run: RocketRun | null }) {
+/**
+ * The sky as part of the 3D scene (not just the page behind it), so drone recordings capture it.
+ * Same colors as the page gradient: sand at the horizon to blue overhead.
+ */
+function Sky() {
+  const geo = useMemo(() => {
+    const g = new THREE.SphereGeometry(2000, 32, 16)
+    const pos = g.getAttribute('position')
+    const colors: number[] = []
+    const low = new THREE.Color('#e8dcc3')
+    const mid = new THREE.Color('#b9cfd9')
+    const high = new THREE.Color('#7fa7c6')
+    const c = new THREE.Color()
+    for (let i = 0; i < pos.count; i++) {
+      const h = pos.getY(i) / 2000
+      if (h < 0.15) c.copy(low).lerp(mid, Math.max(0, h) / 0.15)
+      else c.copy(mid).lerp(high, Math.min(1, (h - 0.15) / 0.6))
+      colors.push(c.r, c.g, c.b)
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    return g
+  }, [])
+  return (
+    <mesh geometry={geo}>
+      <meshBasicMaterial vertexColors side={THREE.BackSide} depthWrite={false} fog={false} />
+    </mesh>
+  )
+}
+
+function SceneContents({ look, run, droneFlying }: { look: RocketLook; run: RocketRun | null; droneFlying: boolean }) {
   const bodyColor = look.body?.color ?? GHOST
   const finColor = look.fins?.color ?? GHOST
   const noseColor = look.nose?.color ?? GHOST
@@ -226,6 +268,7 @@ function SceneContents({ look, run }: { look: RocketLook; run: RocketRun | null 
     }
 
     // Chase camera: below and behind on the way up, wider while it drifts down, low at touchdown.
+    if (droneFlying) return
     const desired =
       f.phase === 'pad'
         ? new THREE.Vector3(9, 2.2, 18)

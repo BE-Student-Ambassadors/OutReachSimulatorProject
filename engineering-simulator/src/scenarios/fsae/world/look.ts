@@ -1,9 +1,9 @@
 import type { Track } from '../sim/track'
-import type { MechanicalObject } from '../types'
+import type { FrontWingId, MechanicalObject } from '../types'
 
 /** The bits of the mechanical design the 3D car is drawn from. */
 export interface CarLook {
-  frontWing: number
+  frontWing: FrontWingId
   rearWing: number
   wheelbaseMm: number
   trackMm: number

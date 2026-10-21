@@ -18,6 +18,8 @@ import {
   type TeamRole,
   type WeaponId,
 } from '../../types/robot';
+import { namesLabel } from '../../../../core/roles';
+import type { BattlebotTeam } from '../../teamSync';
 import { Robot3D } from '../three/Robot3D';
 import { ResetProjectModal } from './ResetProjectModal';
 import { DevLoadoutCard } from '../dev/DevLoadoutCard';
@@ -31,6 +33,8 @@ interface TeamDashboardScreenProps {
   onEnterArena: () => void;
   onResetProject: () => void;
   hideHeader?: boolean;
+  /** Multiplayer only: who does which job, and this player's picks. */
+  team?: BattlebotTeam;
   isDevMode?: boolean;
   currentConfig?: RobotConfiguration;
   devRobotSource?: DevRobotSource;
@@ -45,6 +49,7 @@ export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
   onCheckRobot,
   onEnterArena,
   onResetProject,
+  team,
   isDevMode = false,
   currentConfig,
   devRobotSource,
@@ -185,21 +190,47 @@ export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
                 {project.teamName || 'TEAM TITAN'}
               </span>
             </div>
+            {team && (
+              <p className="-mt-1.5 mb-3 text-xs text-slate-600">
+                {team.size === 1
+                  ? 'You do all four jobs.'
+                  : team.size < 4
+                  ? `${team.size} people, four jobs: some of you take two.`
+                  : team.size > 4
+                  ? `${team.size} people, four jobs: some jobs are shared.`
+                  : 'Four people, four jobs: one each.'}{' '}
+                {team.myRoles.length > 0 && (
+                  <>
+                    {team.myRoles.length > 1 ? 'Your jobs' : 'Your job'}:{' '}
+                    <strong className="text-emerald-700">
+                      {team.myRoles.map((r) => rolesList.find((x) => x.id === r)?.name).join(' + ')}
+                    </strong>
+                    .{' '}
+                  </>
+                )}
+                Tap <strong>Pick</strong> on your top two; jobs are split from everyone&apos;s picks.
+              </p>
+            )}
 
             {/* 4 Simple Role Buttons */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {rolesList.map((role) => {
                 const status = getRoleStatus(role.id);
                 const Icon = role.icon;
+                const mine = team?.myRoles.includes(role.id);
+                const rank = team ? team.picks.indexOf(role.id) : -1;
                 return (
-                  <button
+                  <div
                     key={role.id}
+                    className={`rounded-2xl bg-white border flex flex-col transition-all hover:shadow-md ${mine ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-slate-200 hover:border-slate-300'}`}
+                  >
+                  <button
                     type="button"
                     onClick={() => {
                       soundEngine.playClick();
                       onSelectRole(role.id);
                     }}
-                    className="cursor-pointer group p-4 rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all text-left flex flex-col justify-between min-h-[110px]"
+                    className="cursor-pointer group p-4 rounded-2xl text-left flex flex-1 flex-col justify-between min-h-[110px]"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
@@ -241,6 +272,24 @@ export const TeamDashboardScreen: React.FC<TeamDashboardScreenProps> = ({
                       </span>
                     </div>
                   </button>
+                  {team && (
+                    <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-2 text-[11px]">
+                      <span className="min-w-0 truncate text-slate-500">
+                        Assigned to: <strong className="text-slate-800">{namesLabel(team.split[role.id], team.me) || 'nobody yet'}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playClick();
+                          team.onTogglePick(role.id);
+                        }}
+                        className={`cursor-pointer shrink-0 rounded-lg px-2 py-0.5 font-display font-bold ${rank === 0 ? 'bg-emerald-600 text-white' : rank === 1 ? 'bg-emerald-400 text-white' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50'}`}
+                      >
+                        {rank === 0 ? '1st pick' : rank === 1 ? '2nd pick' : 'Pick'}
+                      </button>
+                    </div>
+                  )}
+                  </div>
                 );
               })}
             </div>

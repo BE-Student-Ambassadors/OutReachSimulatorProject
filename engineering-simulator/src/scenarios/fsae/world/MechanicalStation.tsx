@@ -1,10 +1,11 @@
 import { OrbitControls } from '@react-three/drei'
-import { Canvas, useFrame } from '@react-three/fiber'
-import { Flame, Play, Wind } from 'lucide-react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Play, Wind } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { count, money } from '../../../core/format'
-import { COSTS, DIMS, getMechanical, JOINTS, upsert, WELD, weldQuality } from '../config'
+import { play, useLoop } from '../../../shared/audio/sfx'
+import { COSTS, DIMS, FRONT_WING_BY_ID, FRONT_WINGS, getMechanical, JOINTS, upsert, type FrontWingSpec } from '../config'
 import { mulberry32 } from '../sim/autonomy'
 import { aeroFor, aeroForces, MS_TO_MPH } from '../sim/car'
 import { REPORT_SPEED_MS } from '../sim/engine'
@@ -12,11 +13,14 @@ import type { FsaeObject, MechanicalObject } from '../types'
 import { CarModel } from './CarModel'
 import { lookOf, type CarLook } from './look'
 import { CommitSlider, Readout, Section } from './controls'
+import { WeldBench } from './WeldBench'
+import type { Fixture } from '../sim/weld'
+import { WorldErrorBoundary } from '../../../shell/WorldErrorBoundary'
 
 const TUNNEL_SECONDS = 5
 
 /** Set or clear one previewed value (a cleared key must disappear, not become undefined). */
-function withPreview(p: Partial<CarLook>, key: keyof CarLook, v: number | null): Partial<CarLook> {
+function withPreview<K extends keyof CarLook>(p: Partial<CarLook>, key: K, v: CarLook[K] | null): Partial<CarLook> {
   const next = { ...p }
   if (v === null) delete next[key]
   else next[key] = v
@@ -30,48 +34,35 @@ export function MechanicalStation({ design, locked, onCommit }: { design: FsaeOb
   const [preview, setPreview] = useState<Partial<CarLook>>({})
   const look: CarLook = { ...lookOf(mech), ...preview }
   const [view, setView] = useState<'frame' | 'body'>(() => (mech.welds.every((q) => q >= 0) ? 'body' : 'frame'))
-  const [welding, setWelding] = useState<number | null>(null)
+  // Clicking a joint flies the camera in to it (`zoomJoint`); on arrival the welding bench opens.
+  const [zoomJoint, setZoomJoint] = useState<number | null>(null)
+  const [closeUp, setCloseUp] = useState(false)
+  const [benchJoint, setBenchJoint] = useState<number | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  /** Each joint's fit-up and clamps from its last weld, so re-welding skips straight to the torch. */
+  const [fitUps, setFitUps] = useState<Record<number, Fixture>>({})
   const [lastWeld, setLastWeld] = useState<{ joint: number; label: string; q: number } | null>(null)
-  const heat = useRef(0)
-  const heatBar = useRef<HTMLDivElement>(null)
   const [tunnel, setTunnel] = useState<{ running: boolean; key: string | null }>({ running: false, key: null })
 
   const save = (patch: Partial<MechanicalObject>) => onCommit(upsert(design, { ...mech, ...patch }))
+  const wind = useLoop('wind', tunnel.running)
   const latest = useRef({ mech, save })
   useEffect(() => {
     latest.current = { mech, save }
   })
 
-  // Welding: heat climbs while the joint is held; releasing sets the weld's quality.
-  useEffect(() => {
-    if (welding === null) return
-    heat.current = 0
-    let raf = 0
-    let last = performance.now()
-    let done = false
-    const finish = () => {
-      if (done) return
-      done = true
-      const { q, label } = weldQuality(heat.current)
-      const { mech: m, save: s } = latest.current
-      s({ welds: m.welds.map((w, i) => (i === welding ? q : w)) })
-      setLastWeld({ joint: welding, label, q })
-      setWelding(null)
-    }
-    const tick = (now: number) => {
-      heat.current = Math.min(100, heat.current + ((now - last) / 1000) * (100 / WELD.fillSeconds))
-      last = now
-      if (heatBar.current) heatBar.current.style.width = `${heat.current}%`
-      if (heat.current >= 100) finish()
-      else raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    window.addEventListener('pointerup', finish)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('pointerup', finish)
-    }
-  }, [welding])
+  const openJoint = (i: number) => {
+    if (locked || closeUp) return
+    document.body.style.cursor = ''
+    play('whoosh')
+    setLastWeld(null)
+    setCloseUp(true)
+    setZoomJoint(i)
+  }
+  const closeBench = () => {
+    setBenchJoint(null)
+    setZoomJoint(null)
+  }
 
   const runTunnel = () => {
     if (locked || tunnel.running) return
@@ -80,13 +71,14 @@ export function MechanicalStation({ design, locked, onCommit }: { design: FsaeOb
   }
   useEffect(() => {
     if (!tunnel.running) return
+    wind.current.set(1)
     const t = window.setTimeout(() => {
       const { mech: m, save: s } = latest.current
       setTunnel({ running: false, key: tunnelKey(m) })
       s({ tunnelRuns: m.tunnelRuns + 1 })
     }, TUNNEL_SECONDS * 1000)
     return () => clearTimeout(t)
-  }, [tunnel.running])
+  }, [tunnel.running, wind])
 
   const welded = mech.welds.filter((q) => q >= 0).length
   const aero = aeroFor({ ...mech, ...preview })
@@ -100,7 +92,7 @@ export function MechanicalStation({ design, locked, onCommit }: { design: FsaeOb
       <div className="flex w-[360px] shrink-0 flex-col gap-2.5 overflow-y-auto overscroll-contain pb-2 pr-1">
         <Section n={1} title="Weld the frame" done={welded === JOINTS.length}>
           <p className="text-xs text-ink/65">
-            Press and hold a glowing joint on the frame. Let go while the heat is in the green zone.
+            Click a glowing joint on the frame to weld it. Every joint goes through the welding checklist: line up, clamp, weld, sand.
           </p>
           <div className="mt-2 grid grid-cols-8 gap-1">
             {mech.welds.map((q, i) => (
@@ -117,9 +109,12 @@ export function MechanicalStation({ design, locked, onCommit }: { design: FsaeOb
             </span>
             <span>{mech.welds.filter((q) => q >= 0.95).length} solid</span>
           </div>
+          <div className="mt-1 font-mono text-[11px] text-ink/55">
+            Average strength: {welded ? Math.round((mech.welds.reduce((s, q) => s + Math.max(0, q), 0) / welded) * 100) : 0}%
+          </div>
           {lastWeld && (
             <p className={`mt-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${lastWeld.q >= 0.95 ? 'bg-mint text-forest' : 'bg-[#fbf3dc] text-[#7a5a10]'}`}>
-              {JOINTS[lastWeld.joint].label}: {lastWeld.label}
+              {JOINTS[lastWeld.joint].label}: {lastWeld.label} ({Math.round(lastWeld.q * 100)}%)
             </p>
           )}
           {welded < JOINTS.length && view === 'body' && (
@@ -129,20 +124,34 @@ export function MechanicalStation({ design, locked, onCommit }: { design: FsaeOb
           )}
         </Section>
 
-        <Section n={2} title="Slide the wings" done={mech.touchedWings}>
+        <Section n={2} title="Choose the wings" done={mech.touchedWings}>
           <div className="space-y-3">
-            <CommitSlider
-              label="Front wing"
-              value={mech.frontWing}
-              min={0}
-              max={100}
-              step={1}
-              unit="% out"
-              ends={['Tucked in', 'All the way out']}
-              disabled={locked}
-              onPreview={(v) => setPreview((p) => withPreview(p, 'frontWing', v))}
-              onCommit={(v) => save({ frontWing: v, touchedWings: true })}
-            />
+            <div>
+              <div className="text-xs font-semibold text-ink/80">Front wing design</div>
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                {FRONT_WINGS.map((w) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    disabled={locked}
+                    onClick={() => {
+                      play('place')
+                      save({ frontWing: w.id, touchedWings: true })
+                    }}
+                    onPointerEnter={() => setPreview((p) => withPreview(p, 'frontWing', w.id))}
+                    onPointerLeave={() => setPreview((p) => withPreview(p, 'frontWing', null))}
+                    className={`rounded-xl p-2 text-left ring-1 transition disabled:opacity-50 ${mech.frontWing === w.id ? 'bg-mint ring-2 ring-forest' : 'bg-paper ring-line hover:bg-white'}`}
+                  >
+                    <WingProfile wing={w} />
+                    <div className="mt-1 font-display text-[13px] font-bold leading-tight">{w.label}</div>
+                    <div className="text-[11px] leading-snug text-ink/60">{w.blurb}</div>
+                    <div className="mt-1 font-mono text-[10px] text-ink/55">
+                      {money(w.cost)} · {w.kg} kg
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
             <CommitSlider
               label="Rear wing"
               value={mech.rearWing}
@@ -224,21 +233,23 @@ export function MechanicalStation({ design, locked, onCommit }: { design: FsaeOb
       </div>
 
       <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl bg-[#e9ebe4] ring-1 ring-line" onContextMenu={(e) => e.preventDefault()}>
-        <Canvas shadows="percentage" dpr={[1, 1.75]} camera={{ position: [3.4, 2.2, 3.6], fov: 38 }}>
-          <Garage />
-          <CarModel
-            look={look}
-            frame={view === 'frame'}
-            welds={mech.welds}
-            activeJoint={welding}
-            headlights={0.6}
-            onJointDown={(i) => !locked && setWelding(i)}
-          />
-          {welding !== null && <Sparks joint={welding} look={look} />}
-          {tunnel.running && <AirFlow look={look} />}
-          {(tunnel.running || measured) && view === 'body' && <ForceArrows look={look} front={forces.front} rear={forces.downforce - forces.front} drag={forces.drag} />}
-          <OrbitControls makeDefault enabled={welding === null} enablePan={false} minDistance={2.5} maxDistance={9} maxPolarAngle={1.45} target={[0, 0.4, 0]} />
-        </Canvas>
+        <WorldErrorBoundary>
+          <Canvas shadows="percentage" dpr={[1, 1.75]} camera={{ position: [3.4, 2.2, 3.6], fov: 38 }}>
+            <Garage />
+            <CarModel
+              look={look}
+              frame={view === 'frame'}
+              welds={mech.welds}
+              activeJoint={zoomJoint}
+              headlights={0.6}
+              onJointDown={openJoint}
+            />
+            <JointZoom joint={zoomJoint} look={look} onArrive={setBenchJoint} onHome={() => setCloseUp(false)} />
+            {tunnel.running && <AirFlow look={look} />}
+            {(tunnel.running || measured) && view === 'body' && <ForceArrows look={look} front={forces.front} rear={forces.downforce - forces.front} drag={forces.drag} />}
+            <OrbitControls makeDefault enabled={!closeUp} enablePan={false} minDistance={closeUp ? 0.1 : 2.5} maxDistance={9} maxPolarAngle={1.45} target={[0, 0.4, 0]} />
+          </Canvas>
+        </WorldErrorBoundary>
 
         <div className="absolute left-3 top-3 flex gap-1 rounded-xl bg-white/95 p-1 shadow ring-1 ring-black/10">
           {(['frame', 'body'] as const).map((v) => (
@@ -254,23 +265,21 @@ export function MechanicalStation({ design, locked, onCommit }: { design: FsaeOb
         </div>
         <span className="absolute right-3 top-3 rounded-lg bg-white/90 px-2 py-1 font-mono text-[10px] text-ink/55 ring-1 ring-black/5">drag to look around</span>
 
-        {welding !== null && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-5 mx-auto w-[min(420px,80%)] rounded-2xl bg-ink/90 px-4 py-3 text-white shadow-xl">
-            <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-wider text-white/70">
-              <span className="flex items-center gap-1.5">
-                <Flame className="size-3.5 text-[#ffb347]" /> Welding: {JOINTS[welding].label}
-              </span>
-              <span>let go in the green</span>
-            </div>
-            <div className="relative mt-2 h-4 overflow-hidden rounded-full bg-white/15">
-              <div className="absolute inset-y-0 bg-leaf/60" style={{ left: `${WELD.goodLow}%`, width: `${WELD.goodHigh - WELD.goodLow}%` }} />
-              <div ref={heatBar} className="absolute inset-y-0 left-0 bg-[#ff8a2a] mix-blend-screen" style={{ width: 0 }} />
-            </div>
-            <div className="mt-1 flex justify-between font-mono text-[10px] text-white/50">
-              <span>cold</span>
-              <span>too hot</span>
-            </div>
-          </div>
+        {benchJoint !== null && (
+          <WeldBench
+            key={`${benchJoint}-${attempt}`}
+            joint={benchJoint}
+            seed={benchJoint * 31 + attempt + mech.welds.filter((q) => q >= 0).length}
+            prepared={fitUps[benchJoint] ?? null}
+            onSave={(r, fit) => {
+              const { mech: m, save: s } = latest.current
+              s({ welds: m.welds.map((w, i) => (i === benchJoint ? r.quality : w)) })
+              setLastWeld({ joint: benchJoint, label: r.label, q: r.quality })
+              setFitUps((f) => ({ ...f, [benchJoint]: fit }))
+            }}
+            onRedo={() => setAttempt((a) => a + 1)}
+            onClose={closeBench}
+          />
         )}
         {tunnel.running && (
           <div className="pointer-events-none absolute inset-x-0 bottom-5 mx-auto w-fit rounded-xl bg-ink/85 px-4 py-2 font-mono text-xs font-bold text-mint">
@@ -279,6 +288,26 @@ export function MechanicalStation({ design, locked, onCommit }: { design: FsaeOb
         )}
       </div>
     </div>
+  )
+}
+
+/** Side view of a front wing design: its elements as curved blades. */
+function WingProfile({ wing }: { wing: FrontWingSpec }) {
+  const blades: string[] =
+    wing.id === 'flat'
+      ? ['M6 20 L58 18']
+      : wing.id === 'single'
+        ? ['M6 20 Q30 23 58 12']
+        : wing.id === 'dual'
+          ? ['M6 21 Q26 24 46 18', 'M40 13 Q50 12 58 4']
+          : ['M6 22 Q24 25 42 20', 'M36 15 Q44 13 50 7', 'M47 8 Q52 4 56 -2']
+  return (
+    <svg viewBox="0 -4 64 30" className="h-7 w-full">
+      <line x1="0" y1="26" x2="64" y2="26" stroke="#c9cbc2" strokeWidth="1" strokeDasharray="3 3" />
+      {blades.map((d, i) => (
+        <path key={i} d={d} fill="none" stroke={i === 0 ? '#1b2a20' : '#2c5b3c'} strokeWidth={3} strokeLinecap="round" />
+      ))}
+    </svg>
   )
 }
 
@@ -296,46 +325,53 @@ function Garage() {
   )
 }
 
-/** Orange sparks flying off the joint being welded. */
-function Sparks({ joint, look }: { joint: number; look: CarLook }) {
-  const N = 40
-  const mesh = useRef<THREE.InstancedMesh>(null)
-  const rand = useMemo(() => mulberry32(joint + 11), [joint])
-  const parts = useMemo(() => Array.from({ length: N }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), life: rand() })), [rand])
-  const j = JOINTS[joint]
-  const origin = useMemo(
-    () => new THREE.Vector3(j.x * (look.wheelbaseMm / 1600), look.rideHeightMm / 1000 + 0.02 + j.y * 0.85, j.z * (look.trackMm / 1200)),
-    [j, look.wheelbaseMm, look.trackMm, look.rideHeightMm],
-  )
-  const dummy = useMemo(() => new THREE.Object3D(), [])
-  useFrame((_, dt) => {
-    const m = mesh.current
-    if (!m) return
-    parts.forEach((s, i) => {
-      s.life -= dt * 2.2
-      if (s.life <= 0) {
-        s.life = 1
-        s.p.copy(origin)
-        s.v.set((rand() - 0.5) * 2.4, rand() * 2 + 0.5, (rand() - 0.5) * 2.4)
-      }
-      s.v.y -= 6 * dt
-      s.p.addScaledVector(s.v, dt)
-      dummy.position.copy(s.p)
-      dummy.scale.setScalar(0.012 + 0.012 * s.life)
-      dummy.updateMatrix()
-      m.setMatrixAt(i, dummy.matrix)
-    })
-    m.instanceMatrix.needsUpdate = true
+/** Where joint `i` sits on the car, meters (matches CarModel). */
+function jointPoint(i: number, look: CarLook) {
+  const j = JOINTS[i]
+  return new THREE.Vector3(j.x * (look.wheelbaseMm / 1600), look.rideHeightMm / 1000 + 0.02 + j.y * 0.85, j.z * (look.trackMm / 1200))
+}
+
+type OrbitLike = { target: THREE.Vector3; update(): void }
+
+/**
+ * Flies the camera in to a joint (then calls `onArrive`) and, when `joint` goes back to null,
+ * back out to where it was (then `onHome`).
+ */
+function JointZoom({ joint, look, onArrive, onHome }: { joint: number | null; look: CarLook; onArrive(i: number): void; onHome(): void }) {
+  const camera = useThree((s) => s.camera)
+  const controls = useThree((s) => s.controls) as unknown as OrbitLike | null
+  const home = useRef<{ pos: THREE.Vector3; target: THREE.Vector3 } | null>(null)
+  const fly = useRef<{ fromPos: THREE.Vector3; fromTarget: THREE.Vector3; toPos: THREE.Vector3; toTarget: THREE.Vector3; t: number; arrive: number | null } | null>(null)
+  const latest = useRef({ look, onArrive, onHome })
+  useEffect(() => {
+    latest.current = { look, onArrive, onHome }
   })
-  return (
-    <>
-      <instancedMesh ref={mesh} args={[undefined, undefined, N]}>
-        <sphereGeometry args={[1, 6, 4]} />
-        <meshBasicMaterial color="#ffcf6b" toneMapped={false} />
-      </instancedMesh>
-      <pointLight position={origin} color="#ff9a3a" intensity={2.5} distance={2} />
-    </>
-  )
+  useEffect(() => {
+    if (!controls) return
+    if (joint !== null) {
+      if (!home.current) home.current = { pos: camera.position.clone(), target: controls.target.clone() }
+      const p = jointPoint(joint, latest.current.look)
+      const dir = camera.position.clone().sub(p).normalize()
+      fly.current = { fromPos: camera.position.clone(), fromTarget: controls.target.clone(), toPos: p.clone().addScaledVector(dir, 0.45), toTarget: p, t: 0, arrive: joint }
+    } else if (home.current) {
+      fly.current = { fromPos: camera.position.clone(), fromTarget: controls.target.clone(), toPos: home.current.pos, toTarget: home.current.target, t: 0, arrive: null }
+      home.current = null
+    }
+  }, [joint, camera, controls])
+  useFrame((_, dt) => {
+    const f = fly.current
+    if (!f || !controls) return
+    f.t = Math.min(1, f.t + Math.min(dt, 1 / 30) / 0.75)
+    const e = f.t < 0.5 ? 4 * f.t ** 3 : 1 - (-2 * f.t + 2) ** 3 / 2
+    camera.position.lerpVectors(f.fromPos, f.toPos, e)
+    controls.target.lerpVectors(f.fromTarget, f.toTarget, e)
+    controls.update()
+    if (f.t < 1) return
+    fly.current = null
+    if (f.arrive !== null) latest.current.onArrive(f.arrive)
+    else latest.current.onHome()
+  })
+  return null
 }
 
 /**
@@ -348,9 +384,9 @@ function AirFlow({ look }: { look: CarLook }) {
   const L = look.wheelbaseMm / 1000
   const T = look.trackMm / 1000
   const ride = look.rideHeightMm / 1000
-  const f = look.frontWing / 100
+  const f = FRONT_WING_BY_ID[look.frontWing].level
   const r = look.rearWing / 100
-  const fwX = L / 2 + 0.62 + 0.28 * f
+  const fwX = L / 2 + 0.7
   const rwX = -L / 2 - 0.28 - 0.12 * r
   const rwY = ride + 0.02 + 0.78 + 0.32 * r
   const rand = useMemo(() => mulberry32(2024), [])

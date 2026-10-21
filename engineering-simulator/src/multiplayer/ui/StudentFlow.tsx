@@ -107,12 +107,15 @@ function StudentSession({ sid, scenarios, onLeave }: { sid: string; scenarios: A
   const scenario = scenarios.find((s) => s.id === group?.gameId)
   const offered = scenarios.filter((s) => session?.gameIds.includes(s.id))
 
-  // Presence: check in every 30 s so the host can see who is online.
+  // Presence: check in on arrival (including after a refresh), then every 30 s, so the host can see who is online.
+  const present = !!user && !!me
   useEffect(() => {
-    if (!user || !me) return
-    const t = setInterval(() => void touchPresence(db, sid, user.uid).catch(() => {}), 30_000)
+    if (!present || !user) return
+    const touch = () => void touchPresence(db, sid, user.uid).catch(() => {})
+    touch()
+    const t = setInterval(touch, 30_000)
     return () => clearInterval(t)
-  }, [user, me, sid])
+  }, [present, user, sid])
 
   if (session === null)
     return (
@@ -260,7 +263,12 @@ function GroupPlay(props: {
   header: React.ReactNode
   onLeave(): void
 }) {
-  const { sid, gid, uid, name, teammates, scenario, frozen, header, onLeave } = props
+  const { sid, gid, uid, name, scenario, frozen, header, onLeave } = props
+  // The roster arrives as a fresh array on every player update (presence check-ins included).
+  // Only a real change (someone joins, leaves or is renamed) should rebuild the sync, because a
+  // new sync makes every teammate's device re-send its design at the same moment.
+  const rosterKey = JSON.stringify(props.teammates)
+  const teammates = useMemo(() => JSON.parse(rosterKey) as { id: string; name: string }[], [rosterKey])
   // Only replay teammates' tests that start after this device opened the game.
   const [joinedAt] = useState(() => Date.now() - 2000)
   const sync = useMemo<GroupSync>(

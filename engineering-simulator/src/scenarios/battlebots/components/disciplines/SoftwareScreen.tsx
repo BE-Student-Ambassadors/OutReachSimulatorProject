@@ -9,7 +9,7 @@ import {
   Terminal,
   UploadCloud,
 } from 'lucide-react';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, type ReactNode } from 'react';
 import { soundEngine } from '../../audio/soundEngine';
 import {
   BOTCODE_VARIANTS,
@@ -23,6 +23,101 @@ import {
 } from '../../types/robot';
 import { ResetTaskModal } from './ResetTaskModal';
 import { Software3DWorkstation, type ControllerPort } from './software/Software3DWorkstation';
+
+const LINE_H = 19;
+
+const BOT_KEYWORDS = new Set(['BOT', 'START', 'END', 'IF']);
+const BOT_COMMANDS = new Set(['drive', 'weapon', 'sensor', 'self_right']);
+const BOT_VALUES = new Set(['FORWARD', 'BACKWARD', 'STOP', 'SPIN', 'READY', 'ON', 'OFF']);
+const BOT_SUBJECTS = new Set(['opponent', 'distance', 'detected', 'close', 'robot', 'flipped']);
+
+const BAD_TOKEN = 'rounded-sm bg-[#ef6b5a]/30 text-[#ffc2b8] underline decoration-[#ef6b5a] decoration-wavy underline-offset-4';
+
+/** Colors one line of BotCode. Words in `bad` are marked as errors. */
+function highlightBotCode(line: string, bad: Set<string> = new Set()): ReactNode[] {
+  const out: ReactNode[] = [];
+  const re = /(\/\/.*$)|([A-Za-z_][A-Za-z0-9_]*)|(\d+(?:\.\d+)?)|(\s+)|(.)/g;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  const botName = /^\s*BOT\s/.test(line);
+  while ((m = re.exec(line))) {
+    const [tok, comment, word, num] = m;
+    const k = i++;
+    if (word && bad.has(word)) out.push(<span key={k} className={BAD_TOKEN}>{tok}</span>);
+    else if (comment) out.push(<span key={k} className="text-[#7d8a80]">{tok}</span>);
+    else if (word && BOT_KEYWORDS.has(word)) out.push(<span key={k} className="font-semibold text-[#c79bff]">{tok}</span>);
+    else if (word && BOT_COMMANDS.has(word)) out.push(<span key={k} className="text-[#8fd19e]">{tok}</span>);
+    else if (word && BOT_VALUES.has(word)) out.push(<span key={k} className="text-[#ffd479]">{tok}</span>);
+    else if (word && BOT_SUBJECTS.has(word)) out.push(<span key={k} className="text-[#f0a68a]">{tok}</span>);
+    else if (word && botName) out.push(<span key={k} className="text-[#e3b341]">{tok}</span>);
+    else if (num) out.push(<span key={k} className="text-[#ffd479]">{tok}</span>);
+    else out.push(<span key={k}>{tok}</span>);
+  }
+  return out;
+}
+
+interface LineProblem {
+  line: number;
+  message: string;
+  /** The word to mark on that line; null marks the whole line. */
+  word: string | null;
+}
+
+/**
+ * Problems a compiler would point at, line by line: words BotCode doesn't know, IF lines without a
+ * colon, and settings that are switched off or reversed. Each one states what the line says, as a fact.
+ */
+function findLineProblems(code: string): LineProblem[] {
+  const known = new Set([...BOT_KEYWORDS, ...BOT_COMMANDS, ...BOT_VALUES, ...BOT_SUBJECTS]);
+  const out: LineProblem[] = [];
+  let block: string | null = null;
+  code.split('\n').forEach((raw, idx) => {
+    const n = idx + 1;
+    const line = raw.replace(/\/\/.*$/, '').trim();
+    if (!line || /^BOT\s/.test(line)) return;
+    if (/^IF\b/.test(line)) block = line.replace(/:$/, '').replace(/^IF\s+/, '');
+    for (const w of line.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) if (!known.has(w)) out.push({ line: n, message: `"${w}" is not a BotCode word.`, word: w });
+    if (/^IF\b/.test(line) && !line.endsWith(':')) out.push({ line: n, message: 'this IF line has no colon at the end.', word: null });
+    if (/^sensor\s+opponent\s*=\s*OFF\b/.test(line)) out.push({ line: n, message: 'the opponent sensor is set to OFF.', word: 'OFF' });
+    if (/^weapon\s*=\s*OFF\b/.test(line)) out.push({ line: n, message: 'the weapon is set to OFF.', word: 'OFF' });
+    const drive = line.match(/^drive\s+(BACKWARD|STOP)\b/);
+    if (drive) out.push({ line: n, message: `the robot drives ${drive[1]} when "${block ?? 'START'}".`, word: drive[1] });
+    if (/^weapon\s+STOP\b/.test(line)) out.push({ line: n, message: `the weapon stops when "${block ?? 'START'}".`, word: 'STOP' });
+    if (/^self_right$/.test(line)) out.push({ line: n, message: 'self_right has no ON or OFF after it.', word: 'self_right' });
+    if (/^self_right\s+OFF\b/.test(line)) out.push({ line: n, message: 'self_right is set to OFF.', word: 'OFF' });
+  });
+  return out;
+}
+
+function BotCodeReference() {
+  const row = (code: string, what: string) => (
+    <div className="border-b border-line py-1.5 last:border-0">
+      <code className="font-mono text-[12px] font-semibold text-[#5b3c94]">{code}</code>
+      <div className="text-xs text-ink/65">{what}</div>
+    </div>
+  );
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-line">
+      <h3 className="flex items-center gap-2 font-display text-sm font-bold text-ink">
+        <BookOpen className="size-4" /> BotCode reference
+      </h3>
+      <p className="mt-1 text-[11px] text-ink/50">Case-sensitive. Indented lines belong to the IF above them.</p>
+      <div className="mt-1">
+        {row('BOT name', 'Names the program.')}
+        {row('START: … END', 'Everything between them runs on the robot.')}
+        {row('sensor opponent = ON', 'Turns a sensor on (or OFF). Sensors: opponent, distance.')}
+        {row('weapon = READY', 'Arms the weapon (or OFF).')}
+        {row('IF opponent detected:', 'Runs the lines below when the sensor sees the opponent.')}
+        {row('IF opponent close:', 'Runs the lines below when the opponent is in reach.')}
+        {row('IF robot flipped:', 'Runs the lines below when the robot is upside down.')}
+        {row('drive FORWARD', 'Also BACKWARD or STOP.')}
+        {row('weapon SPIN', 'Spins the weapon up (weapon STOP spins it down).')}
+        {row('self_right ON', 'Fires the self-righting mechanism.')}
+        {row('// comment', 'Ignored by the robot.')}
+      </div>
+    </div>
+  );
+}
 
 interface SoftwareScreenProps {
   project: TeamRobotProject;
@@ -62,7 +157,9 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
     }
     return null;
   });
-  const [showReference, setShowReference] = useState(false);
+  const [showReference, setShowReference] = useState(true);
+  const pre = useRef<HTMLPreElement>(null);
+  const gutter = useRef<HTMLDivElement>(null);
   const [showResetModal, setShowResetModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -71,6 +168,18 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
   const [testedWeapon, setTestedWeapon] = useState(Boolean(soft.testPassed));
 
   const currentEval = evaluateBotCode(code);
+  const lines = code.split('\n');
+  // Marked live as you type, like a compiler running in the editor.
+  const lineProblems = findLineProblems(code);
+  const problemLines = new Set(lineProblems.map((p) => p.line));
+  const badWords = (n: number) => new Set(lineProblems.filter((p) => p.line === n && p.word).map((p) => p.word!));
+  const wholeLine = new Set(lineProblems.filter((p) => !p.word).map((p) => p.line));
+  const editedSinceUpload = soft.softwareUploaded && (soft.codeContent ?? '') !== code;
+  const fileName = `${project.teamName.toLowerCase().replace(/[^a-z0-9]+/g, '_') || 'robot'}.bot`;
+
+  const updateSoft = (updated: Partial<SoftwareConfiguration>) => {
+    onUpdateSoftware({ ...soft, ...updated });
+  };
 
   const handleTestForward = () => {
     if (!isDataConnected) {
@@ -123,10 +232,6 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isDataConnected, soft.softwareUploaded]);
-
-  const updateSoft = (updated: Partial<SoftwareConfiguration>) => {
-    onUpdateSoftware({ ...soft, ...updated });
-  };
 
   const handlePortChange = (port: ControllerPort | null) => {
     setConnectedPort(port);
@@ -202,23 +307,23 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
     setIsUploading(true);
     setUploadProgress(0);
 
+    // Side effects stay outside the state updater (React may call updaters during render).
+    let progress = 0;
     const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsUploading(false);
-          soundEngine.playInstall();
-          updateSoft({
-            codeContent: code,
-            bugsFixed: true,
-            softwareUploaded: true,
-            testPassed: true,
-            isCompleted: true,
-          });
-          return 100;
-        }
-        return prev + 25;
-      });
+      progress += 25;
+      setUploadProgress(Math.min(100, progress));
+      if (progress > 100) {
+        clearInterval(interval);
+        setIsUploading(false);
+        soundEngine.playInstall();
+        updateSoft({
+          codeContent: code,
+          bugsFixed: true,
+          softwareUploaded: true,
+          testPassed: true,
+          isCompleted: true,
+        });
+      }
     }, 250);
   };
 
@@ -313,384 +418,251 @@ export const SoftwareScreen: React.FC<SoftwareScreenProps> = ({
         </div>
       ) : (
         /* ==========================================
-           STEP 2: BOTCODE TEXT EDITOR & DEBUGGING
+           STEP 2: BOTCODE IDE
            ========================================== */
-        <div className="flex-1 my-2 flex flex-col lg:flex-row gap-4 min-h-[520px]">
-          {/* Main BotCode Text Editor Window */}
-          <div className="flex-1 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs">
-            <div>
-              {/* Terminal Window Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200 flex-wrap gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Terminal className="w-4 h-4 text-indigo-600" />
-                  <span className="font-mono text-xs font-bold text-slate-900">
-                    BotCode IDE v2.4 • onboard://{project.teamName.toLowerCase().replace(/\s+/g, '_')}.bot
-                  </span>
-                  <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
-                    SIMULATED PROGRAMMING LANGUAGE
-                  </span>
-                </div>
-                <div className="flex items-center gap-2.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playClick();
-                      setViewMode('workstation');
-                    }}
-                    title="View 3D robotics workstation"
-                    className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 transition-colors font-semibold"
-                  >
-                    <Laptop className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>3D Workstation</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowReference(!showReference)}
-                    className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 transition-colors font-semibold"
-                  >
-                    <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Language Reference</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleResetTemplate(0)}
-                    title="Reset to original code"
-                    className="cursor-pointer inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-900 font-semibold"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">Reset Code</span>
-                  </button>
-                  <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                    {isDataConnected ? (
-                      <>
-                        <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-emerald-700 font-bold">LINK ACTIVE</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="size-2 rounded-full bg-rose-500" />
-                        <span className="text-rose-700 font-bold">NO DATA LINK</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Lost Connection Alert in IDE */}
-              {!isDataConnected && (
-                <div className="mt-3 p-3 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-center justify-between gap-3 shadow-2xs">
-                  <div className="flex items-center gap-2.5">
-                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
-                    <div>
-                      <span className="font-bold block">Robot Data Cable Disconnected</span>
-                      <span className="text-[11px] text-amber-800">
-                        Your code progress is saved. Reconnect the USB cable to the DATA port in the 3D Workstation to upload software or test robot hardware.
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playClick();
-                      setViewMode('workstation');
-                    }}
-                    className="cursor-pointer px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs whitespace-nowrap shadow-xs"
-                  >
-                    3D Workstation →
-                  </button>
-                </div>
-              )}
-
-              {/* Status Banner */}
-              <div className="mt-3">
-                {currentEval.allVerified ? (
-                  <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between">
-                    <span className="font-bold">✓ All subsystems verified • Syntax valid</span>
-                    <span className="text-[11px] font-mono text-emerald-700">Ready to upload</span>
-                  </div>
-                ) : lastCheck ? (
-                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center justify-between">
-                    <span className="font-bold">
-                      ⚠ {lastCheck.bugsRemainingCount} subsystem defect(s) detected
-                    </span>
-                    <span className="text-[11px] text-amber-700">
-                      Use the reference guide to correct the code
-                    </span>
-                  </div>
-                ) : (
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between flex-wrap gap-2">
-                    <span>Inspect and edit the program below in <strong>BotCode</strong> (a simplified programming language created for this activity), then click <strong>[Check Code]</strong> to test.</span>
-                    <span className="text-[11px] font-mono text-slate-400">Direct IDE</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Collapsible Command Guide */}
-              {showReference && (
-                <div className="mt-3 p-3.5 bg-slate-50 border border-indigo-200 rounded-2xl text-xs text-slate-700 space-y-2">
-                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-indigo-900">BotCode Command Reference</span>
-                      <span className="text-[10px] font-mono text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-semibold">
-                        Simulated language for this activity
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-slate-400 font-mono">Case-sensitive</span>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono">
-                    <div>
-                      <strong className="text-indigo-800 block font-sans">MOVEMENT</strong>
-                      <code>drive FORWARD</code> • <code>drive BACKWARD</code> • <code>drive STOP</code>
-                    </div>
-                    <div>
-                      <strong className="text-indigo-800 block font-sans">WEAPON ACTUATION</strong>
-                      <code>weapon SPIN</code> • <code>weapon STOP</code> • <code>weapon = READY</code>
-                    </div>
-                    <div>
-                      <strong className="text-indigo-800 block font-sans">SENSORS & CONDITIONS</strong>
-                      <code>sensor opponent = ON</code> • <code>IF opponent detected:</code>
-                    </div>
-                    <div>
-                      <strong className="text-indigo-800 block font-sans">INVERSION RECOVERY</strong>
-                      <code>self_right ON</code> • <code>IF robot flipped:</code> (Colons required on IF lines)
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Direct Code Editor Textarea (Clean Slate Theme) */}
-              <div className="my-3">
-                <textarea
-                  rows={13}
-                  value={code}
-                  onChange={(e) => {
-                    setCode(e.target.value);
-                  }}
-                  spellCheck={false}
-                  className="w-full p-4 bg-slate-900 border border-slate-700 rounded-2xl font-mono text-xs text-emerald-400 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none selection:bg-indigo-500/30"
-                  placeholder="Enter BotCode program..."
-                />
-              </div>
-
-              {/* Problems Panel: Diagnostic messages from last check */}
-              {lastCheck && lastCheck.diagnostics.length > 0 && (
-                <div className="space-y-1.5 mb-2 font-mono">
-                  {lastCheck.diagnostics.map((diag, i) => (
-                    <div
-                      key={i}
-                      className="p-2 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2"
-                    >
-                      <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-rose-600" />
-                      <span>{diag}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Action Bar */}
-            <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={handleCheckCode}
-                className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-bold text-white transition-colors shadow-xs"
-              >
-                <Terminal className="w-4 h-4 text-emerald-400" />
-                <span>Check Code</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleUploadToRobot}
-                disabled={!currentEval.allVerified || isUploading || !isDataConnected}
-                title={!isDataConnected ? 'Requires active DATA connection to robot' : undefined}
-                className={`cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-display font-black text-xs uppercase tracking-wider transition-all shadow-md ${
-                  !currentEval.allVerified || !isDataConnected
-                    ? 'opacity-40 cursor-not-allowed bg-slate-200 text-slate-400'
-                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-98'
-                }`}
-              >
-                <UploadCloud className="w-4 h-4" />
-                <span>
-                  {!isDataConnected
-                    ? 'Upload (No DATA Link)'
-                    : isUploading
-                    ? `Uploading... ${uploadProgress}%`
-                    : soft.softwareUploaded
-                    ? 'Software Installed ✓'
-                    : 'Upload to Robot'}
+        <div className="flex-1 my-2 flex gap-3 min-h-[520px]">
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-[#14201a] shadow-xl ring-4 ring-[#1b2a20]">
+            {/* Toolbar */}
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 bg-[#1b2a20] px-3 py-2">
+              <span className="rounded-md bg-white/10 px-2.5 py-1 font-mono text-xs text-white/80">{fileName}</span>
+              {isDataConnected ? (
+                <span className="flex items-center gap-1.5 font-mono text-[11px] text-[#8fd19e]">
+                  <span className="size-2 rounded-full bg-[#4ade80] shadow-[0_0_6px_2px_#4ade8088]" /> robot connected
                 </span>
-              </button>
-            </div>
-          </div>
-
-          {/* Software Checklist Sidebar */}
-          <div className="w-full lg:w-80 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between shadow-xs shrink-0">
-            <div>
-              <div className="flex items-center gap-2 pb-3 border-b border-slate-200">
-                <Code2 className="w-4 h-4 text-indigo-600" />
-                <h3 className="font-display font-bold text-sm text-slate-900">Subsystem Validation</h3>
+              ) : (
+                <span className="flex items-center gap-1.5 font-mono text-[11px] text-[#f2a093]">
+                  <span className="size-2 rounded-full bg-[#ef6b5a]" /> no data link
+                </span>
+              )}
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setViewMode('workstation');
+                  }}
+                  className="cursor-pointer flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white/60 hover:text-white"
+                >
+                  <Laptop className="size-3.5" /> Workstation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowReference((v) => !v)}
+                  className={`cursor-pointer flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${showReference ? 'bg-white/15 text-white' : 'text-white/60 hover:text-white'}`}
+                >
+                  <BookOpen className="size-3.5" /> Reference
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleResetTemplate(0)}
+                  title="Reset to original code"
+                  className="cursor-pointer flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white/60 hover:text-white"
+                >
+                  <RotateCcw className="size-3.5" /> Reset code
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCheckCode}
+                  className="cursor-pointer flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white ring-1 ring-white/20 hover:bg-white/15"
+                >
+                  <Terminal className="size-3.5" /> Check code
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUploadToRobot}
+                  disabled={!currentEval.allVerified || isUploading || !isDataConnected}
+                  title={!isDataConnected ? 'Requires active DATA connection to robot' : undefined}
+                  className="btn-press cursor-pointer flex items-center gap-1.5 rounded-lg bg-[#4f9a5c] px-3 py-1.5 font-display text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <UploadCloud className="size-3.5" />
+                  {isUploading ? `Uploading… ${uploadProgress}%` : soft.softwareUploaded && !editedSinceUpload ? 'Uploaded ✓' : 'Upload to robot'}
+                </button>
               </div>
+            </div>
 
-              {/* Checklist Items */}
-              <div className="mt-4 space-y-2">
-                {[
-                  { label: 'Movement subsystem verified', complete: currentEval.subsystems.movement },
-                  { label: 'Opponent detection verified', complete: currentEval.subsystems.detection },
-                  { label: 'Weapon subsystem verified', complete: currentEval.subsystems.weapon },
-                  { label: 'Recovery system verified', complete: currentEval.subsystems.recovery },
-                  { label: 'Syntax & colons verified', complete: currentEval.subsystems.syntax },
-                ].map((item, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-xs font-sans transition-all ${
-                      item.complete
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <div
-                      className={`size-4 rounded-md flex items-center justify-center text-[10px] font-bold ${
-                        item.complete ? 'bg-emerald-600 text-white' : 'border border-slate-300 bg-white'
-                      }`}
-                    >
-                      {item.complete ? '✓' : ''}
-                    </div>
-                    <span className={item.complete ? 'font-bold' : ''}>{item.label}</span>
+            {/* Tip about the language */}
+            <div className="flex shrink-0 items-start gap-2 border-b border-[#d9a52b]/30 bg-[#d9a52b]/15 px-4 py-2 text-[12.5px] text-[#ffe3a3]">
+              <Code2 className="mt-0.5 size-4 shrink-0" />
+              <span>
+                <strong>BotCode</strong> is a simplified language made for this activity. <strong>Check code</strong> tests each subsystem of the program;{' '}
+                <strong>Upload to robot</strong> flashes it onto the robot once every subsystem passes.
+              </span>
+            </div>
+
+            {/* Lost connection */}
+            {!isDataConnected && (
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#ef6b5a]/30 bg-[#ef6b5a]/15 px-4 py-2 text-[12.5px] text-[#ffd0c8]">
+                <span className="flex items-center gap-2">
+                  <ShieldAlert className="size-4 shrink-0" />
+                  The robot's data cable is unplugged. Your code is saved; uploading and testing need the cable in the DATA port.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setViewMode('workstation');
+                  }}
+                  className="cursor-pointer shrink-0 rounded-lg bg-white/15 px-2.5 py-1 text-xs font-bold text-white hover:bg-white/25"
+                >
+                  Workstation →
+                </button>
+              </div>
+            )}
+
+            {/* Editor */}
+            <div className="relative flex min-h-0 flex-1 font-mono text-[13px]">
+              <div ref={gutter} className="w-14 shrink-0 overflow-hidden border-r border-white/10 bg-[#111b16] py-3 text-right text-white/35">
+                {lines.map((_, i) => (
+                  <div key={i} className="relative pr-3" style={{ height: LINE_H, lineHeight: `${LINE_H}px` }}>
+                    {problemLines.has(i + 1) && <span className="absolute left-1.5 top-[6px] size-2.5 rounded-full bg-[#ef6b5a]" />}
+                    {i + 1}
                   </div>
                 ))}
               </div>
-
-              {/* Status & Control Test Panel */}
-              <div className="mt-4">
-                {soft.softwareUploaded ? (
-                  <div className="space-y-3">
-                    <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-sans">
-                      <div className="flex items-center gap-1.5 font-bold text-emerald-800">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        Driver Software Flashed
-                      </div>
-                      <p className="text-[11px] text-emerald-950 mt-0.5">
-                        {isDataConnected
-                          ? 'Test onboard controls below using your keyboard or click buttons:'
-                          : 'Reconnect the DATA cable in 3D Workstation to test hardware controls.'}
-                      </p>
+              <div className="relative min-w-0 flex-1">
+                <pre ref={pre} aria-hidden className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre px-4 py-3 text-[#e7efe9]" style={{ lineHeight: `${LINE_H}px` }}>
+                  {lines.map((l, i) => (
+                    <div
+                      key={i}
+                      className={problemLines.has(i + 1) ? `bg-[#ef6b5a]/10 ${wholeLine.has(i + 1) ? 'underline decoration-[#ef6b5a] decoration-wavy underline-offset-4' : ''}` : ''}
+                      style={{ height: LINE_H }}
+                    >
+                      {highlightBotCode(l, badWords(i + 1))}
+                      {'\u200b'}
                     </div>
-
-                    <div className="p-3 rounded-2xl bg-indigo-50/70 border border-indigo-200 text-xs font-sans space-y-2">
-                      <div className="flex items-center justify-between pb-1.5 border-b border-indigo-200/60">
-                        <span className="font-bold text-indigo-900 text-[11px] uppercase tracking-wider">
-                          DRIVER CONTROL TEST
-                        </span>
-                        <span className="text-[10px] font-mono font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
-                          {isDataConnected
-                            ? `${[testedForward, testedTurn, testedWeapon].filter(Boolean).length} / 3 VERIFIED`
-                            : 'NO DATA LINK'}
-                        </span>
-                      </div>
-
-                      {/* Test 1: Forward */}
-                      <button
-                        type="button"
-                        onClick={handleTestForward}
-                        disabled={!isDataConnected}
-                        className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
-                          !isDataConnected
-                            ? 'opacity-60 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400'
-                            : testedForward
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                            : 'bg-white border-slate-200 hover:border-indigo-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border text-[10px] font-mono font-bold">
-                            W / ↑
-                          </span>
-                          <span className="font-semibold text-[11px]">Forward Drive</span>
-                        </div>
-                        <span className="font-mono text-[10px] font-bold">
-                          {!isDataConnected ? 'No Link' : testedForward ? '✓ OK' : 'Press W / ↑'}
-                        </span>
-                      </button>
-
-                      {/* Test 2: Turn */}
-                      <button
-                        type="button"
-                        onClick={handleTestTurn}
-                        disabled={!isDataConnected}
-                        className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
-                          !isDataConnected
-                            ? 'opacity-60 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400'
-                            : testedTurn
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                            : 'bg-white border-slate-200 hover:border-indigo-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border text-[10px] font-mono font-bold">
-                            A / ←
-                          </span>
-                          <span className="font-semibold text-[11px]">Left Steering</span>
-                        </div>
-                        <span className="font-mono text-[10px] font-bold">
-                          {!isDataConnected ? 'No Link' : testedTurn ? '✓ OK' : 'Press A / ←'}
-                        </span>
-                      </button>
-
-                      {/* Test 3: Weapon */}
-                      <button
-                        type="button"
-                        onClick={handleTestWeapon}
-                        disabled={!isDataConnected}
-                        className={`cursor-pointer w-full p-2 rounded-xl border flex items-center justify-between transition-all ${
-                          !isDataConnected
-                            ? 'opacity-60 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400'
-                            : testedWeapon
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                            : 'bg-white border-slate-200 hover:border-indigo-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border text-[10px] font-mono font-bold">
-                            SPACE
-                          </span>
-                          <span className="font-semibold text-[11px]">Weapon Trigger</span>
-                        </div>
-                        <span className="font-mono text-[10px] font-bold">
-                          {!isDataConnected ? 'No Link' : testedWeapon ? '✓ OK' : 'Press SPACE'}
-                        </span>
-                      </button>
-
-                      {testedForward && testedTurn && testedWeapon && (
-                        <div className="p-2.5 rounded-xl bg-emerald-600 text-white font-sans text-xs space-y-0.5 animate-in fade-in">
-                          <div className="font-bold flex items-center gap-1.5 text-[11px]">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> DRIVER SOFTWARE READY
-                          </div>
-                          <div className="text-[10px] font-mono text-emerald-100">
-                            Controls: WASD / ARROWS &bull; SPACE
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : currentEval.allVerified ? (
-                  <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-sans">
-                    All subsystems verified! Click <strong>[Upload to Robot]</strong> to flash onboard memory.
-                  </div>
-                ) : (
-                  <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-sans">
-                    {currentEval.bugsRemainingCount} subsystem(s) incomplete or failing verification.
-                  </div>
-                )}
+                  ))}
+                </pre>
+                <textarea
+                  value={code}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  onChange={(e) => setCode(e.target.value)}
+                  onScroll={(e) => {
+                    if (pre.current) {
+                      pre.current.scrollTop = e.currentTarget.scrollTop;
+                      pre.current.scrollLeft = e.currentTarget.scrollLeft;
+                    }
+                    if (gutter.current) gutter.current.scrollTop = e.currentTarget.scrollTop;
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Tab') return;
+                    e.preventDefault();
+                    const t = e.currentTarget;
+                    const { selectionStart: a, selectionEnd: b } = t;
+                    setCode(code.slice(0, a) + '    ' + code.slice(b));
+                    requestAnimationFrame(() => t.setSelectionRange(a + 4, a + 4));
+                  }}
+                  className="absolute inset-0 resize-none overflow-auto whitespace-pre bg-transparent px-4 py-3 text-transparent caret-white outline-none selection:bg-white/20"
+                  style={{ lineHeight: `${LINE_H}px` }}
+                />
               </div>
             </div>
 
-            {/* Quick Helper Note */}
-            <div className="pt-3 border-t border-slate-200 text-[11px] text-slate-500 font-sans">
-              <span className="text-indigo-700 font-bold block mb-1">ENGINEER DEBUG TIP:</span>
-              Inspect each line against the BotCode Reference. Pay close attention to command names, direction keywords, and colons after IF statements.
+            {/* Problems / output */}
+            <div className="h-[128px] shrink-0 overflow-y-auto border-t border-white/10 bg-[#0f1813] px-4 py-2 font-mono text-[12.5px]">
+              <div className="mb-1 flex items-center gap-3 text-[11px] uppercase tracking-wider text-white/45">
+                <span>Problems ({lineProblems.length + (lastCheck?.diagnostics.length ?? 0)})</span>
+                <span className={soft.softwareUploaded && !editedSinceUpload ? 'text-[#8fd19e]' : 'text-[#e3b341]'}>
+                  {soft.softwareUploaded ? (editedSinceUpload ? '● edited since last upload' : '● running on the robot') : '● not uploaded yet'}
+                </span>
+              </div>
+              {isUploading && <div className="text-[#e3b341]">Flashing onboard memory… {uploadProgress}%</div>}
+              {lineProblems.map((p, i) => (
+                <div key={`l${i}`} className="text-[#f2a093]">
+                  <span className="text-white/45">line {p.line}:</span> {p.message}
+                </div>
+              ))}
+              {lastCheck?.diagnostics.map((d, i) => (
+                <div key={`d${i}`} className="text-[#f2a093]">
+                  <span className="text-white/45">check:</span> {d}
+                </div>
+              ))}
+              {lastCheck && lastCheck.allVerified && lineProblems.length === 0 && (
+                <div className="flex items-center gap-1.5 text-[#8fd19e]">
+                  <CheckCircle2 className="size-3.5" /> No problems found. Every subsystem passes.
+                </div>
+              )}
+              {!lastCheck && lineProblems.length === 0 && <div className="text-white/50">No line problems. Click Check code to test every subsystem.</div>}
+              {!lastCheck && lineProblems.length > 0 && <div className="mt-1 text-white/45">Click Check code to test every subsystem.</div>}
             </div>
           </div>
+
+          {/* Side panel: subsystem checks, driver test, reference */}
+          <aside className="flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto">
+            <div className="rounded-2xl bg-white p-4 ring-1 ring-line">
+              <h3 className="flex items-center gap-2 font-display text-sm font-bold text-ink">
+                <Code2 className="size-4" /> Subsystem checks
+              </h3>
+              <div className="mt-2 space-y-1.5">
+                {[
+                  { label: 'Movement', complete: currentEval.subsystems.movement },
+                  { label: 'Opponent detection', complete: currentEval.subsystems.detection },
+                  { label: 'Weapon', complete: currentEval.subsystems.weapon },
+                  { label: 'Recovery', complete: currentEval.subsystems.recovery },
+                  { label: 'Syntax & colons', complete: currentEval.subsystems.syntax },
+                ].map((item) => {
+                  const shown = lastCheck ? item.complete : null;
+                  return (
+                    <div key={item.label} className="flex items-center gap-2 text-xs">
+                      <span
+                        className={`grid size-4 place-items-center rounded-md text-[10px] font-bold ${
+                          shown === null ? 'bg-paper ring-1 ring-line' : shown ? 'bg-forest text-white' : 'bg-rust/15 text-rust ring-1 ring-rust/40'
+                        }`}
+                      >
+                        {shown === null ? '' : shown ? '✓' : '✕'}
+                      </span>
+                      <span className={shown ? 'font-semibold text-ink' : 'text-ink/65'}>{item.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {soft.softwareUploaded && (
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-line">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display text-sm font-bold text-ink">Driver control test</h3>
+                  <span className="font-mono text-[10px] font-semibold text-ink/55">
+                    {isDataConnected ? `${[testedForward, testedTurn, testedWeapon].filter(Boolean).length} / 3` : 'no data link'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-ink/60">
+                  {isDataConnected ? 'Press the keys (or click) to try each control on the robot.' : 'Plug the data cable back in to test the controls.'}
+                </p>
+                <div className="mt-2 space-y-1.5">
+                  {[
+                    { keys: 'W / ↑', label: 'Forward drive', done: testedForward, onTest: handleTestForward },
+                    { keys: 'A / ←', label: 'Left steering', done: testedTurn, onTest: handleTestTurn },
+                    { keys: 'SPACE', label: 'Weapon trigger', done: testedWeapon, onTest: handleTestWeapon },
+                  ].map((t) => (
+                    <button
+                      key={t.label}
+                      type="button"
+                      onClick={t.onTest}
+                      disabled={!isDataConnected}
+                      className={`cursor-pointer flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-xs ring-1 transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                        t.done ? 'bg-mint text-forest ring-forest/30' : 'bg-paper text-ink/75 ring-line hover:bg-white'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <kbd className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold ring-1 ring-line">{t.keys}</kbd>
+                        <span className="font-semibold">{t.label}</span>
+                      </span>
+                      <span className="font-mono text-[10px] font-bold">{t.done ? '✓ OK' : 'not tested'}</span>
+                    </button>
+                  ))}
+                </div>
+                {testedForward && testedTurn && testedWeapon && (
+                  <div className="mt-2 flex items-center gap-1.5 rounded-xl bg-forest px-2.5 py-1.5 text-xs font-bold text-white">
+                    <CheckCircle2 className="size-3.5" /> Driver software ready
+                  </div>
+                )}
+              </div>
+            )}
+
+            {showReference && <BotCodeReference />}
+          </aside>
         </div>
       )}
     </div>

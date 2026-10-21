@@ -327,6 +327,8 @@ export interface MarketingCampaign {
 }
 
 export interface ProjectLeadConfiguration {
+  /** The team's name as the project lead set it (synced with the rest of this part). Missing = the starting name. */
+  teamName?: string;
   baseBudgetUsd: number; // 1800
   budgetCapUsd: number; // baseBudgetUsd + sponsorshipUsd
   sponsorshipUsd: number; // 0, 200, 400, 700

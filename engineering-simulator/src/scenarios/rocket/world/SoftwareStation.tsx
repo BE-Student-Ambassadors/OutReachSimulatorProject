@@ -4,6 +4,7 @@ import { getSoftware, upsert } from '../config'
 import type { RocketResult } from '../sim/engine'
 import { compile, SETTING_RANGES, SETTINGS, starterProgram, type CompileError } from '../sim/rocketScript'
 import type { RocketObject, SoftwareObject } from '../types'
+import { play } from '../../../shared/audio/sfx'
 
 export function SoftwareStation({
   design,
@@ -51,6 +52,7 @@ function PlugIn({ locked, onPlug }: { locked: boolean; onPlug(): void }) {
 
   useEffect(() => {
     if (!lit) return
+    play('pop')
     const id = window.setTimeout(onPlug, 900)
     return () => clearTimeout(id)
   }, [lit, onPlug])
@@ -203,9 +205,11 @@ function Ide({
   const upload = () => {
     if (locked) return
     if (!result.ok) {
+      play('buzz')
       setMessage({ ok: false, text: `Upload failed: ${errors.length} problem${errors.length > 1 ? 's' : ''} in the code.` })
       return
     }
+    play('chime')
     save(draft, { uploadedSource: draft })
     setMessage({ ok: true, text: 'Uploaded. The flight computer will run this program at launch.' })
   }

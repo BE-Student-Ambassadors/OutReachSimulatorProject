@@ -1,7 +1,8 @@
 import type { ThreeEvent } from '@react-three/fiber'
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import * as THREE from 'three'
-import { JOINTS } from '../config'
+import { FRAME_NODES, FRONT_WING_BY_ID, JOINTS } from '../config'
+import type { FrontWingId } from '../types'
 import type { CarLook } from './look'
 
 /**
@@ -54,6 +55,8 @@ export interface CarModelProps {
   /** Garage view: show the bare frame and joints instead of bodywork. */
   frame?: boolean
   welds?: number[]
+  /** Frame view: draw the weld joints (on by default). */
+  showJoints?: boolean
   activeJoint?: number | null
   onJointDown?(i: number, e: ThreeEvent<PointerEvent>): void
   /** Semi-transparent ghost car (replays). */
@@ -72,6 +75,7 @@ export function CarModel({
   brakeLight = 0,
   frame = false,
   welds,
+  showJoints = true,
   activeJoint = null,
   onJointDown,
   ghost = false,
@@ -81,7 +85,6 @@ export function CarModel({
   const L = look.wheelbaseMm / 1000
   const T = look.trackMm / 1000
   const ride = look.rideHeightMm / 1000
-  const f = look.frontWing / 100
   const r = look.rearWing / 100
   const floorY = ride + 0.02
 
@@ -89,11 +92,10 @@ export function CarModel({
     <meshStandardMaterial color={color} roughness={0.45} metalness={0.15} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} {...extra} />
   )
 
+  const nodes = useMemo(() => FRAME_NODES.map((j) => new THREE.Vector3(j.x * (L / 1.6), floorY + j.y * 0.85, j.z * (T / 1.2))), [L, T, floorY])
   const joints = useMemo(() => JOINTS.map((j) => new THREE.Vector3(j.x * (L / 1.6), floorY + j.y * 0.85, j.z * (T / 1.2))), [L, T, floorY])
 
-  // Front wing: slides forward out of the nose and tips up as it extends.
-  const fwX = L / 2 + 0.62 + 0.28 * f
-  const fwAngle = 0.04 + 0.32 * f
+  const fwX = L / 2 + 0.7
   // Rear wing: rises on its stalks and tips up as it extends.
   const rwX = -L / 2 - 0.28 - 0.12 * r
   const rwY = floorY + 0.78 + 0.32 * r
@@ -132,12 +134,12 @@ export function CarModel({
       {frame ? (
         <group>
           {FRAME_TUBES.map(([a, b]) => (
-            <Tube key={`${a}-${b}`} a={joints[a]} b={joints[b]} />
+            <Tube key={`${a}-${b}`} a={nodes[a]} b={nodes[b]} />
           ))}
           {/* Floor rails */}
           <Tube a={new THREE.Vector3(L / 2 + 0.2, floorY + 0.05, -0.18)} b={new THREE.Vector3(-L / 2 - 0.05, floorY + 0.05, -0.28)} />
           <Tube a={new THREE.Vector3(L / 2 + 0.2, floorY + 0.05, 0.18)} b={new THREE.Vector3(-L / 2 - 0.05, floorY + 0.05, 0.28)} />
-          {joints.map((p, i) => {
+          {showJoints && joints.map((p, i) => {
             const q = welds?.[i] ?? -1
             const active = activeJoint === i
             const color = q < 0 ? '#e1b12c' : q >= 0.95 ? '#74a85f' : '#d9a52b'
@@ -228,26 +230,13 @@ export function CarModel({
         </group>
       )}
 
-      {/* Front wing: main plane + flap, endplates; mounted on a pylon from the nose */}
+      {/* Front wing (the chosen design), mounted on a pylon from the nose */}
       <group position={[fwX, floorY + 0.08, 0]}>
-        <mesh position={[-0.2 - 0.14 * f, 0.07, 0]}>
-          <boxGeometry args={[0.3 + 0.28 * f, 0.03, 0.08]} />
+        <mesh position={[-0.3, 0.07, 0]}>
+          <boxGeometry args={[0.42, 0.03, 0.08]} />
           {mat('#3a3f3c')}
         </mesh>
-        <mesh rotation={[0, 0, fwAngle * 0.4]} castShadow>
-          <boxGeometry args={[0.3, 0.02, T + 0.05]} />
-          {mat(accent)}
-        </mesh>
-        <mesh position={[-0.12, 0.03 + 0.07 * f, 0]} rotation={[0, 0, fwAngle]} castShadow>
-          <boxGeometry args={[0.18, 0.016, T + 0.05]} />
-          {mat(body)}
-        </mesh>
-        {[1, -1].map((s) => (
-          <mesh key={s} position={[-0.06, 0.06, s * (T / 2 + 0.035)]}>
-            <boxGeometry args={[0.38, 0.16 + 0.06 * f, 0.012]} />
-            {mat(body)}
-          </mesh>
-        ))}
+        <FrontWing id={look.frontWing} span={T + 0.05} mat={mat} body={body} accent={accent} />
       </group>
 
       {/* Rear wing: two stalks, main plane + flap, endplates */}
@@ -275,6 +264,52 @@ export function CarModel({
           ))}
         </group>
       </group>
+    </group>
+  )
+}
+
+type Mat = (color: string, extra?: Partial<THREE.MeshStandardMaterialParameters>) => ReactNode
+
+/**
+ * The front wing designs, drawn from the side profile out: a flat plate, one curved element,
+ * or a main plane with one or two flaps stacked above and behind it.
+ */
+function FrontWing({ id, span, mat, body, accent }: { id: FrontWingId; span: number; mat: Mat; body: string; accent: string }) {
+  const spec = FRONT_WING_BY_ID[id] ?? FRONT_WING_BY_ID.flat
+  const endH = 0.12 + 0.06 * spec.elements
+  // [x, y, chord, angle] for each element, front to back.
+  const parts: [number, number, number, number][] =
+    id === 'flat'
+      ? [[0, 0, 0.34, 0.03]]
+      : id === 'single'
+        ? [
+            [0.06, -0.005, 0.18, -0.04],
+            [-0.1, 0.012, 0.18, 0.28],
+          ]
+        : id === 'dual'
+          ? [
+              [0.02, 0, 0.3, 0.08],
+              [-0.15, 0.06, 0.17, 0.45],
+            ]
+          : [
+              [0.03, 0, 0.3, 0.08],
+              [-0.13, 0.065, 0.15, 0.42],
+              [-0.23, 0.14, 0.12, 0.75],
+            ]
+  return (
+    <group>
+      {parts.map(([x, y, chord, angle], i) => (
+        <mesh key={i} position={[x, y, 0]} rotation={[0, 0, angle]} castShadow>
+          <boxGeometry args={[chord, i === 0 ? 0.022 : 0.016, span]} />
+          {mat(i % 2 === 0 ? accent : body)}
+        </mesh>
+      ))}
+      {[1, -1].map((s) => (
+        <mesh key={s} position={[-0.06, endH / 2 - 0.04, s * (span / 2 + 0.01)]}>
+          <boxGeometry args={[0.42, endH, 0.012]} />
+          {mat(body)}
+        </mesh>
+      ))}
     </group>
   )
 }

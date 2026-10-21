@@ -2,7 +2,9 @@ import { describe, expect, test } from 'vitest'
 import { CIRCUITS, REQUIRED, SPONSOR_BY_ID } from '../config'
 import { assignRocketRoles } from '../roles'
 import type { CircuitId } from '../types'
+import { BOARDS } from '../config'
 import { boardStatus, generateBoard, wireConnected } from './board'
+import { readLines } from './power'
 import { counterReply, effortScore, payoutFor, sponsorCeiling, vibeFlyer } from './business'
 import { evaluateRocketDesign, RocketRun } from './engine'
 import { BUG_COUNT, compile, starterProgram } from './rocketScript'
@@ -176,20 +178,67 @@ describe('RocketScript', () => {
   })
 })
 
-describe('Breadboard', () => {
+describe('Breadboards', () => {
   test('every generated board has a full-board solution and no trivial wires', () => {
     for (let seed = 1; seed <= 120; seed++) {
-      const b = generateBoard(seed)
-      const cells = new Set<number>()
-      for (const c of CIRCUITS) {
-        const path = b.solution[c.id]
-        expect(wireConnected(b, c.id, path), `seed ${seed} ${c.id}`).toBe(true)
-        path.forEach((p) => cells.add(p))
+      const paths = {}
+      for (const spec of BOARDS) {
+        const b = generateBoard(seed, spec.id)
+        const cells = new Set<number>()
+        for (const c of b.circuits) {
+          const path = b.solution[c.id]!
+          expect(wireConnected(b, c.id, path), `seed ${seed} ${c.id}`).toBe(true)
+          path.forEach((p) => cells.add(p))
+        }
+        expect(cells.size).toBe(b.rows * b.cols)
+        Object.assign(paths, b.solution)
       }
-      expect(cells.size).toBe(b.rows * b.cols)
-      const status = boardStatus({ id: 'station:electrical', kind: 'electrical', seed, paths: b.solution, updatedAt: 0 })
+      const status = boardStatus({ id: 'station:electrical', kind: 'electrical', seed, paths, updatedAt: 0 })
       expect(status.complete).toBe(true)
+      expect(status.boardsComplete).toBe(2)
     }
+  })
+})
+
+describe('Battery leads', () => {
+  test('V = I × R: the reference resistors bring both leads into range', () => {
+    const el = teamDesign({ parts: MID_PARTS }).find((o) => o.kind === 'electrical') as Parameters<typeof readLines>[0]
+    const r = readLines(el)
+    expect(r.computer.volts).toBe(5) // 9 V − 0.5 A × 8 Ω
+    expect(r.igniter.volts).toBe(4) // 9 V − 2 A × 2.5 Ω
+    expect(r.computer.state).toBe('ok')
+    expect(r.igniter.state).toBe('ok')
+  })
+
+  test('untouched leads carry the full 9 V: the computer shuts off', () => {
+    const r = evaluateRocketDesign(midWith({ lines: { computer: null } }))
+    expect(r.computerState).toBe('high')
+    expect(r.ignitionBlocks).toContain('computer-voltage')
+  })
+
+  test('an igniter out of its range never lights the motor', () => {
+    const hot = evaluateRocketDesign(midWith({ lines: { igniter: null } }))
+    expect(hot.outcome).toBe('no-ignition')
+    expect(hot.ignitionBlocks).toContain('igniter-voltage')
+    const cold = evaluateRocketDesign(midWith({ lines: { igniter: { cutAt: 0.6, crimps: [1, 1], ohms: 3.5 } } }))
+    expect(cold.igniterState).toBe('low')
+    expect(cold.outcome).toBe('no-ignition')
+  })
+
+  test('a cut lead that is not joined back up carries nothing', () => {
+    const r = evaluateRocketDesign(midWith({ lines: { computer: { cutAt: 0.15, crimps: [1, null], ohms: null } } }))
+    expect(r.computerVolts).toBe(0)
+    expect(r.ignitionBlocks).toContain('computer-voltage')
+  })
+
+  test('weak crimps where the wire gets moved shake loose', () => {
+    const ign = evaluateRocketDesign(midWith({ lines: { igniter: { cutAt: 0.25, crimps: [0.4, 0.4], ohms: 2.5 } } }))
+    expect(ign.ignitionBlocks).toContain('igniter-loose')
+    // The computer's lead holds on the pad, then drops out at liftoff: the program stops running mid-flight.
+    const fc = evaluateRocketDesign(midWith({ lines: { computer: { cutAt: 0.5, crimps: [0.4, 0.4], ohms: 8 } } }))
+    expect(fc.ignitionBlocks).toEqual([])
+    expect(fc.computerDropped).toBe(true)
+    expect(fc.recoveryPassed).toBe(false)
   })
 })
 
@@ -220,6 +269,8 @@ describe('Business', () => {
 })
 
 describe('Role matcher', () => {
+  const jobsOf = (a: ReturnType<typeof assignRocketRoles>, id: string) => (Object.keys(a) as (keyof typeof a)[]).filter((r) => a[r].some((t) => t.id === id))
+
   test('four players with distinct first picks all get them', () => {
     const a = assignRocketRoles([
       { playerId: 'a', playerName: 'A', choices: ['electrical', 'software'] },
@@ -227,14 +278,31 @@ describe('Role matcher', () => {
       { playerId: 'c', playerName: 'C', choices: ['software', 'electrical'] },
       { playerId: 'd', playerName: 'D', choices: ['business', 'mechanical'] },
     ])
-    expect(a.every((x) => x.choiceRank === 1)).toBe(true)
+    expect(jobsOf(a, 'a')).toEqual(['electrical'])
+    expect(jobsOf(a, 'b')).toEqual(['mechanical'])
+    expect(jobsOf(a, 'c')).toEqual(['software'])
+    expect(jobsOf(a, 'd')).toEqual(['business'])
   })
 
-  test('collisions fall back to second picks', () => {
+  test('two players with clashing picks split all four jobs, two each, including the ones they picked', () => {
     const a = assignRocketRoles([
       { playerId: 'a', playerName: 'A', choices: ['software', 'electrical'] },
       { playerId: 'b', playerName: 'B', choices: ['software', 'business'] },
     ])
-    expect(a.filter((x) => x.playerId).every((x) => x.choiceRank > 0)).toBe(true)
+    expect(Object.values(a).every((p) => p.length === 1)).toBe(true)
+    expect(jobsOf(a, 'a')).toHaveLength(2)
+    expect(jobsOf(a, 'b')).toHaveLength(2)
+    const picked = (id: string, mine: string[]) => jobsOf(a, id).some((r) => mine.includes(r))
+    expect(picked('a', ['software', 'electrical']) && picked('b', ['software', 'business'])).toBe(true)
+  })
+
+  test('three players: every job is covered and one player takes a second job', () => {
+    const a = assignRocketRoles([
+      { playerId: 'a', playerName: 'A', choices: ['electrical'] },
+      { playerId: 'b', playerName: 'B', choices: ['mechanical'] },
+      { playerId: 'c', playerName: 'C', choices: [] },
+    ])
+    expect(Object.values(a).every((p) => p.length === 1)).toBe(true)
+    expect(['a', 'b', 'c'].map((id) => jobsOf(a, id).length).sort()).toEqual([1, 1, 2])
   })
 })

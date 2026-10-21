@@ -1,22 +1,46 @@
+import type { RolePrefObject as CoreRolePrefObject } from '../../core/roles'
 import type { DesignObject } from '../../core/scenario'
 
-/** The four seats on the team. */
+/** The four jobs on the team. */
 export type RocketRoleId = 'electrical' | 'mechanical' | 'software' | 'business'
 
 export type RocketVariantId = 'standard'
 
 // ---- Electrical ----
 
-/** Each circuit is one wire on the breadboard joining two component pins. */
+/** Each circuit is one wire on a breadboard joining two component pins. */
 export type CircuitId = 'power' | 'igniter' | 'eject' | 'altimeter' | 'radio'
 
-/** Electrical: the breadboard. Its puzzle (pin positions) comes from `seed`; `paths` are the wires drawn. */
+/** The two breadboards on the avionics sled. Each circuit lives on one of them. */
+export type BoardId = 'flight' | 'sensor'
+
+/** The two battery leads in the rocket that each need a resistor spliced in. */
+export type LineId = 'computer' | 'igniter'
+
+/** What a stretch of wire runs past. */
+export type SpliceZone = 'clear' | 'moving'
+
+/** Work on one battery lead: where it was cut, the two crimps (quality 0..1) and the resistor spliced in. */
+export interface LineWork {
+  /** 0 (battery end) .. 1 (part end); null = not cut. */
+  cutAt: number | null
+  crimps: [number | null, number | null]
+  /** The spliced resistor's value, ohms; null = none fitted yet. */
+  ohms: number | null
+}
+
+/**
+ * Electrical: two breadboards plus two battery leads. The breadboard puzzles (pin positions) come
+ * from `seed`; `paths` are the wires drawn; `lines` is the splice work on each battery lead.
+ */
 export interface ElectricalObject extends DesignObject {
   id: 'station:electrical'
   kind: 'electrical'
   seed: number
   /** Cell indices (row * cols + col) along each wire, starting at one of its pins. */
   paths: Partial<Record<CircuitId, number[]>>
+  /** Missing on designs saved before the battery leads existed: those read as untouched. */
+  lines?: Partial<Record<LineId, LineWork>>
   updatedAt: number
 }
 
@@ -105,12 +129,6 @@ export interface BusinessObject extends DesignObject {
 }
 
 /** A player's 1st and 2nd role picks (synced across the group). */
-export interface RolePrefObject extends DesignObject {
-  kind: 'rolePref'
-  playerId: string
-  playerName: string
-  choices: RocketRoleId[]
-  updatedAt: number
-}
+export type RolePrefObject = CoreRolePrefObject<RocketRoleId>
 
 export type RocketObject = ElectricalObject | MechanicalObject | SoftwareObject | BusinessObject | RolePrefObject

@@ -6,6 +6,7 @@ import { counterReply, effortScore, payoutFor, vibeFlyer } from '../sim/business
 import type { BusinessObject, Deal, RocketObject, SponsorId } from '../types'
 import { FlyerArt } from './FlyerArt'
 import { FLYER_H, FLYER_W, getPaint, paintStats, undoPaint, updatePaint, usePaintVersion, type Stroke } from './paintStore'
+import { play } from '../../../shared/audio/sfx'
 
 /**
  * Business: read sponsor emails, strike deals (accept or counter once), vibe-design a flyer from a
@@ -30,10 +31,13 @@ export function BusinessStation({
   const base = (): BusinessObject => biz ?? { id: 'station:business', kind: 'business', seed: newSeed(), deals: [], updatedAt: 0 }
   const saveDeal = (d: Deal) => {
     const b = base()
+    const before = b.deals.find((x) => x.sponsorId === d.sponsorId)
+    if (d.payout > (before?.payout ?? 0) || d.agreed > (before?.agreed ?? 0)) play('coin')
     save({ ...b, deals: b.deals.some((x) => x.sponsorId === d.sponsorId) ? b.deals.map((x) => (x.sponsorId === d.sponsorId ? d : x)) : [...b.deals, d] })
   }
 
   const openEmail = (id: SponsorId) => {
+    play('click')
     setOpenId(id)
     if (locked || biz?.deals.some((d) => d.sponsorId === id)) return
     const s = SPONSOR_BY_ID[id]
@@ -104,7 +108,16 @@ function StageChip({ deal }: { deal: Deal | null }) {
 
 function Negotiate({ deal, seed, locked, onSave }: { deal: Deal; seed: number; locked: boolean; onSave(d: Deal): void }) {
   const s = SPONSOR_BY_ID[deal.sponsorId]
-  const [ask, setAsk] = useState(Math.round(deal.offer * 1.3))
+  // Kept as typed text so the box can be cleared while typing a new number.
+  const [askText, setAskText] = useState(String(Math.round(deal.offer * 1.3)))
+  const ask = Math.round(Number(askText))
+  const askValid = askText.trim() !== '' && Number.isFinite(ask) && ask >= 1
+  const sendCounter = () => {
+    const reply = counterReply(seed, deal.sponsorId, ask)
+    if (reply.kind === 'accepted') onSave({ ...deal, countered: true, stage: 'design', agreed: reply.amount, offer: reply.amount })
+    else if (reply.kind === 'final-offer') onSave({ ...deal, countered: true, offer: reply.amount })
+    else onSave({ ...deal, countered: true, stage: 'declined' })
+  }
   return (
     <div className="mx-auto max-w-2xl">
       <div className="text-xs text-ink/50">From: {s.contact}, {s.name}</div>
@@ -145,23 +158,18 @@ function Negotiate({ deal, seed, locked, onSave }: { deal: Deal; seed: number; l
                 <div className="mt-1 flex items-center rounded-lg bg-paper px-2 ring-1 ring-line">
                   <span className="text-ink/50">$</span>
                   <input
-                    type="number"
-                    min={1}
-                    value={ask}
-                    onChange={(e) => setAsk(Math.max(1, Math.round(Number(e.target.value) || 0)))}
+                    inputMode="numeric"
+                    value={askText}
+                    onChange={(e) => setAskText(e.target.value.replace(/[^\d]/g, '').slice(0, 7))}
+                    onKeyDown={(e) => e.key === 'Enter' && askValid && !locked && sendCounter()}
                     className="w-20 bg-transparent px-1 py-2 font-mono text-sm outline-none"
                   />
                 </div>
               </label>
               <button
                 type="button"
-                disabled={locked}
-                onClick={() => {
-                  const reply = counterReply(seed, deal.sponsorId, ask)
-                  if (reply.kind === 'accepted') onSave({ ...deal, countered: true, stage: 'design', agreed: reply.amount, offer: reply.amount })
-                  else if (reply.kind === 'final-offer') onSave({ ...deal, countered: true, offer: reply.amount })
-                  else onSave({ ...deal, countered: true, stage: 'declined' })
-                }}
+                disabled={locked || !askValid}
+                onClick={sendCounter}
                 className="rounded-lg bg-ink px-4 py-2.5 font-display text-sm font-bold text-white disabled:opacity-50"
               >
                 Send
@@ -264,6 +272,7 @@ function Studio({ deal, locked, onSave }: { deal: Deal; locked: boolean; onSave(
 
   const generate = () => {
     if (locked || !prompt.trim()) return
+    play('sparkle')
     updatePaint(deal.sponsorId, (p) => ({ ...p, generations: p.generations + 1 }))
     onSave({ ...deal, flyer: vibeFlyer(prompt.trim(), deal.sponsorId) })
   }
