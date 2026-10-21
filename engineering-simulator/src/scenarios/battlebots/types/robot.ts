@@ -396,6 +396,9 @@ export interface WedgeTelemetry {
 
 export type WedgeCondition = 'healthy' | 'damaged' | 'heavily-damaged' | 'critical';
 
+export type DamageSeverity = 'minimal' | 'moderate' | 'high' | 'severe' | 'critical';
+export type AttackClassification = 'NEW_STRIKE' | 'SUSTAINED_CONTACT' | 'WALL_IMPACT' | 'SECONDARY_COLLISION';
+
 export interface CombatImpactEvent {
   id: number;
   timeSec: number;
@@ -405,6 +408,9 @@ export interface CombatImpactEvent {
   impulse: number;
   severity: ImpactSeverity;
   severity01: number;
+  damageSeverity?: DamageSeverity;
+  attackClassification?: AttackClassification;
+  attackType?: string;
   type: 'chassis' | 'weapon' | 'wall';
   sourceRobot: 'player' | 'boss' | 'wall';
   targetRobot: 'player' | 'boss';
@@ -412,11 +418,22 @@ export interface CombatImpactEvent {
   hitstopMs: number;
   targetDeltaV?: number;
   targetDeltaOmega?: number;
+  attackerReactionImpulse?: number;
+  attackerDeltaV?: number;
+  attackerDeltaOmega?: number;
+  weaponRpmBefore?: number;
+  weaponEnergyBefore?: number;
+  weaponRpmAfter?: number;
+  weaponEnergyAfter?: number;
   tractionBreakDurationSec?: number;
   hitSector?: 'front' | 'corner' | 'side' | 'rear';
   rawDamage?: number;
   armorMitigation?: number;
+  armorAbsorbed?: number;
+  componentDamage?: number;
   finalDamage?: number;
+  targetHealthBefore?: number;
+  targetHealthAfter?: number;
 }
 
 export interface CombatantTelemetry {

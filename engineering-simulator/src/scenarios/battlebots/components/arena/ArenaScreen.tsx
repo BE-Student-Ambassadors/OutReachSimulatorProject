@@ -193,15 +193,30 @@ const Arena3DScene: React.FC<{
         }
         if (isDevMode) {
           console.log('[DEV IMPACT TELEMETRY]', {
-            type: imp.type,
-            severity: imp.severity,
+            classification: imp.attackClassification ?? 'NEW_STRIKE',
+            attackType: imp.attackType ?? imp.type,
+            sector: imp.hitSector ?? 'front',
+            impactSeverity: imp.severity,
+            damageSeverity: imp.damageSeverity ?? 'moderate',
             source: imp.sourceRobot,
             target: imp.targetRobot,
             relativeSpeed: `${imp.relativeVelocity} m/s`,
-            impulse: `${imp.impulse} N*s`,
-            weaponEnergy: imp.weaponEnergyJ ? `${imp.weaponEnergyJ} J` : 'N/A',
+            targetImpulse: `${imp.impulse} N*s`,
+            attackerReactionImpulse: imp.attackerReactionImpulse ? `${imp.attackerReactionImpulse} N*s` : 'N/A',
             targetDeltaV: imp.targetDeltaV ? `${imp.targetDeltaV} m/s` : 'N/A',
+            attackerDeltaV: imp.attackerDeltaV ? `${imp.attackerDeltaV} m/s` : 'N/A',
             targetDeltaOmega: imp.targetDeltaOmega ? `${(imp.targetDeltaOmega * (180 / Math.PI)).toFixed(0)} deg/s` : '0 deg/s',
+            attackerDeltaOmega: imp.attackerDeltaOmega ? `${(imp.attackerDeltaOmega * (180 / Math.PI)).toFixed(0)} deg/s` : '0 deg/s',
+            weaponRpmBefore: imp.weaponRpmBefore !== undefined ? `${imp.weaponRpmBefore.toFixed(0)}%` : 'N/A',
+            weaponRpmAfter: imp.weaponRpmAfter !== undefined ? `${imp.weaponRpmAfter.toFixed(0)}%` : 'N/A',
+            weaponEnergyBefore: imp.weaponEnergyBefore !== undefined ? `${imp.weaponEnergyBefore} J` : 'N/A',
+            weaponEnergyAfter: imp.weaponEnergyAfter !== undefined ? `${imp.weaponEnergyAfter} J` : 'N/A',
+            rawDamage: imp.rawDamage !== undefined ? imp.rawDamage : 'N/A',
+            armorAbsorbed: imp.armorAbsorbed !== undefined ? imp.armorAbsorbed : 'N/A',
+            componentDamage: imp.componentDamage !== undefined ? imp.componentDamage : 'N/A',
+            finalDamage: imp.finalDamage !== undefined ? `${imp.finalDamage}%` : 'N/A',
+            targetHealthBefore: imp.targetHealthBefore !== undefined ? `${imp.targetHealthBefore}%` : 'N/A',
+            targetHealthAfter: imp.targetHealthAfter !== undefined ? `${imp.targetHealthAfter}%` : 'N/A',
             tractionBreak: imp.tractionBreakDurationSec ? `${Math.round(imp.tractionBreakDurationSec * 1000)} ms` : '0 ms',
           });
         }
@@ -901,26 +916,51 @@ export const ArenaScreen: React.FC<ArenaScreenProps> = ({
 
           {hudLastImpact ? (
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-slate-400">Class:</span>
+              <span className={`font-bold uppercase ${
+                hudLastImpact.attackClassification === 'NEW_STRIKE' ? 'text-emerald-400' :
+                hudLastImpact.attackClassification === 'SUSTAINED_CONTACT' ? 'text-amber-400' : 'text-sky-400'
+              }`}>{hudLastImpact.attackClassification ?? 'NEW_STRIKE'}</span>
+              <span className="text-slate-400">Attack Type:</span>
+              <span className="text-white font-bold uppercase">{hudLastImpact.attackType ?? hudLastImpact.type} ({hudLastImpact.sourceRobot} → {hudLastImpact.targetRobot})</span>
               <span className="text-slate-400">Hit Sector:</span>
               <span className="text-emerald-300 font-bold uppercase">{hudLastImpact.hitSector ?? 'FRONT'}</span>
-              <span className="text-slate-400">Type:</span>
-              <span className="text-white font-bold uppercase">{hudLastImpact.type} ({hudLastImpact.sourceRobot} → {hudLastImpact.targetRobot})</span>
-              <span className="text-slate-400">Weapon Energy:</span>
-              <span className="text-amber-300 font-bold">{hudLastImpact.weaponEnergyJ ? `${hudLastImpact.weaponEnergyJ.toFixed(0)} J` : 'N/A'}</span>
-              <span className="text-slate-400">Raw Damage:</span>
-              <span className="text-amber-400 font-bold">{hudLastImpact.rawDamage !== undefined ? hudLastImpact.rawDamage.toFixed(1) : 'N/A'}</span>
-              <span className="text-slate-400">Armor Mitigation:</span>
-              <span className="text-cyan-300 font-bold">{hudLastImpact.armorMitigation !== undefined ? `${hudLastImpact.armorMitigation.toFixed(2)}x` : 'N/A'}</span>
-              <span className="text-slate-400">Final Damage:</span>
-              <span className="text-rose-400 font-bold">{hudLastImpact.finalDamage !== undefined ? `${hudLastImpact.finalDamage.toFixed(1)}%` : 'N/A'}</span>
-              <span className="text-slate-400">Linear Impulse:</span>
-              <span className="text-cyan-300 font-bold">{hudLastImpact.impulse.toFixed(1)} N·s</span>
-              <span className="text-slate-400">Angular Impulse:</span>
-              <span className="text-purple-300 font-bold">{hudLastImpact.targetDeltaOmega !== undefined ? `${(hudLastImpact.targetDeltaOmega * (180 / Math.PI)).toFixed(0)}°/s` : '0°/s'}</span>
+              <span className="text-slate-400">Severity:</span>
+              <span className="text-purple-300 font-bold uppercase">IMP: {hudLastImpact.severity} | DMG: {hudLastImpact.damageSeverity ?? 'MOD'}</span>
               <span className="text-slate-400">Rel Speed:</span>
               <span className="text-white font-bold">{hudLastImpact.relativeVelocity.toFixed(2)} m/s</span>
+              <span className="text-slate-400">Weapon RPM:</span>
+              <span className="text-amber-300 font-bold">
+                {hudLastImpact.weaponRpmBefore !== undefined ? `${hudLastImpact.weaponRpmBefore.toFixed(0)}% → ${hudLastImpact.weaponRpmAfter?.toFixed(0) ?? '?'}%` : 'N/A'}
+              </span>
+              <span className="text-slate-400">Weapon Energy:</span>
+              <span className="text-amber-300 font-bold">
+                {hudLastImpact.weaponEnergyBefore !== undefined ? `${hudLastImpact.weaponEnergyBefore}J → ${hudLastImpact.weaponEnergyAfter ?? 0}J` : hudLastImpact.weaponEnergyJ ? `${hudLastImpact.weaponEnergyJ}J` : 'N/A'}
+              </span>
+              <span className="text-slate-400">Raw / Absorbed:</span>
+              <span className="text-amber-400 font-bold">
+                {hudLastImpact.rawDamage !== undefined ? hudLastImpact.rawDamage.toFixed(1) : 'N/A'} / {hudLastImpact.armorAbsorbed !== undefined ? `${hudLastImpact.armorAbsorbed.toFixed(1)} abs` : '0 abs'}
+              </span>
+              <span className="text-slate-400">Comp / Final Dmg:</span>
+              <span className="text-rose-400 font-bold">
+                {hudLastImpact.componentDamage !== undefined ? `${hudLastImpact.componentDamage.toFixed(1)}c` : '0c'} | {hudLastImpact.finalDamage !== undefined ? `${hudLastImpact.finalDamage.toFixed(1)}%` : 'N/A'}
+              </span>
+              <span className="text-slate-400">Target Impulse:</span>
+              <span className="text-cyan-300 font-bold">{hudLastImpact.impulse.toFixed(1)} N·s (ΔV: {hudLastImpact.targetDeltaV ?? 0}m/s)</span>
+              <span className="text-slate-400">Attacker Recoil:</span>
+              <span className="text-purple-300 font-bold">
+                {hudLastImpact.attackerReactionImpulse !== undefined ? `${hudLastImpact.attackerReactionImpulse.toFixed(1)} N·s (ΔV: ${hudLastImpact.attackerDeltaV ?? 0}m/s)` : 'N/A'}
+              </span>
+              <span className="text-slate-400">Angular Impulse:</span>
+              <span className="text-purple-300 font-bold">
+                Tgt: {hudLastImpact.targetDeltaOmega !== undefined ? `${(hudLastImpact.targetDeltaOmega * (180 / Math.PI)).toFixed(0)}°/s` : '0°/s'} | Atk: {hudLastImpact.attackerDeltaOmega !== undefined ? `${(hudLastImpact.attackerDeltaOmega * (180 / Math.PI)).toFixed(0)}°/s` : '0°/s'}
+              </span>
               <span className="text-slate-400">Traction Break:</span>
               <span className="text-rose-400 font-bold">{hudLastImpact.tractionBreakDurationSec !== undefined ? `${Math.round(hudLastImpact.tractionBreakDurationSec * 1000)} ms` : '0 ms'}</span>
+              <span className="text-slate-400">Health Before/After:</span>
+              <span className="text-white font-bold">
+                {hudLastImpact.targetHealthBefore !== undefined ? `${hudLastImpact.targetHealthBefore.toFixed(1)}% → ${hudLastImpact.targetHealthAfter?.toFixed(1) ?? '?'}%` : 'N/A'}
+              </span>
             </div>
           ) : (
             <div className="text-[11px] text-slate-500 italic py-1">

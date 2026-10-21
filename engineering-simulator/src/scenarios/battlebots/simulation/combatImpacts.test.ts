@@ -782,5 +782,185 @@ describe('BATTLEBOT COMBAT IMPACTS & GAME FEEL SYSTEM', () => {
       expect(sim.boss.aiStateLabel).toBe('REPOSITION');
     });
   });
+
+  describe('DAMAGE BALANCE, ATTACK RECOIL & ANTI-SPAM SYSTEM', () => {
+    it('compresses high-energy kinetic strikes nonlinearly to prevent extreme damage outliers', () => {
+      const horizConfig = { ...INITIAL_ROBOT_CONFIG, weaponId: 'horizontal-spinner' as const };
+      const sim = createBattleSimulation(horizConfig, 'control', 'bull', undefined, 0, 0, true);
+
+      // Position player directly behind Bull (rear strike at full 100% weapon spin)
+      sim.player.x = 0;
+      sim.player.z = 0.5;
+      sim.player.headingRad = Math.PI; // Facing -z toward Bull's rear
+      sim.player.weaponSpinPct = 100;
+      sim.boss.x = 0;
+      sim.boss.z = 0;
+      sim.boss.headingRad = Math.PI; // Bull also facing -z (rear exposed to player)
+
+      stepBattleSimulation(sim, 0.05, { throttle: 1, steering: 0, weaponActive: true });
+
+      const lastHit = sim.lastImpactEvent;
+      expect(lastHit).toBeDefined();
+      expect(lastHit?.type).toBe('weapon');
+      expect(lastHit?.hitSector).toBe('rear');
+      // Crucial fairness requirement: Even a maximum energy strike on the rear does NOT 1-shot KO
+      expect(lastHit?.finalDamage).toBeLessThan(25);
+      expect(sim.boss.hullIntegrityPct).toBeGreaterThan(75);
+      // Armor absorbs punishment first
+      expect(sim.boss.rearArmorPct).toBeLessThan(70);
+    });
+
+    it('enforces symmetrical attacker recoil and attacker traction break on weapon impacts', () => {
+      const horizConfig = { ...INITIAL_ROBOT_CONFIG, weaponId: 'horizontal-spinner' as const };
+      const sim = createBattleSimulation(horizConfig, 'control', 'bull', undefined, 0, 0, true);
+
+      sim.player.x = 0;
+      sim.player.z = 0.5;
+      sim.player.headingRad = Math.PI; // Facing -z into Bull
+      sim.player.weaponSpinPct = 100;
+      sim.boss.x = 0;
+      sim.boss.z = 0;
+      sim.boss.headingRad = 0; // Facing +z into player
+
+      stepBattleSimulation(sim, 0.05, { throttle: 1, steering: 0, weaponActive: true });
+
+      // Bull pushed away in -z direction
+      expect(sim.boss.vz).toBeLessThan(-1.5);
+      // Player recoils backward in +z direction (equal & opposite momentum reaction)
+      expect(sim.player.vz).toBeGreaterThan(1.5);
+      // Attacker experiences traction break
+      expect(sim.player.tractionBreakTimerSec).toBeGreaterThan(0.2);
+    });
+
+    it('prevents holding W from canceling backward recoil momentum during traction break', () => {
+      const horizConfig = { ...INITIAL_ROBOT_CONFIG, weaponId: 'horizontal-spinner' as const };
+      const sim = createBattleSimulation(horizConfig, 'control', 'bull', undefined, 0, 0, true);
+
+      sim.player.x = 0;
+      sim.player.z = 0.5;
+      sim.player.headingRad = Math.PI; // Facing -z
+      sim.player.weaponSpinPct = 100;
+      sim.boss.x = 0;
+      sim.boss.z = 0;
+      sim.boss.headingRad = 0;
+
+      // Strike connects and induces backward recoil (+z)
+      stepBattleSimulation(sim, 0.05, { throttle: 1, steering: 0, weaponActive: true });
+      expect(sim.player.vz).toBeGreaterThan(1.5);
+
+      // Immediate follow-up frame while driver continues holding W (throttle = 1)
+      stepBattleSimulation(sim, 0.05, { throttle: 1, steering: 0, weaponActive: true });
+      // Velocity must still be backward (+z along world axis for robot facing -z), NOT instantly canceled to forward
+      expect(sim.player.vz).toBeGreaterThan(0.5);
+    });
+
+    it('distinguishes sustained contact / grinding from dynamic new strikes (anti-spam)', () => {
+      const horizConfig = { ...INITIAL_ROBOT_CONFIG, weaponId: 'horizontal-spinner' as const };
+      const sim = createBattleSimulation(horizConfig, 'control', 'bull', undefined, 0, 0, true);
+
+      // Simulate sustained contact with low relative speed and degraded RPM
+      sim.player.x = 0;
+      sim.player.z = 0.5;
+      sim.player.headingRad = Math.PI;
+      sim.player.weaponSpinPct = 35;
+      sim.boss.x = 0;
+      sim.boss.z = 0.0;
+      sim.boss.headingRad = 0;
+      sim.sustainedWeaponContactSec = 0.25;
+
+      stepBattleSimulation(sim, 0.05, { throttle: 0.1, steering: 0, weaponActive: true });
+
+      const lastHit = sim.lastImpactEvent;
+      expect(lastHit).toBeDefined();
+      expect(lastHit?.attackClassification).toBe('SUSTAINED_CONTACT');
+      expect(lastHit?.damageSeverity).toBe('minimal');
+      expect(lastHit?.finalDamage).toBeLessThanOrEqual(2.0);
+    });
+
+    it('drains weapon RPM after a major kinetic strike requiring spin-up recovery', () => {
+      const horizConfig = { ...INITIAL_ROBOT_CONFIG, weaponId: 'horizontal-spinner' as const };
+      const sim = createBattleSimulation(horizConfig, 'control', 'bull', undefined, 0, 0, true);
+
+      sim.player.x = 0;
+      sim.player.z = 0.5;
+      sim.player.headingRad = Math.PI;
+      sim.player.weaponSpinPct = 100;
+      sim.boss.x = 0;
+      sim.boss.z = 0;
+      sim.boss.headingRad = 0;
+
+      stepBattleSimulation(sim, 0.05, { throttle: 1, steering: 0, weaponActive: true });
+
+      // Stored rotational energy is transferred, RPM drops below 15%
+      expect(sim.player.weaponSpinPct).toBeLessThan(15);
+      expect(sim.lastImpactEvent?.weaponRpmBefore).toBe(100);
+      expect(sim.lastImpactEvent?.weaponRpmAfter).toBeLessThan(15);
+    });
+
+    it('causes lighter robots to suffer greater recoil velocity than heavier robots', () => {
+      // Light robot (aluminum thin = ~22 lbs)
+      const lightConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        weaponId: 'horizontal-spinner',
+        armorId: 'aluminum',
+        armorThickness: 'thin',
+        batteryId: 'small',
+      };
+      // Heavy robot (steel thick = ~30 lbs)
+      const heavyConfig: RobotConfiguration = {
+        ...INITIAL_ROBOT_CONFIG,
+        weaponId: 'horizontal-spinner',
+        armorId: 'steel',
+        armorThickness: 'thick',
+        batteryId: 'large',
+      };
+
+      const simLight = createBattleSimulation(lightConfig, 'control', 'bull', undefined, 0, 0, true);
+      simLight.player.x = 0;
+      simLight.player.z = 0.5;
+      simLight.player.headingRad = Math.PI;
+      simLight.player.weaponSpinPct = 100;
+      simLight.boss.x = 0;
+      simLight.boss.z = 0;
+      simLight.boss.headingRad = 0;
+      stepBattleSimulation(simLight, 0.05, { throttle: 1, steering: 0, weaponActive: true });
+
+      const simHeavy = createBattleSimulation(heavyConfig, 'control', 'bull', undefined, 0, 0, true);
+      simHeavy.player.x = 0;
+      simHeavy.player.z = 0.5;
+      simHeavy.player.headingRad = Math.PI;
+      simHeavy.player.weaponSpinPct = 100;
+      simHeavy.boss.x = 0;
+      simHeavy.boss.z = 0;
+      simHeavy.boss.headingRad = 0;
+      stepBattleSimulation(simHeavy, 0.05, { throttle: 1, steering: 0, weaponActive: true });
+
+      // Physics consequence: Lighter attacker experiences higher recoil velocity change than heavy attacker
+      expect(simLight.player.vz).toBeGreaterThan(simHeavy.player.vz);
+    });
+
+    it('gives Bull symmetrical reaction recoil and disengage behavior on ram attack', () => {
+      const sim = createBattleSimulation(INITIAL_ROBOT_CONFIG, 'control', 'bull', undefined, 0, 0, true);
+
+      // Bull charges into player
+      sim.boss.x = 0;
+      sim.boss.z = 0.4;
+      sim.boss.headingRad = 0; // Facing +z toward player
+      sim.boss.vz = 4.0;
+      sim.bossChargeActiveSec = 0.5;
+
+      sim.player.x = 0;
+      sim.player.z = 1.0;
+      sim.player.headingRad = Math.PI;
+
+      stepBattleSimulation(sim, 0.05, { throttle: 0, steering: 0, weaponActive: false });
+
+      // Player knocked backward (+z)
+      expect(sim.player.vz).toBeGreaterThan(1.5);
+      // Bull loses momentum / experiences reaction recoil and disengages
+      expect(sim.bossChargeActiveSec).toBe(0);
+      expect(sim.bossRepositionTimerSec).toBeGreaterThan(0.5);
+    });
+  });
 });
 

@@ -15,6 +15,8 @@ import {
   type SparkBurst,
   type CombatImpactEvent,
   type ImpactSeverity,
+  type DamageSeverity,
+  type AttackClassification,
   type WedgeTelemetry,
   type WedgeCondition,
 } from '../types/robot';
@@ -95,6 +97,8 @@ export interface LiveBattleSimulation {
   nextImpactEventId: number;
   contactActive: boolean;
   lastImpactTimeSec: number;
+  sustainedWeaponContactSec: number;
+  lastAttackerSeparationSec: number;
 
   // Bull Wedge Dynamics (Section 2 & 17)
   wedgePhase: 'none' | 'initial' | 'riding' | 'disengaging';
@@ -132,6 +136,15 @@ function normalizeAngle(angle: number): number {
   return a;
 }
 
+export function compressKineticDamageEnergy(rawEnergyJ: number): number {
+  if (rawEnergyJ <= 0) return 0;
+  if (rawEnergyJ <= 800) {
+    return rawEnergyJ;
+  }
+  // Smooth logarithmic saturation above 800 J with characteristic scale 700 J
+  return 800 + 700 * Math.log(1 + (rawEnergyJ - 800) / 700);
+}
+
 export function createCombatImpactEvent(
   sim: LiveBattleSimulation,
   point: [number, number],
@@ -148,7 +161,23 @@ export function createCombatImpactEvent(
   hitSector?: 'front' | 'corner' | 'side' | 'rear',
   rawDamage?: number,
   armorMitigation?: number,
-  finalDamage?: number
+  finalDamage?: number,
+  extra?: {
+    damageSeverity?: DamageSeverity;
+    attackClassification?: AttackClassification;
+    attackType?: string;
+    weaponRpmBefore?: number;
+    weaponEnergyBefore?: number;
+    weaponRpmAfter?: number;
+    weaponEnergyAfter?: number;
+    armorAbsorbed?: number;
+    componentDamage?: number;
+    targetHealthBefore?: number;
+    targetHealthAfter?: number;
+    attackerReactionImpulse?: number;
+    attackerDeltaV?: number;
+    attackerDeltaOmega?: number;
+  }
 ): CombatImpactEvent {
   let severityScore = (impulse / 190) * 0.45 + (relativeVelocity / 8.5) * 0.25;
   if (type === 'weapon' && weaponEnergyJ > 0) {
@@ -176,6 +205,29 @@ export function createCombatImpactEvent(
     hitstopMs = 0;
   }
 
+  // Derive DamageSeverity (decoupled from physical ImpactSeverity)
+  let damageSeverity: DamageSeverity = extra?.damageSeverity ?? 'minimal';
+  if (!extra?.damageSeverity) {
+    const fd = finalDamage ?? 0;
+    if (fd >= 22) damageSeverity = 'critical';
+    else if (fd >= 14) damageSeverity = 'severe';
+    else if (fd >= 7) damageSeverity = 'high';
+    else if (fd >= 2.5) damageSeverity = 'moderate';
+    else damageSeverity = 'minimal';
+  }
+
+  // Derive AttackClassification
+  let attackClassification: AttackClassification = extra?.attackClassification ?? 'NEW_STRIKE';
+  if (!extra?.attackClassification) {
+    if (type === 'wall') {
+      attackClassification = 'WALL_IMPACT';
+    } else if (type === 'chassis' && relativeVelocity < 0.95) {
+      attackClassification = 'SUSTAINED_CONTACT';
+    } else {
+      attackClassification = 'NEW_STRIKE';
+    }
+  }
+
   const event: CombatImpactEvent = {
     id: sim.nextImpactEventId++,
     timeSec: Number(sim.timeSec.toFixed(2)),
@@ -185,6 +237,9 @@ export function createCombatImpactEvent(
     impulse: Number(impulse.toFixed(1)),
     severity,
     severity01: Number(severity01.toFixed(3)),
+    damageSeverity,
+    attackClassification,
+    attackType: extra?.attackType ?? type,
     type,
     sourceRobot,
     targetRobot,
@@ -192,11 +247,22 @@ export function createCombatImpactEvent(
     hitstopMs,
     targetDeltaV: targetDeltaV !== undefined ? Number(targetDeltaV.toFixed(2)) : undefined,
     targetDeltaOmega: targetDeltaOmega !== undefined ? Number(targetDeltaOmega.toFixed(2)) : undefined,
+    attackerReactionImpulse: extra?.attackerReactionImpulse !== undefined ? Number(extra.attackerReactionImpulse.toFixed(1)) : undefined,
+    attackerDeltaV: extra?.attackerDeltaV !== undefined ? Number(extra.attackerDeltaV.toFixed(2)) : undefined,
+    attackerDeltaOmega: extra?.attackerDeltaOmega !== undefined ? Number(extra.attackerDeltaOmega.toFixed(2)) : undefined,
+    weaponRpmBefore: extra?.weaponRpmBefore !== undefined ? Number(extra.weaponRpmBefore.toFixed(1)) : undefined,
+    weaponEnergyBefore: extra?.weaponEnergyBefore !== undefined ? Math.round(extra.weaponEnergyBefore) : undefined,
+    weaponRpmAfter: extra?.weaponRpmAfter !== undefined ? Number(extra.weaponRpmAfter.toFixed(1)) : undefined,
+    weaponEnergyAfter: extra?.weaponEnergyAfter !== undefined ? Math.round(extra.weaponEnergyAfter) : undefined,
     tractionBreakDurationSec: tractionBreakDurationSec !== undefined ? Number(tractionBreakDurationSec.toFixed(3)) : undefined,
     hitSector,
     rawDamage: rawDamage !== undefined ? Number(rawDamage.toFixed(1)) : undefined,
     armorMitigation: armorMitigation !== undefined ? Number(armorMitigation.toFixed(2)) : undefined,
+    armorAbsorbed: extra?.armorAbsorbed !== undefined ? Number(extra.armorAbsorbed.toFixed(1)) : undefined,
+    componentDamage: extra?.componentDamage !== undefined ? Number(extra.componentDamage.toFixed(1)) : undefined,
     finalDamage: finalDamage !== undefined ? Number(finalDamage.toFixed(1)) : undefined,
+    targetHealthBefore: extra?.targetHealthBefore !== undefined ? Number(extra.targetHealthBefore.toFixed(1)) : undefined,
+    targetHealthAfter: extra?.targetHealthAfter !== undefined ? Number(extra.targetHealthAfter.toFixed(1)) : undefined,
   };
 
   if (severity !== 'tiny' || !sim.lastImpactEvent || sim.timeSec - sim.lastImpactEvent.timeSec > 0.25) {
@@ -290,8 +356,18 @@ function applyCombatDamage(
   rawDamage: number,
   sector: 'front' | 'corner' | 'side' | 'rear',
   isKineticStrike: boolean
-): { finalHullDmg: number; finalArmorDmg: number; effectiveMitigation: number } {
+): {
+  finalHullDmg: number;
+  finalArmorDmg: number;
+  effectiveMitigation: number;
+  armorAbsorbed: number;
+  componentDmg: number;
+  damageSeverity: DamageSeverity;
+  targetHealthBefore: number;
+  targetHealthAfter: number;
+} {
   const stats = isPlayerBot ? sim.playerStats : sim.bossStats;
+  const targetHealthBefore = targetBot.hullIntegrityPct;
   const effectiveArmor =
     sector === 'front' || sector === 'corner'
       ? stats.frontArmorScore
@@ -302,27 +378,23 @@ function applyCombatDamage(
   // Progressive wedge durability degradation (Wedge Condition)
   const currentCondition = getWedgeCondition(targetBot.frontArmorPct);
   let mitigationMult = 1.0;
-  let hullPassThroughRatio = 0.50;
-
   if (currentCondition === 'healthy') {
     mitigationMult = 1.0;
-    hullPassThroughRatio = 0.45;
   } else if (currentCondition === 'damaged') {
-    mitigationMult = 0.85;
-    hullPassThroughRatio = 0.65;
+    mitigationMult = 0.88;
   } else if (currentCondition === 'heavily-damaged') {
-    mitigationMult = 0.68;
-    hullPassThroughRatio = 0.90;
+    mitigationMult = 0.72;
   } else {
     // critical
-    mitigationMult = 0.50;
-    hullPassThroughRatio = 1.25;
+    mitigationMult = 0.55;
   }
 
   const effectiveMitigation = Math.max(0.40, (effectiveArmor / 65) * mitigationMult);
 
   let finalArmorDmg = 0;
   let finalHullDmg = 0;
+  let armorAbsorbed = 0;
+  let componentDmg = 0;
 
   if (sector === 'front' || sector === 'corner') {
     const isCorner = sector === 'corner';
@@ -330,12 +402,19 @@ function applyCombatDamage(
     finalArmorDmg = (rawDamage * armorWearMult) / effectiveMitigation;
     targetBot.frontArmorPct = Math.max(0, targetBot.frontArmorPct - finalArmorDmg);
 
+    // Armor absorbs damage first while intact
+    const armorHealthFrac = Math.min(1.0, targetBot.frontArmorPct / 100);
+    const armorAbsorbedRatio = 0.65 + armorHealthFrac * 0.15;
+    armorAbsorbed = rawDamage * armorAbsorbedRatio;
+    const passThroughRatio = (1.0 - armorAbsorbedRatio) * (isCorner ? 1.15 : 0.85);
+
     if (targetBot.frontArmorPct < 35 || isKineticStrike) {
-      const weaponDmg = (rawDamage * 0.45) / effectiveMitigation;
+      const weaponDmg = (rawDamage * 0.35) / effectiveMitigation;
       targetBot.weaponHealthPct = Math.max(0, targetBot.weaponHealthPct - weaponDmg);
+      componentDmg = weaponDmg;
     }
 
-    finalHullDmg = (rawDamage * hullPassThroughRatio * (isCorner ? 0.90 : 1.0)) / effectiveMitigation;
+    finalHullDmg = (rawDamage * passThroughRatio) / effectiveMitigation;
     targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - finalHullDmg);
 
     // Update wedge condition & physical deformation
@@ -343,35 +422,64 @@ function applyCombatDamage(
     const lostArmor = 100 - targetBot.frontArmorPct;
     targetBot.wedgeDeformationMm = Math.min(35, lostArmor * 0.35);
   } else if (sector === 'side') {
-    finalArmorDmg = (rawDamage * 1.35) / effectiveMitigation;
+    finalArmorDmg = (rawDamage * 1.25) / effectiveMitigation;
     targetBot.sideArmorPct = Math.max(0, targetBot.sideArmorPct - finalArmorDmg);
 
-    if (!stats.wheelsProtected) {
-      const driveDmg = (rawDamage * 1.1) / effectiveMitigation;
-      targetBot.leftDriveHealthPct = Math.max(0, targetBot.leftDriveHealthPct - driveDmg);
-      targetBot.rightDriveHealthPct = Math.max(0, targetBot.rightDriveHealthPct - driveDmg);
-    } else {
-      const driveDmg = (rawDamage * 0.28) / effectiveMitigation;
-      targetBot.leftDriveHealthPct = Math.max(0, targetBot.leftDriveHealthPct - driveDmg);
-      targetBot.rightDriveHealthPct = Math.max(0, targetBot.rightDriveHealthPct - driveDmg);
-    }
+    const armorHealthFrac = Math.min(1.0, targetBot.sideArmorPct / 100);
+    const armorAbsorbedRatio = 0.50 + armorHealthFrac * 0.15;
+    armorAbsorbed = rawDamage * armorAbsorbedRatio;
+    const passThroughRatio = (1.0 - armorAbsorbedRatio) * 1.10;
 
-    finalHullDmg = (rawDamage * 1.05) / effectiveMitigation;
+    const driveMult = !stats.wheelsProtected ? 0.85 : 0.25;
+    const driveDmg = (rawDamage * driveMult) / effectiveMitigation;
+    targetBot.leftDriveHealthPct = Math.max(0, targetBot.leftDriveHealthPct - driveDmg);
+    targetBot.rightDriveHealthPct = Math.max(0, targetBot.rightDriveHealthPct - driveDmg);
+    componentDmg = driveDmg;
+
+    finalHullDmg = (rawDamage * passThroughRatio) / effectiveMitigation;
     targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - finalHullDmg);
   } else {
     // rear
-    finalArmorDmg = (rawDamage * 1.55) / effectiveMitigation;
+    finalArmorDmg = (rawDamage * 1.40) / effectiveMitigation;
     targetBot.rearArmorPct = Math.max(0, targetBot.rearArmorPct - finalArmorDmg);
 
-    const elecDmg = (rawDamage * 0.65) / effectiveMitigation;
-    targetBot.batteryPct = Math.max(0, targetBot.batteryPct - elecDmg * 0.25);
-    targetBot.electricalHealthPct = Math.max(0, targetBot.electricalHealthPct - elecDmg);
+    const armorHealthFrac = Math.min(1.0, targetBot.rearArmorPct / 100);
+    const armorAbsorbedRatio = 0.40 + armorHealthFrac * 0.15;
+    armorAbsorbed = rawDamage * armorAbsorbedRatio;
+    const passThroughRatio = (1.0 - armorAbsorbedRatio) * 1.25;
 
-    finalHullDmg = (rawDamage * 1.45) / effectiveMitigation;
+    const elecDmg = (rawDamage * 0.50) / effectiveMitigation;
+    targetBot.batteryPct = Math.max(0, targetBot.batteryPct - elecDmg * 0.20);
+    targetBot.electricalHealthPct = Math.max(0, targetBot.electricalHealthPct - elecDmg);
+    componentDmg = elecDmg;
+
+    finalHullDmg = (rawDamage * passThroughRatio) / effectiveMitigation;
     targetBot.hullIntegrityPct = Math.max(0, targetBot.hullIntegrityPct - finalHullDmg);
   }
 
-  return { finalHullDmg, finalArmorDmg, effectiveMitigation };
+  let damageSeverity: DamageSeverity = 'minimal';
+  if (finalHullDmg >= 22 || finalArmorDmg >= 45) {
+    damageSeverity = 'critical';
+  } else if (finalHullDmg >= 14 || finalArmorDmg >= 28) {
+    damageSeverity = 'severe';
+  } else if (finalHullDmg >= 7 || finalArmorDmg >= 16) {
+    damageSeverity = 'high';
+  } else if (finalHullDmg >= 2.5 || finalArmorDmg >= 7) {
+    damageSeverity = 'moderate';
+  } else {
+    damageSeverity = 'minimal';
+  }
+
+  return {
+    finalHullDmg,
+    finalArmorDmg,
+    effectiveMitigation,
+    armorAbsorbed,
+    componentDmg,
+    damageSeverity,
+    targetHealthBefore,
+    targetHealthAfter: targetBot.hullIntegrityPct,
+  };
 }
 
 function addEvent(
@@ -519,6 +627,8 @@ export function createBattleSimulation(
     nextImpactEventId: 1,
     contactActive: false,
     lastImpactTimeSec: -99,
+    sustainedWeaponContactSec: 0,
+    lastAttackerSeparationSec: 1.0,
     wedgePhase: 'none',
     wedgeTimerSec: 0,
     lastWedgeTelemetry: null,
@@ -833,9 +943,21 @@ export function stepBattleSimulation(
         player.aiStateLabel = 'PUSH';
       } else {
         // Post-impact traction break dampens driver steering & throttle authority
-        // BUT preserve reverse escape authority (0.72) and lateral steering authority (0.65) to escape wedge pins
+        // Holding W cannot erase recoil momentum while skidding backward (pAuthority clamped to 0.05)
+        // BUT preserve reverse escape authority (0.75) and lateral steering authority (0.65) to escape pins/skids
         const isReversing = input.throttle < 0;
-        const pAuthority = player.tractionBreakTimerSec > 0 ? (isReversing ? 0.72 : 0.22) : 1.0;
+        const vFwd = player.vx * Math.sin(player.headingRad) + player.vz * Math.cos(player.headingRad);
+        const isRecoilingBackward = vFwd < -0.22;
+        let pAuthority = 1.0;
+        if (player.tractionBreakTimerSec > 0) {
+          if (isReversing) {
+            pAuthority = 0.75;
+          } else if (isRecoilingBackward) {
+            pAuthority = 0.05;
+          } else {
+            pAuthority = 0.22;
+          }
+        }
         const pSteerAuthority = player.tractionBreakTimerSec > 0 ? 0.65 : 1.0;
 
         // A. Differential Steering: Turn left (negative) or right (positive)
@@ -991,7 +1113,9 @@ export function stepBattleSimulation(
         player.aiStateLabel = dist < 1.4 ? 'ENGAGE' : 'APPROACH';
       }
 
-      const pAuthority = player.tractionBreakTimerSec > 0 ? 0.35 : 1.0;
+      const vFwdAuto = player.vx * Math.sin(player.headingRad) + player.vz * Math.cos(player.headingRad);
+      const isRecoilingAuto = vFwdAuto < -0.22;
+      const pAuthority = player.tractionBreakTimerSec > 0 ? (isRecoilingAuto ? 0.06 : 0.35) : 1.0;
       const headingDiff = normalizeAngle(desiredPlayerHeading - player.headingRad);
       const maxTurn = playerTurnRate * dt * (player.tractionBreakTimerSec > 0 ? 0.45 : 1.0);
       player.headingRad = normalizeAngle(player.headingRad + Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), maxTurn));
@@ -1284,7 +1408,19 @@ export function stepBattleSimulation(
             'wall',
             'wall',
             isPlayerBot ? 'player' : 'boss',
-            0
+            0,
+            impactSpeed * 0.52,
+            0,
+            0.22,
+            'front',
+            undefined,
+            undefined,
+            undefined,
+            {
+              damageSeverity: impactSpeed > 2.0 ? 'moderate' : 'minimal',
+              attackClassification: 'WALL_IMPACT',
+              attackType: 'wall',
+            }
           );
           sim.lastImpactTimeSec = sim.timeSec;
         }
@@ -1481,13 +1617,16 @@ export function stepBattleSimulation(
         boss.skidVx = (nx * impulse) / m2;
         boss.skidVz = (nz * impulse) / m2;
 
-        // High-speed chassis ramming damage (applied on initial impact)
+        // High-speed chassis ramming damage (applied on initial impact with nonlinear compression)
+        let ramDmg = 0;
+        let hitSector: 'front' | 'corner' | 'side' | 'rear' = 'front';
+        let ramResult: ReturnType<typeof applyCombatDamage> | undefined;
         if (vRel > 1.8 && (!sim.contactActive || sim.timeSec - sim.lastImpactTimeSec > 0.20)) {
-          const ramDmg = 3.5 + (vRel - 1.8) * 4.2;
+          ramDmg = 2.0 + Math.min(5.0, (vRel - 1.8) * 1.3);
           const pFwd = r1x * Math.sin(player.headingRad) + r1z * Math.cos(player.headingRad);
           const pSide = r1x * Math.cos(player.headingRad) - r1z * Math.sin(player.headingRad);
-          const hitSector = Math.abs(pSide) >= Math.abs(pFwd) ? 'side' : pFwd > 0 ? 'front' : 'rear';
-          applyCombatDamage(sim, player, true, ramDmg, hitSector, false);
+          hitSector = Math.abs(pSide) >= Math.abs(pFwd) ? 'side' : pFwd > 0 ? 'front' : 'rear';
+          ramResult = applyCombatDamage(sim, player, true, ramDmg, hitSector, false);
           applyCombatDamage(sim, boss, false, ramDmg * 0.6, 'front', false);
         }
 
@@ -1505,7 +1644,20 @@ export function stepBattleSimulation(
             0,
             impulse / (m1 > m2 ? m2 : m1),
             Math.abs(m1 > m2 ? deltaOmegaBoss : deltaOmegaPlayer),
-            tBreakDuration
+            tBreakDuration,
+            hitSector,
+            ramDmg > 0 ? ramDmg : undefined,
+            ramResult?.effectiveMitigation,
+            ramResult?.finalHullDmg,
+            {
+              damageSeverity: ramResult?.damageSeverity ?? 'minimal',
+              attackClassification: vRel > 1.8 ? 'NEW_STRIKE' : 'SUSTAINED_CONTACT',
+              attackType: 'ram',
+              armorAbsorbed: ramResult?.armorAbsorbed,
+              componentDamage: ramResult?.componentDmg,
+              targetHealthBefore: ramResult?.targetHealthBefore,
+              targetHealthAfter: ramResult?.targetHealthAfter,
+            }
           );
           sim.lastImpactTimeSec = sim.timeSec;
         }
@@ -1769,7 +1921,7 @@ function resolveBullWedgeInteraction(
   function triggerLiftedWeaponCounter(): boolean {
     if (playerStats.weaponTypeCategory === 'hammer') {
       sim.impactsDelivered++;
-      const rawHammerDmg = 26 + (playerStats.weaponEnergyJ / 120);
+      const rawHammerDmg = 14 + (playerStats.weaponEnergyJ / 260);
       const hitDmgResult = applyCombatDamage(sim, boss, false, rawHammerDmg, 'rear', true);
 
       sim.bossStunTimerSec = 0.75;
@@ -1801,7 +1953,16 @@ function resolveBullWedgeInteraction(
         'rear',
         rawHammerDmg,
         hitDmgResult.effectiveMitigation,
-        hitDmgResult.finalHullDmg
+        hitDmgResult.finalHullDmg,
+        {
+          damageSeverity: hitDmgResult.damageSeverity,
+          attackClassification: 'NEW_STRIKE',
+          attackType: 'hammer',
+          armorAbsorbed: hitDmgResult.armorAbsorbed,
+          componentDamage: hitDmgResult.componentDmg,
+          targetHealthBefore: hitDmgResult.targetHealthBefore,
+          targetHealthAfter: hitDmgResult.targetHealthAfter,
+        }
       );
 
       addEvent(sim, `HAMMER CRUSHED ${sim.bossDossier.name.toUpperCase()} TOP DECK!`, 'impact');
@@ -1810,11 +1971,13 @@ function resolveBullWedgeInteraction(
       return true;
     }
 
+    const rpmBefore = weaponSpin;
     const spinFrac = Math.pow(weaponSpin / 100, 2);
     const rawKineticEnergyJ = Math.max(400, playerStats.weaponEnergyJ * spinFrac);
     sim.impactsDelivered++;
 
-    const rawKineticDmg = Math.max(12, rawKineticEnergyJ / 55);
+    const compressedE = compressKineticDamageEnergy(rawKineticEnergyJ);
+    const rawKineticDmg = 5.0 + compressedE / 90;
     const hitDmgResult = applyCombatDamage(sim, boss, false, rawKineticDmg, 'front', true);
 
     const baseImpulse = Math.sqrt(2 * ((m1 * m2) / (m1 + m2)) * rawKineticEnergyJ);
@@ -1832,11 +1995,9 @@ function resolveBullWedgeInteraction(
     sim.bossChargeActiveSec = 0;
 
     const recoilRatio = playerStats.weaponRecoilScore / 100;
-    const playerRecoilSpeed = THREE.MathUtils.clamp(
-      (2.2 + (rawKineticEnergyJ / 950) * 1.5) * (recoilRatio * 0.65 + 0.35) * 1.35,
-      2.1,
-      8.5
-    );
+    const targetImpulseMag = m2 * knockbackSpeed;
+    const attackerReactionImpulse = targetImpulseMag * (recoilRatio * 0.45 + 0.55);
+    const playerRecoilSpeed = THREE.MathUtils.clamp(attackerReactionImpulse / m1, 2.0, 9.0);
     player.vx += fBx * playerRecoilSpeed;
     player.vz += fBz * playerRecoilSpeed;
 
@@ -1855,7 +2016,11 @@ function resolveBullWedgeInteraction(
     player.skidVz = player.vz * 0.65;
     boss.skidVx = boss.vx * 0.65;
     boss.skidVz = boss.vz * 0.65;
-    player.weaponSpinPct = Math.min(10, player.weaponSpinPct * 0.12);
+
+    // Weapon RPM drain
+    player.weaponSpinPct = Math.max(6, Math.min(22, player.weaponSpinPct * 0.18));
+    const rpmAfter = player.weaponSpinPct;
+    const energyAfter = playerStats.weaponEnergyJ * Math.pow(player.weaponSpinPct / 100, 2);
 
     createCombatImpactEvent(
       sim,
@@ -1873,7 +2038,23 @@ function resolveBullWedgeInteraction(
       'front',
       rawKineticDmg,
       hitDmgResult.effectiveMitigation,
-      hitDmgResult.finalHullDmg
+      hitDmgResult.finalHullDmg,
+      {
+        damageSeverity: hitDmgResult.damageSeverity,
+        attackClassification: 'NEW_STRIKE',
+        attackType: playerStats.weaponTypeCategory,
+        weaponRpmBefore: rpmBefore,
+        weaponEnergyBefore: rawKineticEnergyJ,
+        weaponRpmAfter: rpmAfter,
+        weaponEnergyAfter: energyAfter,
+        armorAbsorbed: hitDmgResult.armorAbsorbed,
+        componentDamage: hitDmgResult.componentDmg,
+        targetHealthBefore: hitDmgResult.targetHealthBefore,
+        targetHealthAfter: hitDmgResult.targetHealthAfter,
+        attackerReactionImpulse,
+        attackerDeltaV: playerRecoilSpeed,
+        attackerDeltaOmega: Math.abs(player.angularVelocityRad),
+      }
     );
 
     addEvent(sim, 'LIFTED WEAPON COUNTER — SPINNER STRUCK BULL UPPER DECK!', 'impact');
@@ -2293,8 +2474,61 @@ function resolveEngagementImpact(
   if (playerPresentingFront && player.weaponHealthPct > 15 && (playerHit || weaponClash || !bossHit)) {
     // 1. SPINNER ENGAGEMENT
     if (wType === 'spinner-vert' || wType === 'spinner-horiz') {
-      if (player.weaponSpinPct < 28) {
-        sim.contactCooldownSec = 0.45;
+      const vClose = (player.vx - boss.vx) * nx + (player.vz - boss.vz) * nz;
+      const isGrinding = sim.sustainedWeaponContactSec > 0.15 && vClose < 0.75 && player.weaponSpinPct < 65;
+
+      if (isGrinding) {
+        sim.contactCooldownSec = 0.28;
+        // Motor load / stall under continuous surface contact
+        player.weaponSpinPct = Math.max(5, Math.min(20, player.weaponSpinPct - dt * 40));
+        const grindDmg = 1.0;
+        const hitDmgResult = applyCombatDamage(sim, boss, false, grindDmg, bossHitOnFront ? 'front' : 'side', false);
+
+        // Small nudge to prevent glitchy interpenetration
+        player.vx = -nx * 0.75;
+        player.vz = -nz * 0.75;
+        boss.vx = nx * 0.75;
+        boss.vz = nz * 0.75;
+
+        createCombatImpactEvent(
+          sim,
+          [midX, midZ],
+          [nx, nz],
+          Math.max(0.2, vClose),
+          25,
+          'weapon',
+          'player',
+          'boss',
+          playerStats.weaponEnergyJ * Math.pow(player.weaponSpinPct / 100, 2),
+          0.75,
+          0,
+          0.12,
+          bossHitOnFront ? 'front' : 'side',
+          grindDmg,
+          hitDmgResult.effectiveMitigation,
+          hitDmgResult.finalHullDmg,
+          {
+            damageSeverity: 'minimal',
+            attackClassification: 'SUSTAINED_CONTACT',
+            attackType: wType,
+            weaponRpmBefore: player.weaponSpinPct,
+            weaponEnergyBefore: playerStats.weaponEnergyJ * Math.pow(player.weaponSpinPct / 100, 2),
+            weaponRpmAfter: player.weaponSpinPct,
+            weaponEnergyAfter: playerStats.weaponEnergyJ * Math.pow(player.weaponSpinPct / 100, 2),
+            armorAbsorbed: hitDmgResult.armorAbsorbed,
+            componentDamage: hitDmgResult.componentDmg,
+            targetHealthBefore: hitDmgResult.targetHealthBefore,
+            targetHealthAfter: hitDmgResult.targetHealthAfter,
+            attackerReactionImpulse: 25,
+            attackerDeltaV: 0.75,
+            attackerDeltaOmega: 0,
+          }
+        );
+        return;
+      }
+
+      if (player.weaponSpinPct < 25) {
+        sim.contactCooldownSec = 0.40;
         const scrapeRelSpeed = Math.hypot(player.vx - boss.vx, player.vz - boss.vz);
         if (scrapeRelSpeed > 0.8) {
           createCombatImpactEvent(sim, [midX, midZ], [nx, nz], scrapeRelSpeed, 25, 'chassis', 'player', 'boss', 0);
@@ -2302,6 +2536,7 @@ function resolveEngagementImpact(
         return;
       }
 
+      // Genuine NEW_STRIKE!
       // Apply instant geometric separation buffer
       const sep = SEPARATION_BUFFER_METERS;
       player.x -= nx * sep * w1;
@@ -2309,8 +2544,10 @@ function resolveEngagementImpact(
       boss.x += nx * sep * w2;
       boss.z += nz * sep * w2;
 
+      const rpmBefore = player.weaponSpinPct;
       const spinFraction = Math.pow(player.weaponSpinPct / 100, 2);
       const rawKineticEnergyJ = playerStats.weaponEnergyJ * spinFraction;
+      const energyBefore = rawKineticEnergyJ;
       sim.impactsDelivered++;
 
       // Bull local lateral contact coordinate to detect corner hits
@@ -2331,15 +2568,24 @@ function resolveEngagementImpact(
 
       let knockbackSpeed: number;
       let deliveredEnergyJ: number;
-      let playerRecoilSpeed: number;
-      let hitDmgResult: { finalHullDmg: number; finalArmorDmg: number; effectiveMitigation: number };
+      let hitDmgResult: {
+        finalHullDmg: number;
+        finalArmorDmg: number;
+        effectiveMitigation: number;
+        armorAbsorbed: number;
+        componentDmg: number;
+        damageSeverity: DamageSeverity;
+        targetHealthBefore: number;
+        targetHealthAfter: number;
+      };
 
       if (bossHitOnFront) {
         // Front plow or corner hit: progressive armor wear and momentum transfer
         const isCorner = sector === 'corner';
         const deflectionFactor = isCorner ? 0.80 : (bossStats.frontArmorScore >= 100 ? 0.65 : 0.85);
         deliveredEnergyJ = rawKineticEnergyJ * deflectionFactor;
-        const rawDmg = deliveredEnergyJ / 55;
+        const compressedE = compressKineticDamageEnergy(deliveredEnergyJ);
+        const rawDmg = compressedE / 90;
         hitDmgResult = applyCombatDamage(sim, boss, false, rawDmg, sector, true);
 
         // Scaled physical knockback on Bull (~2 to 4 robot lengths)
@@ -2352,16 +2598,6 @@ function resolveEngagementImpact(
         boss.vz = nz * knockbackSpeed;
         sim.bossStunTimerSec = Math.max(sim.bossStunTimerSec, isCorner ? 0.75 : 0.50);
 
-        // Player recoil (~0.5 to 1.5 robot lengths)
-        playerRecoilSpeed = THREE.MathUtils.clamp(
-          (2.2 + (deliveredEnergyJ / 950) * 1.5) * (recoilRatio * 0.65 + 0.35) * 1.35,
-          1.8,
-          8.5
-        );
-        player.vx = -nx * playerRecoilSpeed;
-        player.vz = -nz * playerRecoilSpeed;
-
-        player.weaponSpinPct = Math.min(10, player.weaponSpinPct * 0.12);
         if (isCorner) {
           addEvent(sim, `CLIPPED ${sim.bossDossier.name.toUpperCase()} WEDGE CORNER — DEFLECTION YAW!`, 'impact');
         } else {
@@ -2370,7 +2606,8 @@ function resolveEngagementImpact(
       } else {
         // Flank or Rear strike: catastrophic kinetic breach
         deliveredEnergyJ = rawKineticEnergyJ;
-        const rawDmg = deliveredEnergyJ / 45;
+        const compressedE = compressKineticDamageEnergy(deliveredEnergyJ);
+        const rawDmg = compressedE / 85;
         hitDmgResult = applyCombatDamage(sim, boss, false, rawDmg, sector, true);
 
         // Huge knockback on struck flank/rear (~3 to 5+ robot lengths)
@@ -2383,29 +2620,31 @@ function resolveEngagementImpact(
         boss.vz = nz * knockbackSpeed;
         sim.bossStunTimerSec = 0.85;
 
-        // Player recoil
-        playerRecoilSpeed = THREE.MathUtils.clamp(
-          (2.0 + (deliveredEnergyJ / 1100) * 1.4) * (recoilRatio * 0.60 + 0.40) * 1.25,
-          1.5,
-          7.5
-        );
-        player.vx = -nx * playerRecoilSpeed;
-        player.vz = -nz * playerRecoilSpeed;
-
-        player.weaponSpinPct = Math.min(12, player.weaponSpinPct * 0.15);
         addEvent(sim, 'KINETIC BREACH — SIDE FLANK!', 'impact');
       }
 
-      const impulseMag = m2 * knockbackSpeed;
+      // Symmetrical attacker recoil impulse (J_attacker = -J_target)
+      const targetImpulseMag = m2 * knockbackSpeed;
+      const reactionFactor = wType === 'spinner-horiz' ? 0.90 : 0.78;
+      const attackerReactionImpulse = targetImpulseMag * reactionFactor * (recoilRatio * 0.45 + 0.55);
+      const playerRecoilSpeed = THREE.MathUtils.clamp(attackerReactionImpulse / m1, 1.8, 14.0);
+      player.vx = -nx * playerRecoilSpeed;
+      player.vz = -nz * playerRecoilSpeed;
+
+      // Weapon RPM drain after hit
+      const deliveredFraction = Math.min(0.92, deliveredEnergyJ / Math.max(1, rawKineticEnergyJ));
+      const rpmRetainedFrac = Math.sqrt(Math.max(0.04, 1.0 - deliveredFraction * 0.90));
+      player.weaponSpinPct = Math.max(5, Math.min(12, rpmBefore * rpmRetainedFrac));
+      const rpmAfter = player.weaponSpinPct;
+      const energyAfter = playerStats.weaponEnergyJ * Math.pow(player.weaponSpinPct / 100, 2);
 
       // Angular yaw torque on BOTH bots from off-center weapon contact
-      // Corner strike delivers amplified yaw moment
       const cornerTorqueMult = sector === 'corner' ? 1.6 : 1.0;
-      const tauBoss = (r2x * (nz * impulseMag) - r2z * (nx * impulseMag)) * ANGULAR_IMPULSE_SCALE * cornerTorqueMult;
+      const tauBoss = (r2x * (nz * targetImpulseMag) - r2z * (nx * targetImpulseMag)) * ANGULAR_IMPULSE_SCALE * cornerTorqueMult;
       const deltaOmegaBoss = THREE.MathUtils.clamp(tauBoss / I2, -36, 36);
       boss.angularVelocityRad += deltaOmegaBoss;
 
-      const tauPlayer = (r1x * (-nz * impulseMag * recoilRatio) - r1z * (-nx * impulseMag * recoilRatio)) * ANGULAR_IMPULSE_SCALE;
+      const tauPlayer = (r1x * (-nz * attackerReactionImpulse) - r1z * (-nx * attackerReactionImpulse)) * ANGULAR_IMPULSE_SCALE;
       const deltaOmegaPlayer = THREE.MathUtils.clamp(tauPlayer / I1, -36, 36);
       player.angularVelocityRad += deltaOmegaPlayer;
 
@@ -2415,10 +2654,10 @@ function resolveEngagementImpact(
       boss.skidVx = nx * knockbackSpeed * 0.65;
       boss.skidVz = nz * knockbackSpeed * 0.65;
 
-      const tBreakPlayer = Math.min(0.45, 0.18 + (rawKineticEnergyJ / 3200) * 0.25);
+      const tBreakPlayer = Math.min(0.55, 0.24 + (rawKineticEnergyJ / 3000) * 0.26);
       player.tractionBreakTimerSec = tBreakPlayer;
-      player.skidVx = -nx * playerRecoilSpeed * 0.55;
-      player.skidVz = -nz * playerRecoilSpeed * 0.55;
+      player.skidVx = -nx * playerRecoilSpeed * 0.65;
+      player.skidVz = -nz * playerRecoilSpeed * 0.65;
 
       // Vertical reaction (wheel lift, pitch kick, roll tilt)
       if (wType === 'spinner-vert') {
@@ -2439,7 +2678,7 @@ function resolveEngagementImpact(
         [midX, midZ],
         [nx, nz],
         knockbackSpeed + playerRecoilSpeed,
-        impulseMag,
+        targetImpulseMag,
         'weapon',
         'player',
         'boss',
@@ -2448,9 +2687,25 @@ function resolveEngagementImpact(
         Math.abs(deltaOmegaBoss),
         tBreakBoss,
         sector,
-        deliveredEnergyJ / (bossHitOnFront ? 55 : 45),
+        deliveredEnergyJ / 85,
         hitDmgResult.effectiveMitigation,
-        hitDmgResult.finalHullDmg
+        hitDmgResult.finalHullDmg,
+        {
+          damageSeverity: hitDmgResult.damageSeverity,
+          attackClassification: 'NEW_STRIKE',
+          attackType: wType,
+          weaponRpmBefore: rpmBefore,
+          weaponEnergyBefore: energyBefore,
+          weaponRpmAfter: rpmAfter,
+          weaponEnergyAfter: energyAfter,
+          armorAbsorbed: hitDmgResult.armorAbsorbed,
+          componentDamage: hitDmgResult.componentDmg,
+          targetHealthBefore: hitDmgResult.targetHealthBefore,
+          targetHealthAfter: hitDmgResult.targetHealthAfter,
+          attackerReactionImpulse,
+          attackerDeltaV: playerRecoilSpeed,
+          attackerDeltaOmega: Math.abs(deltaOmegaPlayer),
+        }
       );
 
       // Vertical spinner overturn check
@@ -2461,7 +2716,7 @@ function resolveEngagementImpact(
       }
 
       sim.weaponAtSpeedAnnounced = false;
-      sim.contactCooldownSec = 0.85;
+      sim.contactCooldownSec = 0.72;
       return;
     }
 
@@ -2475,7 +2730,7 @@ function resolveEngagementImpact(
       boss.z += nz * sep * w2;
 
       // Overhead strike directly penetrates top armor / deck
-      const rawHammerDmg = 26 + (playerStats.weaponEnergyJ / 120);
+      const rawHammerDmg = 14 + (playerStats.weaponEnergyJ / 260);
       const hitDmgResult = applyCombatDamage(sim, boss, false, rawHammerDmg, 'rear', true);
 
       // Disrupt Bull charge & stun
@@ -2505,7 +2760,19 @@ function resolveEngagementImpact(
         'rear',
         rawHammerDmg,
         hitDmgResult.effectiveMitigation,
-        hitDmgResult.finalHullDmg
+        hitDmgResult.finalHullDmg,
+        {
+          damageSeverity: hitDmgResult.damageSeverity,
+          attackClassification: 'NEW_STRIKE',
+          attackType: 'hammer',
+          armorAbsorbed: hitDmgResult.armorAbsorbed,
+          componentDamage: hitDmgResult.componentDmg,
+          targetHealthBefore: hitDmgResult.targetHealthBefore,
+          targetHealthAfter: hitDmgResult.targetHealthAfter,
+          attackerReactionImpulse: 95,
+          attackerDeltaV: 1.2,
+          attackerDeltaOmega: 0,
+        }
       );
 
       addEvent(sim, `HAMMER CRUSHED ${sim.bossDossier.name.toUpperCase()} TOP DECK!`, 'impact');
@@ -2535,9 +2802,35 @@ function resolveEngagementImpact(
         boss.tractionBreakTimerSec = 0.35;
         sim.bossStunTimerSec = 0.85;
         sim.bossRepositionTimerSec = 1.0;
-        applyCombatDamage(sim, boss, false, 18, bossHitOnFront ? 'front' : 'side', false);
+        const hitDmgResult = applyCombatDamage(sim, boss, false, 8.5, bossHitOnFront ? 'front' : 'side', false);
 
-        createCombatImpactEvent(sim, [midX, midZ], [nx, nz], shoveVel, 115, 'weapon', 'player', 'boss', 0, shoveVel, 0, 0.35);
+        createCombatImpactEvent(
+          sim,
+          [midX, midZ],
+          [nx, nz],
+          shoveVel,
+          115,
+          'weapon',
+          'player',
+          'boss',
+          0,
+          shoveVel,
+          0,
+          0.35,
+          bossHitOnFront ? 'front' : 'side',
+          8.5,
+          hitDmgResult.effectiveMitigation,
+          hitDmgResult.finalHullDmg,
+          {
+            damageSeverity: hitDmgResult.damageSeverity,
+            attackClassification: 'NEW_STRIKE',
+            attackType: 'lifter',
+            armorAbsorbed: hitDmgResult.armorAbsorbed,
+            componentDamage: hitDmgResult.componentDmg,
+            targetHealthBefore: hitDmgResult.targetHealthBefore,
+            targetHealthAfter: hitDmgResult.targetHealthAfter,
+          }
+        );
 
         if (!bossHitOnFront || sim.impactsDelivered >= 2 || playerStats.pushingForceN >= 135) {
           boss.isFlipped = true;
@@ -2557,7 +2850,7 @@ function resolveEngagementImpact(
       return;
     }
 
-    // 3. WEDGE / PUSHER ENGAGEMENT
+    // 4. WEDGE / PUSHER ENGAGEMENT
     if (wType === 'wedge') {
       const sep = SEPARATION_BUFFER_METERS;
       player.x -= nx * sep * w1;
@@ -2577,9 +2870,35 @@ function resolveEngagementImpact(
         boss.pitchRad = -0.45;
         boss.tractionBreakTimerSec = 0.32;
         sim.bossRepositionTimerSec = 0.9;
-        applyCombatDamage(sim, boss, false, 10, bossHitOnFront ? 'front' : 'side', false);
+        const hitDmgResult = applyCombatDamage(sim, boss, false, 6.0, bossHitOnFront ? 'front' : 'side', false);
         sim.bossStunTimerSec = 0.35;
-        createCombatImpactEvent(sim, [midX, midZ], [nx, nz], shoveVel, 95, 'weapon', 'player', 'boss', 0, shoveVel, 0, 0.32);
+        createCombatImpactEvent(
+          sim,
+          [midX, midZ],
+          [nx, nz],
+          shoveVel,
+          95,
+          'weapon',
+          'player',
+          'boss',
+          0,
+          shoveVel,
+          0,
+          0.32,
+          bossHitOnFront ? 'front' : 'side',
+          6.0,
+          hitDmgResult.effectiveMitigation,
+          hitDmgResult.finalHullDmg,
+          {
+            damageSeverity: hitDmgResult.damageSeverity,
+            attackClassification: 'NEW_STRIKE',
+            attackType: 'wedge',
+            armorAbsorbed: hitDmgResult.armorAbsorbed,
+            componentDamage: hitDmgResult.componentDmg,
+            targetHealthBefore: hitDmgResult.targetHealthBefore,
+            targetHealthAfter: hitDmgResult.targetHealthAfter,
+          }
+        );
         addEvent(sim, `WEDGE SHOVED ${sim.bossDossier.name.toUpperCase()} BACKWARD`, 'impact');
       } else {
         sim.bossPushTimeSec += 0.5;
@@ -2588,7 +2907,7 @@ function resolveEngagementImpact(
         player.vx = -nx * shoveVel;
         player.vz = -nz * shoveVel;
         player.tractionBreakTimerSec = 0.20;
-        applyCombatDamage(sim, player, true, 10, 'front', false);
+        applyCombatDamage(sim, player, true, 5.0, 'front', false);
         createCombatImpactEvent(sim, [midX, midZ], [-nx, -nz], shoveVel, 90, 'chassis', 'boss', 'player', 0);
         addEvent(sim, `OUT-PUSHED BY ${sim.bossDossier.name}`, 'warning');
       }
@@ -2596,7 +2915,7 @@ function resolveEngagementImpact(
       return;
     }
 
-    // 4. GRABBER / CLAMP ENGAGEMENT
+    // 5. GRABBER / CLAMP ENGAGEMENT
     if (wType === 'grabber') {
       sim.impactsDelivered++;
       player.isGrabbing = true;
@@ -2611,15 +2930,41 @@ function resolveEngagementImpact(
         const shoveVel = 2.4 + (playerEffectivePush - bossEffectivePush) * 0.02;
         boss.vx = nx * shoveVel;
         boss.vz = nz * shoveVel;
-        const clampDamage = bossHitOnFront ? 16 : 28;
-        applyCombatDamage(sim, boss, false, clampDamage, bossHitOnFront ? 'front' : 'side', false);
-        createCombatImpactEvent(sim, [midX, midZ], [nx, nz], shoveVel, 130, 'weapon', 'player', 'boss', 0);
+        const clampDamage = bossHitOnFront ? 9 : 14;
+        const hitDmgResult = applyCombatDamage(sim, boss, false, clampDamage, bossHitOnFront ? 'front' : 'side', false);
+        createCombatImpactEvent(
+          sim,
+          [midX, midZ],
+          [nx, nz],
+          shoveVel,
+          130,
+          'weapon',
+          'player',
+          'boss',
+          0,
+          shoveVel,
+          0,
+          0.30,
+          bossHitOnFront ? 'front' : 'side',
+          clampDamage,
+          hitDmgResult.effectiveMitigation,
+          hitDmgResult.finalHullDmg,
+          {
+            damageSeverity: hitDmgResult.damageSeverity,
+            attackClassification: 'NEW_STRIKE',
+            attackType: 'grabber',
+            armorAbsorbed: hitDmgResult.armorAbsorbed,
+            componentDamage: hitDmgResult.componentDmg,
+            targetHealthBefore: hitDmgResult.targetHealthBefore,
+            targetHealthAfter: hitDmgResult.targetHealthAfter,
+          }
+        );
         addEvent(sim, `PINNED & CRUSHED ${sim.bossDossier.name}!`, 'impact');
       } else {
         sim.bossPushTimeSec += 0.4;
         player.vx = -nx * 1.8;
         player.vz = -nz * 1.8;
-        applyCombatDamage(sim, boss, false, 8, 'front', false);
+        applyCombatDamage(sim, boss, false, 5, 'front', false);
         createCombatImpactEvent(sim, [midX, midZ], [-nx, -nz], 1.8, 85, 'chassis', 'boss', 'player', 0);
         addEvent(sim, `CLAMP PIN BROKEN BY ${sim.bossDossier.name}`, 'warning');
       }
@@ -2649,23 +2994,36 @@ function resolveEngagementImpact(
     addEvent(sim, 'IMPACT — FRONT', 'warning');
   }
 
-  const bossDamageScaling = (bossStats.weaponEnergyJ / 1400) + (bossId === 'cyclone' ? 14 : bossId === 'bull' ? 4.5 : 7);
-  applyCombatDamage(sim, player, true, bossDamageScaling * 4.2, playerHitSector, isKineticB);
+  // Nonlinear damage compression for boss attack
+  const compressedBossEnergy = compressKineticDamageEnergy(bossStats.weaponEnergyJ);
+  const rawBossDmg = compressedBossEnergy / 115 + (bossId === 'bull' ? 4.0 : 6.0);
+  const hitDmgResult = applyCombatDamage(sim, player, true, rawBossDmg, playerHitSector, isKineticB);
 
   // Scaled Knockback on player & off-center torque
   const bossKnockback = THREE.MathUtils.clamp(
-    (3.2 + (bossStats.weaponEnergyJ / 1500) * 2.2) * WEAPON_IMPACT_RESPONSE_SCALE * (24 / m1),
-    2.8,
-    14.0
+    (3.0 + (bossStats.weaponEnergyJ / 1600) * 2.0) * WEAPON_IMPACT_RESPONSE_SCALE * (24 / m1),
+    2.5,
+    13.0
   );
   player.vx = -nx * bossKnockback;
   player.vz = -nz * bossKnockback;
   sim.playerStunTimerSec = 0.45;
 
   const impulseMag = m1 * bossKnockback;
+
+  // Bull reaction recoil (symmetrical reaction impulse J_attacker = -J_target * 0.42)
+  const bossRecoilSpeed = (impulseMag * 0.42) / m2;
+  boss.vx += nx * bossRecoilSpeed;
+  boss.vz += nz * bossRecoilSpeed;
+  boss.tractionBreakTimerSec = Math.max(boss.tractionBreakTimerSec, 0.35);
+
   const tauPlayer = (r1x * (-nz * impulseMag) - r1z * (-nx * impulseMag)) * ANGULAR_IMPULSE_SCALE;
   const deltaOmegaPlayer = THREE.MathUtils.clamp(tauPlayer / I1, -32, 32);
   player.angularVelocityRad += deltaOmegaPlayer;
+
+  const tauBoss = (r2x * (nz * impulseMag * 0.4) - r2z * (nx * impulseMag * 0.4)) * ANGULAR_IMPULSE_SCALE;
+  const deltaOmegaBoss = THREE.MathUtils.clamp(tauBoss / I2, -24, 24);
+  boss.angularVelocityRad += deltaOmegaBoss;
 
   const tBreakPlayer = Math.min(0.55, 0.22 + (bossStats.weaponEnergyJ / 2600) * 0.28);
   player.tractionBreakTimerSec = tBreakPlayer;
@@ -2686,7 +3044,7 @@ function resolveEngagementImpact(
     sim,
     [midX, midZ],
     [-nx, -nz],
-    bossKnockback,
+    bossKnockback + bossRecoilSpeed,
     impulseMag,
     'weapon',
     'boss',
@@ -2694,7 +3052,23 @@ function resolveEngagementImpact(
     bossStats.weaponEnergyJ,
     bossKnockback,
     Math.abs(deltaOmegaPlayer),
-    tBreakPlayer
+    tBreakPlayer,
+    playerHitSector,
+    rawBossDmg,
+    hitDmgResult.effectiveMitigation,
+    hitDmgResult.finalHullDmg,
+    {
+      damageSeverity: hitDmgResult.damageSeverity,
+      attackClassification: 'NEW_STRIKE',
+      attackType: bossStats.weaponTypeCategory,
+      armorAbsorbed: hitDmgResult.armorAbsorbed,
+      componentDamage: hitDmgResult.componentDmg,
+      targetHealthBefore: hitDmgResult.targetHealthBefore,
+      targetHealthAfter: hitDmgResult.targetHealthAfter,
+      attackerReactionImpulse: impulseMag * 0.42,
+      attackerDeltaV: bossRecoilSpeed,
+      attackerDeltaOmega: Math.abs(deltaOmegaBoss),
+    }
   );
 
   if ((playerStats.centerOfMassLabel === 'HIGH' || playerStats.stabilityScore < 40) && bossStats.weaponEnergyJ >= 1800 && sim.lateralImpactsTaken >= 2) {
