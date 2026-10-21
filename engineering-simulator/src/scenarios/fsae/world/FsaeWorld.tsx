@@ -1,16 +1,19 @@
 import { Check, Circle, Flag, Users, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { money } from '../../../core/format'
+import { namesLabel, rolesOf, teamRoster, togglePick, type RoleSplit } from '../../../core/roles'
 import type { WorldProps } from '../../../core/scenario'
+import { play, usePlayOnIncrease } from '../../../shared/audio/sfx'
 import { CONE_PENALTY_S, heatStartTime, upsert } from '../config'
 import { designCost, designFunds } from '../cost'
-import { getClaims, ROLE_BY_ID, roleChecklist, ROLES, teamChecklist, type CheckItem } from '../roles'
+import { ROLE_BY_ID, roleChecklist, ROLES, roleSplit, teamChecklist, type CheckItem } from '../roles'
 import { carParams, type CarParams } from '../sim/car'
 import type { FsaeResult, FsaeRun } from '../sim/engine'
-import type { ClaimObject, FsaeObject, FsaeRoleId, LapObject, RaceCallObject } from '../types'
+import type { FsaeObject, FsaeRoleId, LapObject, RaceCallObject, RolePrefObject } from '../types'
 import { BusinessStation } from './BusinessStation'
 import { ElectricalStation } from './ElectricalStation'
 import { MechanicalStation } from './MechanicalStation'
+import { usePaintVersion } from './paintStore'
 import { RaceDayStation } from './RaceDayStation'
 import { RaceView, ReplayView, type FinishedLap } from './RaceView'
 import { SoftwareStation } from './SoftwareStation'
@@ -40,10 +43,25 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
   const me = sync?.me ?? 'solo'
   const meName = sync?.meName ?? 'You'
   const multiplayer = !!sync
-  const claims = getClaims(design)
-  const myRole = (Object.entries(claims).find(([, c]) => c?.playerId === me)?.[0] ?? null) as FsaeRoleId | null
-  const [tab, setTab] = useState<Tab>(() => myRole ?? 'mechanical')
-  const [pickerOpen, setPickerOpen] = useState(() => multiplayer && !myRole)
+  // The four jobs are split among however many people are on the team.
+  const split = roleSplit(design, teamRoster(sync))
+  const myRoles = rolesOf(split, me)
+  const myPicks = design.find((o): o is RolePrefObject => o.kind === 'rolePref' && o.playerId === me)?.choices ?? []
+  // The station tab follows this player's first job until they open another one.
+  const [picked, setPicked] = useState<Tab | null>(null)
+  const tab: Tab = picked ?? myRoles[0] ?? 'mechanical'
+  const [pickerOpen, setPickerOpen] = useState(false)
+  // Ask a new teammate for their picks once the team's design has loaded (not again after a refresh).
+  const hasPicks = myPicks.length > 0
+  const askedForPicks = useRef(false)
+  useEffect(() => {
+    if (!multiplayer || hasPicks || askedForPicks.current) return
+    const t = window.setTimeout(() => {
+      askedForPicks.current = true
+      setPickerOpen(true)
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [multiplayer, hasPicks])
   // The car's numbers are frozen when the heat starts.
   const [racing, setRacing] = useState<{ call: RaceCallObject; params: CarParams } | null>(null)
   const [replay, setReplay] = useState<number | null>(null)
@@ -95,22 +113,17 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
     commit(upsert(design, obj))
   }
 
-  const claim = (role: FsaeRoleId | null) => {
-    let next = design
-    for (const r of ROLES) {
-      const c = claims[r.id]
-      if (c?.playerId === me && r.id !== role) next = upsert(next, { ...c, playerId: null, playerName: null })
-    }
-    if (role) {
-      const obj: ClaimObject = { id: `claim:${role}`, kind: 'claim', role, playerId: me, playerName: meName, updatedAt: claims[role]?.updatedAt ?? 0 }
-      next = upsert(next, obj)
-      setTab(role)
-    }
-    commit(next)
-    setPickerOpen(false)
+  const togglePref = (role: FsaeRoleId) => {
+    if (locked) return
+    const prev = design.find((o): o is RolePrefObject => o.kind === 'rolePref' && o.playerId === me)
+    commit(upsert(design, { id: `rolePref:${me}`, kind: 'rolePref', playerId: me, playerName: meName, choices: togglePick(myPicks, role), updatedAt: prev?.updatedAt ?? 0 }))
+    setPicked(null)
   }
 
   const fsaeRun = run as FsaeRun | null
+  // Flyer paint is kept on this device; re-render so the business checklist sees it.
+  usePaintVersion()
+  usePlayOnIncrease(ROLES.reduce((n, r) => n + roleChecklist(design, r.id).filter((i) => i.done).length, 0) + teamChecklist(design, lastResult).filter((i) => i.done).length)
   const items: CheckItem[] = tab === 'race' ? teamChecklist(design, lastResult) : roleChecklist(design, tab)
   const cost = designCost(design)
   const funds = designFunds(design)
@@ -134,7 +147,7 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
         onFinish={(lap) => finishLap(heat.heat, heat.night, lap)}
         onExit={() => {
           setRacing(null)
-          setTab('race')
+          setPicked('race')
         }}
       />
     )
@@ -144,9 +157,9 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
     const heatLaps = laps.filter((l) => l.heat === replay)
     body = <ReplayView design={design} laps={heatLaps} night={heatLaps[0]?.night ?? false} onExit={() => setReplay(null)} />
   } else if (tab === 'mechanical') body = <MechanicalStation design={design} locked={locked} onCommit={commit} />
-  else if (tab === 'electrical') body = <ElectricalStation design={design} locked={locked} onCommit={commit} />
+  else if (tab === 'electrical') body = <ElectricalStation design={design} locked={locked} fallbackSeed={softwareSeed} onCommit={commit} />
   else if (tab === 'software') body = <SoftwareStation design={design} locked={locked} fallbackSeed={softwareSeed} onCommit={commit} />
-  else if (tab === 'business') body = <BusinessStation design={design} locked={locked} onCommit={commit} />
+  else if (tab === 'business') body = <BusinessStation design={design} locked={locked} fallbackSeed={softwareSeed} onCommit={commit} />
   else
     body = (
       <RaceDayStation
@@ -170,23 +183,28 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
             {ROLES.map((r) => {
               const list = roleChecklist(design, r.id)
               const done = list.filter((i) => i.done).length
-              const holder = claims[r.id]
+              const holders = split[r.id]
+              const mine = holders.some((h) => h.id === me)
+              const others = namesLabel(holders.filter((h) => h.id !== me), me)
               const active = tab === r.id
               return (
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => setTab(r.id)}
+                  onClick={() => {
+                    play('click')
+                    setPicked(r.id)
+                  }}
                   className={`flex items-center gap-2 rounded-t-xl border-x border-t px-3 py-2 text-left transition ${active ? 'border-line bg-paper' : 'border-transparent hover:bg-paper/60'}`}
                 >
                   <span className="size-2.5 rounded-full" style={{ background: r.accent }} />
                   <span className="leading-tight">
                     <span className="block font-display text-[14px] font-bold text-ink">
                       {r.short}
-                      {holder?.playerId === me && multiplayer && <span className="ml-1 font-mono text-[10px] font-semibold text-forest">(you)</span>}
+                      {mine && multiplayer && <span className="ml-1 font-mono text-[10px] font-semibold text-forest">(you)</span>}
                     </span>
                     <span className="block font-mono text-[10px] text-ink/50">
-                      {done}/{list.length} done{multiplayer && holder?.playerName && holder.playerId !== me ? ` · ${holder.playerName}` : ''}
+                      {done}/{list.length} done{multiplayer && others ? ` · ${others}` : ''}
                     </span>
                   </span>
                   {done === list.length && <Check className="size-4 text-forest" strokeWidth={3} />}
@@ -195,7 +213,10 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
             })}
             <button
               type="button"
-              onClick={() => setTab('race')}
+              onClick={() => {
+                play('click')
+                setPicked('race')
+              }}
               className={`flex items-center gap-2 rounded-t-xl border-x border-t px-3 py-2 transition ${tab === 'race' ? 'border-line bg-paper' : 'border-transparent hover:bg-paper/60'}`}
             >
               <Flag className="size-4 text-forest" />
@@ -207,7 +228,7 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
               </span>
               {multiplayer && (
                 <button type="button" onClick={() => setPickerOpen(true)} className="flex items-center gap-1.5 rounded-full bg-paper px-3 py-1 text-xs font-bold ring-1 ring-line hover:bg-mint">
-                  <Users className="size-3.5" /> {myRole ? `Job: ${ROLE_BY_ID[myRole].short}` : 'Pick your job'}
+                  <Users className="size-3.5" /> {myRoles.length ? `${myRoles.length > 1 ? 'Jobs' : 'Job'}: ${myRoles.map((r) => ROLE_BY_ID[r].short).join(' + ')}` : 'Pick your job'}
                 </button>
               )}
             </div>
@@ -230,20 +251,43 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
 
       <div className="min-h-0 flex-1 p-3">{body}</div>
 
-      {pickerOpen && showChrome && <RolePicker claims={claims} me={me} onPick={claim} onClose={() => setPickerOpen(false)} />}
+      {pickerOpen && showChrome && (
+        <RolePicker split={split} me={me} picks={myPicks} teamSize={teamRoster(sync).length} onToggle={togglePref} onClose={() => setPickerOpen(false)} />
+      )}
     </div>
   )
 }
 
-function RolePicker({ claims, me, onPick, onClose }: { claims: Record<FsaeRoleId, ClaimObject | null>; me: string; onPick(role: FsaeRoleId | null): void; onClose(): void }) {
+function RolePicker({
+  split,
+  me,
+  picks,
+  teamSize,
+  onToggle,
+  onClose,
+}: {
+  split: RoleSplit<FsaeRoleId>
+  me: string
+  picks: FsaeRoleId[]
+  teamSize: number
+  onToggle(role: FsaeRoleId): void
+  onClose(): void
+}) {
+  const mine = rolesOf(split, me)
+  const jobsLine =
+    teamSize < ROLES.length
+      ? `${teamSize} ${teamSize === 1 ? 'person' : 'people'}, four jobs: ${teamSize === 1 ? 'you do them all' : 'some of you take two'}.`
+      : teamSize > ROLES.length
+        ? `${teamSize} people, four jobs: some jobs are shared.`
+        : 'Four people, four jobs: one each.'
   return (
     <div className="absolute inset-0 z-30 grid place-items-center bg-ink/40 p-4 backdrop-blur-[2px]">
       <div className="w-full max-w-[760px] animate-pop rounded-2xl bg-white p-5 shadow-2xl">
         <div className="flex items-start justify-between">
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-wider text-forest">Formula SAE team</div>
-            <h2 className="font-display text-2xl font-bold">Pick your job</h2>
-            <p className="text-sm text-ink/60">Four jobs, one car. You can still open every station and help out.</p>
+            <div className="font-mono text-[11px] uppercase tracking-wider text-forest">Formula SAE team · {jobsLine}</div>
+            <h2 className="font-display text-2xl font-bold">Pick your top two jobs</h2>
+            <p className="text-sm text-ink/60">Tap your 1st choice, then your 2nd. The jobs are split across the team from everyone’s picks. You can still open every station and help out.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="text-ink/50 hover:text-ink">
             <X className="size-5" />
@@ -251,28 +295,36 @@ function RolePicker({ claims, me, onPick, onClose }: { claims: Record<FsaeRoleId
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3">
           {ROLES.map((r) => {
-            const c = claims[r.id]
-            const mine = c?.playerId === me
+            const rank = picks.indexOf(r.id)
+            const who = namesLabel(split[r.id], me)
             return (
               <button
                 key={r.id}
                 type="button"
-                onClick={() => onPick(r.id)}
-                className={`rounded-xl p-4 text-left ring-1 transition hover:-translate-y-0.5 ${mine ? 'bg-mint ring-2 ring-forest' : 'bg-paper ring-line hover:bg-white'}`}
+                onClick={() => onToggle(r.id)}
+                className={`rounded-xl p-4 text-left ring-1 transition hover:-translate-y-0.5 ${rank >= 0 ? 'bg-mint ring-2 ring-forest' : 'bg-paper ring-line hover:bg-white'}`}
               >
                 <div className="flex items-center gap-2">
                   <span className="size-3 rounded-full" style={{ background: r.accent }} />
                   <span className="font-display text-lg font-bold">{r.title}</span>
+                  {rank >= 0 && <span className="ml-auto rounded-full bg-forest px-2 py-0.5 font-mono text-[10px] font-bold text-white">{rank === 0 ? '1st' : '2nd'}</span>}
                 </div>
                 <p className="mt-1 text-sm text-ink/70">{r.summary}</p>
-                <div className="mt-2 font-mono text-[11px] text-ink/55">{mine ? 'Your job' : c?.playerName ? `Taken by ${c.playerName} (tap to swap in)` : 'Open'}</div>
+                <div className="mt-2 font-mono text-[11px] text-ink/55">Assigned to: {who || 'nobody yet'}</div>
               </button>
             )
           })}
         </div>
-        <div className="mt-4 flex justify-end">
-          <button type="button" onClick={() => onPick(null)} className="rounded-xl px-4 py-2 text-sm font-semibold ring-1 ring-line hover:bg-paper">
-            No job, I’ll help everyone
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <span className="text-sm">
+            {mine.length ? (
+              <>
+                {mine.length > 1 ? 'Your jobs' : 'Your job'}: <strong className="text-forest">{mine.map((r) => ROLE_BY_ID[r].title).join(' + ')}</strong>
+              </>
+            ) : null}
+          </span>
+          <button type="button" onClick={onClose} className="rounded-xl bg-forest px-4 py-2 text-sm font-semibold text-white hover:bg-forest-dark">
+            Done
           </button>
         </div>
       </div>

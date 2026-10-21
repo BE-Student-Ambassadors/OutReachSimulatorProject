@@ -8,6 +8,8 @@ import { connectAuthEmulator, getAuth, GoogleAuthProvider, signInAnonymously, si
 import { collection, connectFirestoreEmulator, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc } from 'firebase/firestore'
 import { afterAll, describe, expect, test } from 'vitest'
 import { createSession, joinSession, makeTeams, placeLateJoiners, postEvent, setChoices, setSessionState, writeShared } from './api'
+import { createInitialTeamProject } from '../scenarios/battlebots/data/teamData'
+import { projectFromDesign, withProject } from '../scenarios/battlebots/teamSync'
 import type { Group, Player } from './types'
 
 const PROJECT = 'demo-besa'
@@ -57,14 +59,16 @@ describe('multiplayer sessions (emulator)', () => {
     // Everyone got their 1st choice here (both challenges have enough interest).
     for (const p of players) expect(groups.find((g) => g.id === p.groupId)!.gameId).toBe(picks[p.name][0])
 
-    // A late joiner lands on the smallest team of their top pick.
+    // A late joiner lands on a team of their top pick (never past the max team size).
     const late = { ...(await device('student')), name: 'Fay' }
     await joinSession(late.db, late.uid, session.code, late.name)
     await setChoices(late.db, session.id, late.uid, ['flood'])
     const all = (await getDocs(collection(host.db, 'sessions', session.id, 'players'))).docs.map((d) => ({ id: d.id, ...d.data() }) as Player)
-    await placeLateJoiners(host.db, session.id, all, groups as Group[])
+    await placeLateJoiners(host.db, session.id, all, groups as Group[], 2, ['traffic', 'flood'])
     const fay = (await getDoc(doc(host.db, 'sessions', session.id, 'players', late.uid))).data() as Player
-    expect(groups.find((g) => g.id === fay.groupId)!.gameId).toBe('flood')
+    // The flood team already had the max of 2, so Fay starts a new flood team rather than overfilling it.
+    const allGroups = (await getDocs(collection(host.db, 'sessions', session.id, 'groups'))).docs.map((d) => ({ id: d.id, ...d.data() }) as Group)
+    expect(allGroups.find((g) => g.id === fay.groupId)!.gameId).toBe('flood')
     const after = (await getDocs(collection(host.db, 'sessions', session.id, 'players'))).docs.map((d) => d.data() as Player)
 
     await setSessionState(host.db, session.id, 'playing', { endsAt: Date.now() + 15 * 60_000 })
@@ -127,6 +131,80 @@ describe('multiplayer sessions (emulator)', () => {
     // Ended games reject new players.
     const c = await device('student')
     await expect(joinSession(c.db, c.uid, session.code, 'C')).rejects.toThrow('ended')
+  })
+
+  test('rejoining (a refresh, or the same code again) keeps the student on their team with the team design', async () => {
+    const host = await device('instructor')
+    const session = await createSession(host.db, { uid: host.uid, name: 'Host' }, { gameIds: ['fsae'], teamSize: 4 })
+    const s = await device('student')
+    await joinSession(s.db, s.uid, session.code, 'Ana')
+    const [g] = await makeTeams(host.db, session.id)
+    await setSessionState(host.db, session.id, 'playing')
+    await writeShared(s.db, session.id, g.id, 'design', [{ id: 'rolePref:x', kind: 'rolePref', updatedAt: 1 }], s.uid)
+
+    // Same anonymous user, same code: still on the same team, presence refreshed, design intact.
+    const before = (await getDoc(doc(s.db, 'sessions', session.id, 'players', s.uid))).data() as Player
+    expect(await joinSession(s.db, s.uid, session.code, 'Ana')).toBe(session.id)
+    const after = (await getDoc(doc(s.db, 'sessions', session.id, 'players', s.uid))).data() as Player
+    expect(after.groupId).toBe(g.id)
+    expect(after.joinedAt).toBe(before.joinedAt)
+    expect(after.lastSeen).toBeGreaterThanOrEqual(before.lastSeen)
+    const design = await getDoc(doc(s.db, 'sessions', session.id, 'groups', g.id, 'shared', 'design'))
+    expect(design.data()?.data).toEqual([{ id: 'rolePref:x', kind: 'rolePref', updatedAt: 1 }])
+    // ...and can keep editing it.
+    await writeShared(s.db, session.id, g.id, 'design', [], s.uid)
+  })
+
+  test('teams have 1 to max students; a late joiner never overfills a team', async () => {
+    const host = await device('instructor')
+    const session = await createSession(host.db, { uid: host.uid, name: 'Host' }, { gameIds: ['rocket', 'battlebots'], teamSize: 3 })
+    expect(session.teamSize).toBe(3)
+    const picks = ['rocket', 'rocket', 'rocket', 'rocket', 'battlebots']
+    const studs = await Promise.all(picks.map(() => device('student')))
+    for (const [i, st] of studs.entries()) {
+      await joinSession(st.db, st.uid, session.code, `S${i}`)
+      await setChoices(st.db, session.id, st.uid, [picks[i]])
+    }
+    const groups = await makeTeams(host.db, session.id)
+    const roster = async () => (await getDocs(collection(host.db, 'sessions', session.id, 'players'))).docs.map((d) => ({ id: d.id, ...d.data() }) as Player)
+    const sizes = (ps: Player[], gs: Group[]) => gs.map((g) => ps.filter((p) => p.groupId === g.id).length)
+    // 4 rocket fans with a max of 3: two teams of 2. The lone battlebots fan plays as a team of one.
+    expect(groups.map((g) => g.gameId)).toEqual(['rocket', 'rocket', 'battlebots'])
+    expect(sizes(await roster(), groups)).toEqual([2, 2, 1])
+
+    await setSessionState(host.db, session.id, 'playing')
+    // Three more rocket fans arrive: they fill the rocket teams to 3, then a new rocket team starts.
+    for (const i of [5, 6, 7]) {
+      const st = await device('student')
+      await joinSession(st.db, st.uid, session.code, `S${i}`)
+      await setChoices(st.db, session.id, st.uid, ['rocket'])
+    }
+    await placeLateJoiners(host.db, session.id, await roster(), groups, session.teamSize, session.gameIds)
+    const now = (await getDocs(collection(host.db, 'sessions', session.id, 'groups'))).docs.map((d) => ({ id: d.id, ...d.data() }) as Group).sort((a, b) => a.order - b.order)
+    expect(now).toHaveLength(4)
+    expect(now[3]).toMatchObject({ gameId: 'rocket', station: 4 })
+    const final = sizes(await roster(), now)
+    expect(final).toEqual([3, 3, 1, 1])
+    expect(Math.max(...final)).toBeLessThanOrEqual(3)
+  })
+
+  test('a whole Battlebots team project syncs through the group design', async () => {
+    const host = await device('instructor')
+    const session = await createSession(host.db, { uid: host.uid, name: 'Host' }, { gameIds: ['battlebots'], teamSize: 2 })
+    const a = await device('student')
+    const b = await device('student')
+    await joinSession(a.db, a.uid, session.code, 'A')
+    await joinSession(b.db, b.uid, session.code, 'B')
+    const [g] = await makeTeams(host.db, session.id)
+    await setSessionState(host.db, session.id, 'playing')
+
+    const project = createInitialTeamProject()
+    project.mechanical = { ...project.mechanical, accentColor: '#ff0000' }
+    await writeShared(a.db, session.id, g.id, 'design', withProject([], project), a.uid)
+    const seen = await getDoc(doc(b.db, 'sessions', session.id, 'groups', g.id, 'shared', 'design'))
+    const got = projectFromDesign(seen.data()!.data)
+    expect(got.mechanical.accentColor).toBe('#ff0000')
+    expect(got.software.rules.length).toBe(project.software.rules.length)
   })
 
   test('wrong codes give a friendly error', async () => {

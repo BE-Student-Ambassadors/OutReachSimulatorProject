@@ -1,8 +1,9 @@
 import { money } from '../../../core/format'
-import { BLUEPRINT, CATEGORY_LABELS, CIRCUITS, getBusiness, getElectrical, getMechanical, getSoftware, LISTING_BY_ID, SHIPPING_SECONDS } from '../config'
-import { boardStatus } from '../sim/board'
+import { BLUEPRINT, BOARDS, CATEGORY_LABELS, CIRCUITS, getBusiness, getElectrical, getMechanical, getSoftware, LISTING_BY_ID, SHIPPING_SECONDS } from '../config'
+import { boardStatus, circuitsOn } from '../sim/board'
 import { fundsRaised, totalFunds } from '../sim/business'
 import { partsSpent, resolveBuild } from '../sim/build'
+import { readLines } from '../sim/power'
 import { compile, starterProgram } from '../sim/rocketScript'
 import type { PartCategory, RocketObject, RocketRoleId } from '../types'
 import { getPaint } from './paintStore'
@@ -20,10 +21,14 @@ export function checklist(tab: RocketRoleId | 'launch', design: RocketObject[], 
     case 'electrical': {
       const el = getElectrical(design)
       const st = boardStatus(el)
+      const leads = readLines(el)
       return [
         { label: 'Open the electronics kit', done: !!el },
-        { label: 'Connect every circuit', done: st.connectedCount === CIRCUITS.length, detail: `${st.connectedCount} / ${CIRCUITS.length}` },
-        { label: 'Use every hole on the breadboard', done: st.fill === 1, detail: `${Math.round(st.fill * 100)}%` },
+        ...BOARDS.map((b) => {
+          const s = st.boards[b.id]
+          return { label: `Wire the ${b.label.toLowerCase()}, using every hole`, done: s.complete, detail: `${s.connectedCount} / ${circuitsOn(b.id).length} · ${Math.round(s.fill * 100)}%` }
+        }),
+        ...Object.values(leads).map((r) => ({ label: `${r.spec.label}: ${r.spec.lo}–${r.spec.hi} V`, done: !!el && r.state === 'ok', detail: `${r.volts.toFixed(1)} V` })),
       ]
     }
     case 'mechanical': {
@@ -68,11 +73,14 @@ export function checklist(tab: RocketRoleId | 'launch', design: RocketObject[], 
       ]
     }
     case 'launch': {
-      const st = boardStatus(getElectrical(design))
+      const el = getElectrical(design)
+      const st = boardStatus(el)
+      const inRange = Object.values(readLines(el)).filter((r) => r.state === 'ok').length
       const filled = resolveBuild(getMechanical(design)).filled
       const sw = getSoftware(design)
       return [
-        { label: 'Breadboard wired', done: st.connectedCount === CIRCUITS.length, detail: `${st.connectedCount} / ${CIRCUITS.length}` },
+        { label: 'Breadboards wired', done: st.connectedCount === CIRCUITS.length, detail: `${st.connectedCount} / ${CIRCUITS.length}` },
+        { label: 'Battery leads in range', done: !!el && inRange === 2, detail: `${inRange} / 2` },
         { label: 'Rocket built', done: filled === BLUEPRINT.length, detail: `${filled} / ${BLUEPRINT.length}` },
         { label: 'Program uploaded', done: !!sw?.uploadedSource },
         { label: 'Launch, read the results, improve', done: launched },

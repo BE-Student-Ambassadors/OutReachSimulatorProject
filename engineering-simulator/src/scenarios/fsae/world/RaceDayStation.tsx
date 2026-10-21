@@ -30,8 +30,13 @@ export function RaceDayStation({
 
   const rows = [
     { label: 'Autocross lap', target: `≤ ${REQUIRED.maxLapS} s`, value: r ? `${r.lapS.toFixed(2)} s` : '—', pass: r?.lapPass ?? null },
-    { label: 'Driverless cones hit', target: `≤ ${REQUIRED.maxConesHit}`, value: r ? (r.driverless.modelReady ? String(r.driverless.missed) : 'No model') : '—', pass: r?.conesPass ?? null },
-    { label: 'Power systems in range', target: '5 of 5', value: r ? `${r.powerInRange} of 5` : '—', pass: r?.powerPass ?? null },
+    {
+      label: 'Driverless lap',
+      target: `≤ ${REQUIRED.maxDriverlessS} s, ≤ ${REQUIRED.maxConesHit} cones`,
+      value: r ? (r.driverless.finished ? `${r.driverless.lapS.toFixed(1)} s · ${r.driverless.conesHit} cones` : 'DNF') : '—',
+      pass: r?.driverlessPass ?? null,
+    },
+    { label: 'Wiring passes inspection', target: '5 of 5 in range, tied down', value: r ? `${r.powerReady} of 5` : '—', pass: r?.powerPass ?? null },
     { label: 'Paid for', target: 'cost ≤ money raised', value: `${money(cost)} / ${money(funds)}`, pass: cost <= funds },
   ]
 

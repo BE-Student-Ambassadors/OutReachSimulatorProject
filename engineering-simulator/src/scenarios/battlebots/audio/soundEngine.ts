@@ -1,25 +1,25 @@
 // Procedural Web Audio API sound engine for BATTLEBOT INCUBATOR
+import { audioOut, isMuted, toggleMuted } from '../../../shared/audio/sfx';
+
+// Routed through the shared audio output, so the one mute switch covers these sounds too.
 class SoundEngine {
-  private ctx: AudioContext | null = null;
-  public muted: boolean = false;
+  private out: AudioNode | null = null;
+
+  public get muted(): boolean {
+    return isMuted();
+  }
 
   private getContext(): AudioContext | null {
-    if (this.muted || typeof window === 'undefined') return null;
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        this.ctx = new AudioCtx();
-      }
-    }
-    if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
-    }
-    return this.ctx;
+    if (isMuted()) return null;
+    const a = audioOut();
+    if (!a) return null;
+    this.out = a.out;
+    return a.ctx;
   }
 
   public toggleMute(): boolean {
-    this.muted = !this.muted;
-    return this.muted;
+    toggleMuted();
+    return isMuted();
   }
 
   public playInstall(): void {
@@ -34,7 +34,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.22, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.out!);
     osc.start(now);
     osc.stop(now + 0.11);
 
@@ -47,7 +47,7 @@ class SoundEngine {
     servoGain.gain.setValueAtTime(0.12, now + 0.07);
     servoGain.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
     servo.connect(servoGain);
-    servoGain.connect(ctx.destination);
+    servoGain.connect(this.out!);
     servo.start(now + 0.07);
     servo.stop(now + 0.2);
   }
@@ -64,7 +64,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.08, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.out!);
     osc.start(now);
     osc.stop(now + 0.05);
   }
@@ -81,7 +81,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.12, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.out!);
     osc.start(now);
     osc.stop(now + 0.25);
   }
@@ -99,7 +99,7 @@ class SoundEngine {
     gain.gain.linearRampToValueAtTime(0.14, now + durationSec * 0.7);
     gain.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.out!);
     osc.start(now);
     osc.stop(now + durationSec + 0.02);
   }
@@ -119,7 +119,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(vol, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.out!);
     osc.start(now);
     osc.stop(now + dur + 0.02);
 
@@ -131,7 +131,7 @@ class SoundEngine {
     ringGain.gain.setValueAtTime(vol * 0.35, now);
     ringGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.8);
     ring.connect(ringGain);
-    ringGain.connect(ctx.destination);
+    ringGain.connect(this.out!);
     ring.start(now);
     ring.stop(now + dur);
   }
@@ -148,7 +148,7 @@ class SoundEngine {
       gain.gain.setValueAtTime(0.08, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.out!);
       osc.start(now);
       osc.stop(now + 0.56);
     });
@@ -168,7 +168,7 @@ class SoundEngine {
       gain.gain.setValueAtTime(0.12, start);
       gain.gain.exponentialRampToValueAtTime(0.001, start + 0.45);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.out!);
       osc.start(start);
       osc.stop(start + 0.46);
     });

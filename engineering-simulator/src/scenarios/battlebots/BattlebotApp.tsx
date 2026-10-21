@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { soundEngine } from './audio/soundEngine';
+import { useMuted } from '../../shared/audio/sfx';
 import { ArenaScreen } from './components/arena/ArenaScreen';
 import { InventorLabModal } from './components/inventor/InventorLabModal';
 import { TestLabOverlay } from './components/testlab/TestLabOverlay';
@@ -32,7 +33,7 @@ import { SoftwareScreen } from './components/disciplines/SoftwareScreen';
 import { ProjectLeadScreen } from './components/disciplines/ProjectLeadScreen';
 import { BattlebotShell, type ChecklistStep } from './components/BattlebotShell';
 import { computeTeamEngineeringSummary } from './simulation/integrationValidator';
-import { createInitialTeamProject } from './data/teamData';
+import type { BattlebotTeam, PartKey } from './teamSync';
 import { ARMOR_CATALOG, ARMOR_THICKNESS_OPTIONS, BATTERY_CATALOG, CHASSIS_CATALOG, DRIVE_CATALOG, INITIAL_ROBOT_CONFIG, UTILITY_CATALOG, WEAPON_CATALOG, WHEELS_CATALOG } from './data/components';
 import { BOSS_LADDER, getBossById } from './data/bosses';
 import { calculateEngineeringStats, computeInstallConsequences } from './simulation/engineering';
@@ -76,100 +77,49 @@ const CATEGORY_TABS: {
 
 const ACCENT_SWATCHES = ['#22d3ee', '#f59e0b', '#10b981', '#ec4899', '#a855f7'];
 
-export function BattlebotApp() {
+/** Config fields that come from the team project (the rest is local to this device). */
+const configFromProject = (p: TeamRobotProject) => ({
+  chassisId: p.mechanical.chassisId,
+  driveId: p.mechanical.driveId,
+  wheelsId: p.mechanical.wheelsId,
+  armorId: p.mechanical.armorId,
+  armorThickness: p.mechanical.armorThickness,
+  weaponId: p.mechanical.weaponId,
+  utilityId: p.mechanical.utilityId,
+  batteryId: p.electrical.batteryId,
+  accentColor: p.mechanical.accentColor,
+});
+
+interface BattlebotAppProps {
+  /** The team's project (shared with teammates in multiplayer). */
+  project: TeamRobotProject;
+  onUpdatePart<K extends PartKey>(part: K, data: TeamRobotProject[K]): void;
+  onResetProject(): void;
+  /** Multiplayer only: who does which job. */
+  team?: BattlebotTeam;
+}
+
+export function BattlebotApp({ project, onUpdatePart, onResetProject, team }: BattlebotAppProps) {
   const [screen, setScreen] = useState<AppScreen>('team-dashboard');
-  const [project, setProject] = useState<TeamRobotProject>(() => {
-    try {
-      const saved = localStorage.getItem('besa_team_battlebot_project');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (
-          parsed &&
-          parsed.mechanical &&
-          parsed.electrical &&
-          parsed.software &&
-          parsed.projectLead
-        ) {
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return createInitialTeamProject();
-  });
 
   const [config, setConfig] = useState<RobotConfiguration>(() => ({
     ...INITIAL_ROBOT_CONFIG,
-    chassisId: project.mechanical.chassisId,
-    driveId: project.mechanical.driveId,
-    wheelsId: project.mechanical.wheelsId,
-    armorId: project.mechanical.armorId,
-    armorThickness: project.mechanical.armorThickness,
-    weaponId: project.mechanical.weaponId,
-    utilityId: project.mechanical.utilityId,
-    batteryId: project.electrical.batteryId,
-    accentColor: project.mechanical.accentColor,
+    ...configFromProject(project),
   }));
+  // Keep the robot config in step with the project, including teammates' changes.
+  const [configSource, setConfigSource] = useState({ mechanical: project.mechanical, electrical: project.electrical });
+  if (configSource.mechanical !== project.mechanical || configSource.electrical !== project.electrical) {
+    setConfigSource({ mechanical: project.mechanical, electrical: project.electrical });
+    setConfig((prev) => ({ ...prev, ...configFromProject(project) }));
+  }
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('besa_team_battlebot_project', JSON.stringify(project));
-    } catch {
-      // ignore
-    }
-  }, [project]);
-
-  const handleUpdateMechanical = (nextMech: MechanicalConfiguration) => {
-    setProject((prev) => ({ ...prev, mechanical: nextMech }));
-    setConfig((prev) => ({
-      ...prev,
-      chassisId: nextMech.chassisId,
-      driveId: nextMech.driveId,
-      wheelsId: nextMech.wheelsId,
-      armorId: nextMech.armorId,
-      armorThickness: nextMech.armorThickness,
-      weaponId: nextMech.weaponId,
-      utilityId: nextMech.utilityId,
-      accentColor: nextMech.accentColor,
-    }));
-  };
-
-  const handleUpdateElectrical = (nextElec: ElectricalConfiguration) => {
-    setProject((prev) => ({ ...prev, electrical: nextElec }));
-    setConfig((prev) => ({
-      ...prev,
-      batteryId: nextElec.batteryId,
-    }));
-  };
-
-  const handleUpdateSoftware = (nextSoft: SoftwareConfiguration) => {
-    setProject((prev) => ({ ...prev, software: nextSoft }));
-  };
-
-  const handleUpdateProjectLead = (nextLead: ProjectLeadConfiguration) => {
-    setProject((prev) => ({ ...prev, projectLead: nextLead }));
-  };
+  const handleUpdateMechanical = (nextMech: MechanicalConfiguration) => onUpdatePart('mechanical', nextMech);
+  const handleUpdateElectrical = (nextElec: ElectricalConfiguration) => onUpdatePart('electrical', nextElec);
+  const handleUpdateSoftware = (nextSoft: SoftwareConfiguration) => onUpdatePart('software', nextSoft);
+  const handleUpdateProjectLead = (nextLead: ProjectLeadConfiguration) => onUpdatePart('projectLead', nextLead);
 
   const handleResetProject = () => {
-    const fresh = createInitialTeamProject();
-    setProject(fresh);
-    setConfig({
-      ...INITIAL_ROBOT_CONFIG,
-      chassisId: fresh.mechanical.chassisId,
-      driveId: fresh.mechanical.driveId,
-      wheelsId: fresh.mechanical.wheelsId,
-      armorId: fresh.mechanical.armorId,
-      armorThickness: fresh.mechanical.armorThickness,
-      weaponId: fresh.mechanical.weaponId,
-      utilityId: fresh.mechanical.utilityId,
-      batteryId: fresh.electrical.batteryId,
-    });
-    try {
-      localStorage.removeItem('besa_team_battlebot_project');
-    } catch {
-      // ignore
-    }
+    onResetProject();
     setScreen('team-dashboard');
     soundEngine.playInstall();
   };
@@ -180,7 +130,7 @@ export function BattlebotApp() {
   const [showEngineeringDetails, setShowEngineeringDetails] = useState(false);
   const [showInventorLab, setShowInventorLab] = useState(false);
   const [comparePartId, setComparePartId] = useState<string | null>(null);
-  const [muted, setMuted] = useState(false);
+  const muted = useMuted();
   const [cameraResetTrigger, setCameraResetTrigger] = useState(0);
   const [arenaTransitioning, setArenaTransitioning] = useState(false);
   const [showResetEntireProjectModal, setShowResetEntireProjectModal] = useState(false);
@@ -630,6 +580,7 @@ export function BattlebotApp() {
         checklistSteps={getDisciplineChecklist()}
         spentUsd={teamSummary.totalCostUsd}
         availableUsd={totalFunding}
+        myRoles={team?.myRoles}
       >
         {screen === 'team-dashboard' && (
           <TeamDashboardScreen
@@ -639,6 +590,7 @@ export function BattlebotApp() {
             onEnterArena={() => setScreen('arena')}
             onResetProject={handleResetProject}
             hideHeader={true}
+            team={team}
           />
         )}
 
@@ -859,7 +811,7 @@ export function BattlebotApp() {
               </button>
 
               <button
-                onClick={() => setMuted(soundEngine.toggleMute())}
+                onClick={() => soundEngine.toggleMute()}
                 title={muted ? 'Unmute Audio' : 'Mute Audio'}
                 className="cursor-pointer holo-panel rounded-xl border border-slate-800 hover:border-slate-600 p-2 text-slate-300"
               >

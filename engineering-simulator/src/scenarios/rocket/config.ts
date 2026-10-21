@@ -1,14 +1,18 @@
 import type {
+  BoardId,
   BusinessObject,
   CircuitId,
   ElectricalObject,
   KitPartId,
+  LineId,
+  LineWork,
   MechanicalObject,
   PartCategory,
   RocketObject,
   RocketVariantId,
   SlotId,
   SoftwareObject,
+  SpliceZone,
   SponsorId,
 } from './types'
 
@@ -30,6 +34,8 @@ export const VARIANTS: Record<RocketVariantId, { label: string; blurb: string; w
 
 export interface CircuitSpec {
   id: CircuitId
+  /** The breadboard it is wired on. */
+  board: BoardId
   label: string
   /** The two pins the wire joins. */
   pins: [string, string]
@@ -39,15 +45,126 @@ export interface CircuitSpec {
 }
 
 export const CIRCUITS: CircuitSpec[] = [
-  { id: 'power', label: 'Power', pins: ['BAT', 'FC·PWR'], color: '#c23b22', summary: 'Battery to the flight computer. Everything else runs on this.' },
-  { id: 'igniter', label: 'Igniter', pins: ['FC·IGN', 'IGNITER'], color: '#d99a1e', summary: 'Lets the flight computer light the motor.' },
-  { id: 'eject', label: 'Ejection charge', pins: ['FC·EJ', 'EJECT'], color: '#7c4dbd', summary: 'Pops the parachute out of the body tube.' },
-  { id: 'altimeter', label: 'Altimeter', pins: ['ALT', 'FC·ALT'], color: '#3f8f52', summary: 'Tells the flight computer its height and when it starts falling.' },
-  { id: 'radio', label: 'Radio', pins: ['RADIO', 'FC·TX'], color: '#cf4f86', summary: 'Sends live altitude and speed to the ground station.' },
+  { id: 'power', board: 'flight', label: 'Power', pins: ['BAT', 'FC·PWR'], color: '#c23b22', summary: 'Battery to the flight computer. Everything else runs on this.' },
+  { id: 'igniter', board: 'flight', label: 'Igniter', pins: ['FC·IGN', 'IGNITER'], color: '#d99a1e', summary: 'Lets the flight computer light the motor.' },
+  { id: 'eject', board: 'flight', label: 'Ejection charge', pins: ['FC·EJ', 'EJECT'], color: '#7c4dbd', summary: 'Pops the parachute out of the body tube.' },
+  { id: 'altimeter', board: 'sensor', label: 'Altimeter', pins: ['ALT', 'FC·ALT'], color: '#3f8f52', summary: 'Tells the flight computer its height and when it starts falling.' },
+  { id: 'radio', board: 'sensor', label: 'Radio', pins: ['RADIO', 'FC·TX'], color: '#cf4f86', summary: 'Sends live altitude and speed to the ground station.' },
 ]
 
-export const BOARD_ROWS = 6
-export const BOARD_COLS = 7
+export interface BoardSpec {
+  id: BoardId
+  label: string
+  rows: number
+  cols: number
+}
+
+export const BOARDS: BoardSpec[] = [
+  { id: 'flight', label: 'Flight computer board', rows: 5, cols: 6 },
+  { id: 'sensor', label: 'Sensor board', rows: 4, cols: 5 },
+]
+
+export const BOARD_BY_ID = Object.fromEntries(BOARDS.map((b) => [b.id, b])) as Record<BoardId, BoardSpec>
+
+export interface LineZone {
+  /** Stretch of the wire, 0 (battery end) .. 1 (part end). */
+  from: number
+  to: number
+  zone: SpliceZone
+  /** What is there, as a fact. */
+  label: string
+}
+
+export interface LineSpec {
+  id: LineId
+  label: string
+  /** The battery, volts. */
+  sourceV: number
+  /** Current the part draws, amps (used for V = I × R). */
+  amps: number
+  lo: number
+  hi: number
+  /** Wire size (AWG: a smaller number is a thicker wire). */
+  awg: number
+  color: string
+  /** Factual description of what the part does. */
+  summary: string
+  zones: LineZone[]
+  /** The wire's path in the workbench scene, battery end first (x toward the nose, y up, z toward the viewer). */
+  points: [number, number, number][]
+  /** Where the part it feeds sits. */
+  partAt: [number, number, number]
+  /** Direction the close-up camera looks from. */
+  view: [number, number, number]
+}
+
+/** Both leads start at the 9 V battery on the avionics sled. */
+export const BATTERY_AT: [number, number, number] = [0.33, 0, 0]
+
+export const LINES: LineSpec[] = [
+  {
+    id: 'computer',
+    label: 'Flight computer lead',
+    sourceV: 9,
+    amps: 0.5,
+    lo: 4.5,
+    hi: 5.5,
+    awg: 22,
+    color: '#c23b22',
+    summary: 'Battery to the flight computer board. The computer runs the launch program, fires the igniter and the ejection charge.',
+    zones: [
+      { from: 0, to: 0.3, zone: 'clear', label: 'Up from the battery' },
+      { from: 0.3, to: 0.7, zone: 'moving', label: 'Past the arming switch: it gets bumped every time someone flips the switch' },
+      { from: 0.7, to: 1, zone: 'clear', label: 'Down to the flight computer board' },
+    ],
+    points: [
+      [0.33, 0.04, 0.01],
+      [0.28, 0.1, -0.03],
+      [0.22, 0.14, -0.05],
+      [0.17, 0.07, -0.02],
+      [0.18, -0.03, 0.03],
+    ],
+    partAt: [0.13, -0.03, 0],
+    view: [0.2, 1, 0.9],
+  },
+  {
+    id: 'igniter',
+    label: 'Igniter lead',
+    sourceV: 9,
+    amps: 2,
+    lo: 3,
+    hi: 4.5,
+    awg: 20,
+    color: '#d99a1e',
+    summary: 'Battery to the igniter in the motor nozzle. Current heats the igniter wire until it lights the motor.',
+    zones: [
+      { from: 0, to: 0.18, zone: 'clear', label: 'Along the avionics sled' },
+      { from: 0.18, to: 0.36, zone: 'moving', label: 'Through the bulkhead hole: the bay slides in and out of the body tube over it' },
+      { from: 0.36, to: 1, zone: 'clear', label: 'Down the body tube wall to the motor' },
+    ],
+    points: [
+      [0.31, 0, -0.04],
+      [0.22, -0.06, -0.07],
+      [-0.13, -0.12, -0.09],
+      [-0.5, -0.135, -0.08],
+      [-0.9, -0.13, -0.07],
+      [-1.2, -0.07, -0.02],
+      [-1.17, 0, 0],
+    ],
+    partAt: [-1.16, 0, 0],
+    view: [-0.2, 0.9, 1],
+  },
+]
+
+export const LINE_BY_ID = Object.fromEntries(LINES.map((l) => [l.id, l])) as Record<LineId, LineSpec>
+
+/** The resistor's dial. Resistors and crimp connectors come in the electronics kit. */
+export const RESISTOR_DIAL = { min: 0, max: 12, step: 0.25, start: 1, unit: 'Ω' } as const
+
+/** Cuts closer than this to either end leave too little wire to crimp. */
+export const CUT_MARGIN = 0.08
+
+export const emptyLine = (): LineWork => ({ cutAt: null, crimps: [null, null], ohms: null })
 
 // ---------------------------------------------------------------- mechanical
 
@@ -415,6 +532,11 @@ export const PAYOUT_MAX_SHARE = 1.5
 
 export function getElectrical(design: RocketObject[]): ElectricalObject | null {
   return design.find((o): o is ElectricalObject => o.kind === 'electrical') ?? null
+}
+
+/** A battery lead's work (untouched while the kit is closed, or on designs saved before the leads existed). */
+export function lineOf(el: ElectricalObject | null, id: LineId): LineWork {
+  return el?.lines?.[id] ?? emptyLine()
 }
 
 export function getMechanical(design: RocketObject[]): MechanicalObject {

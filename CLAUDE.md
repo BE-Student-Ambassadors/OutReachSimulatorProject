@@ -26,7 +26,7 @@ Scenario specs: `docs/specs/flooded-campus.md` (built, live at besachallenge.ver
 - `npm run test:mp` — multiplayer flow + security-rule tests against the Firebase emulators (needs Java 21+ on PATH, e.g. `export PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH`)
 - `npm run emulators` + `npm run dev:mp` — run the app against local emulators (no real data touched)
 - Deploy rules: `firebase deploy --only firestore:rules` (from the repo root)
-- URL flags: `?play` skips the start screen, `?debug` (or Shift+D) shows grid/elevation info
+- URL flags: `?access=CODE` unlocks solo practice (codes: `VITE_ACCESS_CODES`, default in `src/shell/access.ts`), `?play` skips the start screen once unlocked, `?debug` (or Shift+D) shows grid/elevation info
 
 ## Stack decisions
 

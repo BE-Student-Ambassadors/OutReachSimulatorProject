@@ -14,10 +14,17 @@ const designs = {
   unbalanced: S.unbalanced,
   scraping: S.scraping,
   sloppyWeld: S.sloppyWelds,
-  sloppyMath: S.sloppyMath,
+  untouchedSw: S.untouchedSoftware,
+  easyOnly: S.easyOnly,
+  twoCourses: S.twoCourses,
+  skippedMed: S.skippedMedium,
+  rearWheel: S.rearWheelSensor,
+  lidarOnly: S.lidarOnly,
   broke: S.brokeTeam,
-  dimLights: S.dimLights,
   hotMotor: S.hotMotor,
+  hotCrimp: S.hotCrimp,
+  looseCrimp: S.looseCrimp,
+  untidy: S.untidy,
 }
 
 /** Prints a balancing table. Run with: TUNE=1 npx vitest run fsae/sim/tune */
@@ -26,9 +33,11 @@ test.skipIf(!process.env.TUNE)('fsae tune', () => {
     const d = make()
     const r = evaluate(d)
     const n = evaluate(d, 'night')
-    const pass = (x: typeof r) => (x.lapPass && x.conesPass && x.powerPass && x.fundsPass ? 'PASS' : 'fail')
+    const pass = (x: typeof r) => (x.lapPass && x.driverlessPass && x.powerPass && x.fundsPass ? 'PASS' : 'fail')
+    const dl = (x: typeof r) =>
+      x.driverless.finished ? `${x.driverless.lapS.toFixed(1).padStart(5)}s ${String(x.driverless.conesHit).padStart(2)}c (col ${x.driverless.colorHits} sight ${Math.round(x.driverless.sightLimitedShare * 100)}%)` : 'DNF'.padEnd(26)
     process.stderr.write(
-      `${name.padEnd(11)} lap ${r.lapS.toFixed(2).padStart(6)}s top ${r.topMph.toFixed(0).padStart(3)} slow ${r.slowestMph.toFixed(0).padStart(3)} (${r.slowestPlace})  DF ${r.downforceN.toFixed(0).padStart(4)}N drag ${r.dragN.toFixed(0).padStart(4)}N bal ${(r.aero.balance * 100).toFixed(0)}% ${r.aero.handling.padEnd(10)} ${r.powerKw.toFixed(0)}kW  pwr ${r.powerInRange}/5  cones ${r.driverless.missed} ph ${r.driverless.phantom} acc ${r.accuracyPct}%  $${r.cost}/${r.funds}  ${pass(r)} | night lap ${n.lapS.toFixed(2)} cones ${n.driverless.missed} vis ${n.visibilityPct}% ${pass(n)}\n`,
+      `${name.padEnd(11)} lap ${r.lapS.toFixed(2).padStart(6)}s ${r.powerKw.toFixed(0)}kW ${r.aero.handling.padEnd(10)} wire ${r.powerReady}/${r.power.length} | DL ${dl(r)} gap ${r.driverless.minGapM.toFixed(2)} | $${r.cost}/${r.funds} ${pass(r)} | night DL ${dl(n)} ${pass(n)}\n`,
     )
   }
 })

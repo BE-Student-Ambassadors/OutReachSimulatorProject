@@ -21,7 +21,8 @@ import type { Group, Player, Session, SessionState, SharedDoc } from './types'
 export const GROUP_NAMES = ['Redwood', 'Oak', 'Cedar', 'Pine', 'Maple', 'Willow', 'Aspen', 'Birch', 'Cypress', 'Juniper', 'Spruce', 'Laurel']
 export const GROUP_COLORS = ['#2c5b3c', '#b8461b', '#5d7ea6', '#d9a52b', '#7c5cbf', '#2b8a8a', '#c4568d', '#74a85f', '#8e5a3c', '#3d4a43', '#d0702a', '#4a6fa5']
 export const MAX_GROUPS = GROUP_NAMES.length * 3
-export const MIN_TEAM_SIZE = 2
+/** Teams can have anywhere from MIN_TEAM_SIZE up to the host's chosen size. */
+export const MIN_TEAM_SIZE = 1
 export const MAX_TEAM_SIZE = 8
 
 const sessionRef = (db: Firestore, sid: string) => doc(db, 'sessions', sid)
@@ -123,16 +124,30 @@ export async function makeTeams(db: Firestore, sid: string): Promise<Group[]> {
   return groups
 }
 
-/** Host: put students who joined after teams were made onto the smallest team of their top pick. */
-export async function placeLateJoiners(db: Firestore, sid: string, players: Player[], groups: Group[]) {
+/**
+ * Host: place students who joined after teams were made (see placeLate). A team is never pushed
+ * past the session's team size; if every fitting team is full, a new team (and station) starts.
+ * Deterministic for the same players and groups, so a repeat run writes the same thing.
+ */
+export async function placeLateJoiners(db: Firestore, sid: string, players: Player[], groups: Group[], teamSize: number, gameIds: string[]) {
   const waiting = players.filter((p) => !p.groupId)
   if (!waiting.length || !groups.length) return
-  const sizes = new Map(groups.map((g) => [g.id, players.filter((p) => p.groupId === g.id).length]))
+  const teams = groups.map((g) => ({ id: g.id, gameId: g.gameId, size: players.filter((p) => p.groupId === g.id).length }))
+  let order = Math.max(...groups.map((g) => g.order)) + 1
+  let station = Math.max(...groups.map((g) => g.station)) + 1
   const batch = writeBatch(db)
   for (const p of waiting) {
-    const gid = placeLate(p.choices ?? [], groups.map((g) => ({ id: g.id, gameId: g.gameId, size: sizes.get(g.id)! })))
-    if (!gid) continue
-    sizes.set(gid, sizes.get(gid)! + 1)
+    const spot = placeLate(p.choices ?? [], teams, teamSize, gameIds)
+    if (!spot) continue
+    let gid: string
+    if ('groupId' in spot) gid = spot.groupId
+    else {
+      const g: Omit<Group, 'id'> = { name: teamName(order), color: GROUP_COLORS[order % GROUP_COLORS.length], order, gameId: spot.newTeam, station: station++ }
+      gid = `g${order++}`
+      batch.set(doc(groupsCol(db, sid), gid), g)
+      teams.push({ id: gid, gameId: spot.newTeam, size: 0 })
+    }
+    teams.find((t) => t.id === gid)!.size++
     batch.update(doc(playersCol(db, sid), p.id), { groupId: gid })
   }
   await batch.commit()
