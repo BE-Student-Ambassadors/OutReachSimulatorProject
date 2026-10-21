@@ -2,21 +2,36 @@ import { Rocket } from 'lucide-react'
 import { count, money } from '../../core/format'
 import type { Scenario } from '../../core/scenario'
 import { RocketArt } from './CardArt'
-import { REQUIRED, SEED_FUNDS, VARIANTS } from './config'
+import { LINE_BY_ID, REQUIRED, SEED_FUNDS, VARIANTS } from './config'
 import { designCost } from './cost'
 import { RocketProperties } from './RocketProperties'
 import { RocketRun, type RocketResult } from './sim/engine'
 import type { RocketObject, RocketVariantId } from './types'
 import { RocketWorld } from './world/RocketWorld'
 
-const IGNITION_FACTS: Record<RocketResult['ignitionBlocks'][number], string> = {
-  'no-body': 'There was no body tube in its slot on the blueprint, so nothing held the rocket together.',
-  'no-avionics': 'The avionics bay was not in its slot, so the flight computer was not mounted in the rocket.',
-  'no-program': 'The flight computer had no working program uploaded.',
-  'no-power': 'The power circuit was not connected, so the flight computer never turned on.',
-  'no-ignite-command': 'The launch program never ran an IGNITE command.',
-  'no-igniter': 'The igniter circuit was not connected, so the motor never got the signal to light.',
-  'no-motor': 'There was no motor in the motor mount.',
+const IGNITION_FACTS: Record<RocketResult['ignitionBlocks'][number], (r: RocketResult) => string> = {
+  'no-body': () => 'There was no body tube in its slot on the blueprint, so nothing held the rocket together.',
+  'no-avionics': () => 'The avionics bay was not in its slot, so the flight computer was not mounted in the rocket.',
+  'no-program': () => 'The flight computer had no working program uploaded.',
+  'no-power': () => 'The power circuit was not connected, so the flight computer never turned on.',
+  'computer-voltage': (r) => {
+    const s = LINE_BY_ID.computer
+    if (r.computerVolts === 0) return 'The flight computer lead was cut and not joined back up, so no power reached the flight computer.'
+    return r.computerState === 'high'
+      ? `The flight computer is rated ${s.lo}–${s.hi} V and got ${r.computerVolts} V. It overheated and shut itself off.`
+      : `The flight computer is rated ${s.lo}–${s.hi} V and got ${r.computerVolts} V. It kept restarting and never ran the program.`
+  },
+  'no-ignite-command': () => 'The launch program never ran an IGNITE command.',
+  'no-igniter': () => 'The igniter circuit was not connected, so the motor never got the signal to light.',
+  'igniter-voltage': (r) => {
+    const s = LINE_BY_ID.igniter
+    if (r.igniterVolts === 0) return 'The igniter lead was cut and not joined back up, so no current reached the igniter.'
+    return r.igniterState === 'high'
+      ? `The igniter is rated ${s.lo}–${s.hi} V and got ${r.igniterVolts} V. Its wire burned through in a flash, before the motor caught.`
+      : `The igniter is rated ${s.lo}–${s.hi} V and got ${r.igniterVolts} V. It only got warm and never lit the motor.`
+  },
+  'igniter-loose': () => 'A crimp on the igniter lead pulled loose when the avionics bay slid into the body tube, so no current reached the igniter.',
+  'no-motor': () => 'There was no motor in the motor mount.',
 }
 
 /** Factual observations about a launch. Never advice. */
@@ -24,7 +39,7 @@ function observations(r: RocketResult): string[] {
   const out: string[] = []
   if (r.outcome === 'no-ignition') {
     out.push('The motor never lit and the rocket stayed on the pad.')
-    r.ignitionBlocks.forEach((b) => out.push(IGNITION_FACTS[b]))
+    r.ignitionBlocks.forEach((b) => out.push(IGNITION_FACTS[b](r)))
   } else if (r.outcome === 'no-liftoff') {
     out.push(`The motor fired for ${r.burnSeconds} s, but its thrust was only ${r.thrustToWeight}× the rocket's ${r.massKg} kg weight, so it never left the pad.`)
   } else if (r.outcome === 'breakup') {
@@ -47,6 +62,7 @@ function observations(r: RocketResult): string[] {
     if (r.chute === 'open') out.push(`The parachute opened ${count(r.deployAltFt ?? 0)} ft up while falling at ${count(r.deploySpeedMph ?? 0)} mph.`)
     out.push(`It touched down at ${r.landingFps} ft/s, ${count(r.driftFt)} ft downwind of the pad.`)
   }
+  if (r.computerDropped) out.push('A crimp on the flight computer lead shook loose at liftoff, and the flight computer restarted in the air. Its program stopped running.')
   if (!r.hasTelemetry) out.push('No radio data reached the ground station during the flight.')
   out.push(`The team spent ${money(r.spent)} of ${money(r.funds)}.`)
   return out
@@ -61,7 +77,7 @@ export const rocketScenario: Scenario<RocketObject, RocketResult> = {
     heading: 'Build a rocket on a shoestring',
     paragraphs: [
       `Your team has ${money(SEED_FUNDS)} and a blueprint. Your rocket has to climb to ${count(REQUIRED.targetApogeeFt)} ft (± ${REQUIRED.apogeeToleranceFt}) and come back down gently enough to fly again.`,
-      'Electrical wires the flight breadboard. Mechanical buys parts online and builds the rocket. Software debugs and tunes the flight program. Business wins sponsors to pay for it all.',
+      'Electrical wires two breadboards and splices resistors into the battery leads. Mechanical buys parts online and builds the rocket. Software debugs and tunes the flight program. Business wins sponsors to pay for it all.',
       'Every station needs the others. Launch as often as you like: each launch is a test that tells you what happened.',
     ],
   },

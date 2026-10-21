@@ -2,8 +2,9 @@ import type { SimRun } from '../../../core/scenario'
 import { getElectrical, getMechanical, getSoftware, POWER_PATHS, REQUIRED } from '../config'
 import { designCost, designFunds } from '../cost'
 import type { FsaeObject, FsaeVariantId, PowerPathId } from '../types'
-import { accuracy, driverlessLap, type DriverlessResult } from './autonomy'
+import { driverlessLap, type DriverlessResult } from './autonomy'
 import { aeroForces, carParams, MS_TO_MPH, topSpeed, type Aero } from './car'
+import { lineProgress } from './harness'
 import { lapProfile, type LapProfile } from './lapsim'
 import { readAll, type PowerState } from './power'
 import { getTrack, placeName } from './track'
@@ -14,10 +15,17 @@ export const REPORT_SPEED_MS = 25
 export interface PowerSummary {
   id: PowerPathId
   label: string
+  /** Voltage on the lap (a loose splice keeps cutting out). */
   volts: number
   lo: number
   hi: number
   state: PowerState
+  /** The splice was crimped weakly next to moving parts and shook loose. */
+  loose: boolean
+  /** The wire was cut and not closed again. */
+  open: boolean
+  /** Any splice is routed and tied down neatly (an untouched wire counts as tied down). */
+  tied: boolean
 }
 
 export interface FsaeResult {
@@ -36,33 +44,22 @@ export interface FsaeResult {
   powerKw: number
   motorVolts: number
   motorState: PowerState
-  pumpState: PowerState
   jointsWelded: number
   jointsTotal: number
   weldQualityPct: number
   rideHeightMm: number
   power: PowerSummary[]
-  powerInRange: number
+  /** Wires in their rated range on the lap and tied down. */
+  powerReady: number
   driverless: DriverlessResult
-  accuracyPct: number
-  visibilityPct: number
   cost: number
   funds: number
   lapPass: boolean
-  conesPass: boolean
+  driverlessPass: boolean
   powerPass: boolean
   fundsPass: boolean
   /** Speed profile for the replay. */
   profile: LapProfile
-}
-
-/** How well the cameras see: 1 in daylight; at night it follows the headlights. */
-export function visibility(design: FsaeObject[], variant: FsaeVariantId): number {
-  if (variant !== 'night') return 1
-  const lights = readAll(getElectrical(design)).headlights
-  if (lights.state === 'ok') return 1
-  if (lights.state === 'low') return 1 - 0.55 * (1 - lights.volts / lights.spec.lo)
-  return Math.min(1.12, lights.level)
 }
 
 export function evaluate(design: FsaeObject[], variant: FsaeVariantId = 'standard'): FsaeResult {
@@ -71,21 +68,20 @@ export function evaluate(design: FsaeObject[], variant: FsaeVariantId = 'standar
   const profile = lapProfile(p, track)
   const mech = getMechanical(design)
   const sw = getSoftware(design)
-  const readings = readAll(getElectrical(design))
+  const elec = getElectrical(design)
+  const readings = readAll(elec, true)
   const power = POWER_PATHS.map((s) => {
     const r = readings[s.id]
-    return { id: s.id, label: s.label, volts: r.volts, lo: s.lo, hi: s.hi, state: r.state }
+    const line = elec.lines[s.id]
+    const tied = line.cutAt === null || lineProgress(elec, s.id).routed
+    return { id: s.id, label: s.label, volts: r.volts, lo: s.lo, hi: s.hi, state: r.state, loose: r.loose, open: r.open, tied }
   })
-  const vis = visibility(design, variant)
-  const computer = readings.computer
-  const driverless = driverlessLap(sw, computer.volts, computer.state !== 'low', vis)
+  const driverless = driverlessLap(sw, p, elec, variant === 'night')
   const forces = aeroForces(p.aero, REPORT_SPEED_MS)
   const cost = designCost(design)
   const funds = designFunds(design)
-  const powerInRange = power.filter((x) => x.state === 'ok').length
-  // Night laps are a little slower: the driver brakes earlier when the track is dark.
-  const nightFactor = variant === 'night' ? 1 + 0.06 * Math.max(0, 1 - vis) : 1
-  const lapS = Math.round(profile.lapS * nightFactor * 100) / 100
+  const powerReady = power.filter((x) => x.state === 'ok' && x.tied).length
+  const lapS = Math.round(profile.lapS * 100) / 100
 
   return {
     variant,
@@ -102,21 +98,18 @@ export function evaluate(design: FsaeObject[], variant: FsaeVariantId = 'standar
     powerKw: p.powerW / 1000,
     motorVolts: p.motorVolts,
     motorState: p.motorState,
-    pumpState: p.pumpState,
     jointsWelded: p.jointsWelded,
     jointsTotal: mech.welds.length,
     weldQualityPct: Math.round(p.stiffness * 100),
     rideHeightMm: mech.rideHeightMm,
     power,
-    powerInRange,
+    powerReady,
     driverless,
-    accuracyPct: Math.round(accuracy(sw, vis) * 100),
-    visibilityPct: Math.round(vis * 100),
     cost,
     funds,
     lapPass: lapS <= REQUIRED.maxLapS,
-    conesPass: driverless.missed <= REQUIRED.maxConesHit,
-    powerPass: powerInRange === POWER_PATHS.length,
+    driverlessPass: driverless.finished && driverless.conesHit <= REQUIRED.maxConesHit && driverless.lapS <= REQUIRED.maxDriverlessS,
+    powerPass: powerReady === POWER_PATHS.length,
     fundsPass: cost <= funds,
     profile,
   }
@@ -128,31 +121,27 @@ export interface RunFrame {
   phase: RunPhase
   /** Fractional track sample the car is at. */
   pos: number
+  /** Sideways offset from the middle of the course, m (+ = left). */
+  off: number
   speedMph: number
   /** Seconds on the lap clock. */
   clockS: number
-  /** Driverless gates passed so far that were missed (cone knocked over). */
+  /** Cones knocked over so far (indices into the track's cones). */
   knocked: number[]
-  gateIndex: number
 }
 
-const AUTOCROSS_SHARE = 0.55
-const TOTAL_TICKS = 900
-/** Driverless lap speed as a share of the autocross speed. */
-const DRIVERLESS_PACE = 0.6
+const AUTOCROSS_SHARE = 0.5
+const TOTAL_TICKS = 1000
 
-/** The animated test the shell plays: one autocross lap, then the driverless lap. */
+/** The animated test the shell plays: one autocross lap, then the driverless lap on the team's racing line. */
 export class FsaeRun implements SimRun<FsaeResult> {
   readonly totalTicks = TOTAL_TICKS
-  readonly durationSeconds = 18
+  readonly durationSeconds = 22
   private tick = 0
   private readonly r: FsaeResult
-  private readonly gateSamples: number[]
 
   constructor(design: FsaeObject[], variant: FsaeVariantId) {
     this.r = evaluate(design, variant)
-    const n = this.r.profile.v.length
-    this.gateSamples = Array.from({ length: this.r.driverless.gates }, (_, g) => Math.round(((g + 0.5) * n) / this.r.driverless.gates))
   }
 
   step(): boolean {
@@ -179,38 +168,31 @@ export class FsaeRun implements SimRun<FsaeResult> {
     return this.r.variant
   }
 
-  gateSample(g: number): number {
-    return this.gateSamples[g]
-  }
-
   frame(): RunFrame {
-    const { profile, driverless } = this.r
+    const { profile, driverless: d } = this.r
     const n = profile.v.length
     const p = this.progress
     if (p < AUTOCROSS_SHARE) {
       const t = (p / AUTOCROSS_SHARE) * profile.lapS
       const pos = sampleAtTime(profile, t)
       const i = Math.floor(pos) % n
-      return { phase: 'autocross', pos, speedMph: profile.v[i] * MS_TO_MPH, clockS: Math.min(t, this.r.lapS), knocked: [], gateIndex: 0 }
+      return { phase: 'autocross', pos, off: 0, speedMph: profile.v[i] * MS_TO_MPH, clockS: Math.min(t, this.r.lapS), knocked: [] }
     }
     const f = (p - AUTOCROSS_SHARE) / (1 - AUTOCROSS_SHARE)
-    const pos = f * n
+    if (!d.finished) return { phase: 'driverless', pos: 0, off: d.off[0] ?? 0, speedMph: 0, clockS: 0, knocked: [] }
+    const t = f * d.lapS
+    const pos = sampleAtTime({ t: d.t, v: d.v }, t)
     const i = Math.floor(pos) % n
-    const passed = this.gateSamples.filter((s) => s <= pos).length
-    const lapS = profile.lapS / DRIVERLESS_PACE
-    return {
-      phase: 'driverless',
-      pos,
-      speedMph: profile.v[i] * DRIVERLESS_PACE * MS_TO_MPH,
-      clockS: f * lapS,
-      knocked: driverless.missedGates.filter((g) => g < passed),
-      gateIndex: passed,
-    }
+    const cones = getTrack().cones
+    const knocked = d.hitCones.filter((c) => cones[c].i <= pos)
+    const j = (i + 1) % n
+    const off = d.off[i] + (d.off[j] - d.off[i]) * (pos - Math.floor(pos))
+    return { phase: 'driverless', pos, off, speedMph: d.v[i] * MS_TO_MPH, clockS: Math.min(t, d.lapS), knocked }
   }
 }
 
 /** Fractional sample index the car reaches at time t on the lap. */
-export function sampleAtTime(profile: LapProfile, t: number): number {
+export function sampleAtTime(profile: Pick<LapProfile, 't' | 'v'>, t: number): number {
   const ts = profile.t
   const n = profile.v.length
   if (t <= 0) return 0

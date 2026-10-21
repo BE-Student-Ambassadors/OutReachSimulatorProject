@@ -1,6 +1,6 @@
 import { CIRCUITS } from '../config'
-import type { BusinessObject, CircuitId, Deal, ElectricalObject, MechanicalObject, RocketObject, SlotId, SoftwareObject, SponsorId } from '../types'
-import { generateBoard } from './board'
+import type { BusinessObject, CircuitId, Deal, ElectricalObject, LineId, LineWork, MechanicalObject, RocketObject, SlotId, SoftwareObject, SponsorId } from '../types'
+import { boardFor } from './board'
 import { payoutFor } from './business'
 import { starterProgram, withSettings } from './rocketScript'
 
@@ -13,6 +13,8 @@ export interface TeamPlan {
   /** Overrides where parts go (default: every part in its own slot, kit parts included). */
   placements?: Partial<Record<SlotId, string | null>>
   circuits?: CircuitId[]
+  /** Overrides the splice on a battery lead (default: both spliced cleanly with the right resistor; null = untouched). */
+  lines?: Partial<Record<LineId, LineWork | null>>
   /** 'clean' = bugs fixed; 'buggy' = uploaded as it came; null = nothing uploaded. */
   program?: 'clean' | 'buggy' | null
   settings?: { throttle?: number; burn_time?: number; deploy_altitude?: number }
@@ -23,14 +25,25 @@ export interface TeamPlan {
 
 const SEED = 4242
 
+/** Battery leads cut on a clear stretch, crimped well, with a resistor that brings each into range. */
+export const GOOD_LINES: Record<LineId, LineWork> = {
+  computer: { cutAt: 0.15, crimps: [1, 1], ohms: 8 },
+  igniter: { cutAt: 0.6, crimps: [1, 1], ohms: 2.5 },
+}
+
 export function teamDesign(plan: TeamPlan): RocketObject[] {
-  const board = generateBoard(SEED)
   const circuits = plan.circuits ?? CIRCUITS.map((c) => c.id)
+  const lines: Partial<Record<LineId, LineWork>> = {}
+  for (const id of ['computer', 'igniter'] as const) {
+    const l = plan.lines && id in plan.lines ? plan.lines[id] : GOOD_LINES[id]
+    if (l) lines[id] = l
+  }
   const electrical: ElectricalObject = {
     id: 'station:electrical',
     kind: 'electrical',
     seed: SEED,
-    paths: Object.fromEntries(circuits.map((c) => [c, board.solution[c]])),
+    paths: Object.fromEntries(circuits.map((c) => [c, boardFor(SEED, CIRCUITS.find((x) => x.id === c)!.board).solution[c]])),
+    lines,
     updatedAt: 1,
   }
 

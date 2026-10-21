@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { uid } from '../../../core/format'
 import type { WorldProps } from '../../../core/scenario'
+import { play, useLoop } from '../../../shared/audio/sfx'
 import { SURF } from '../campus'
 import { GRID_H, GRID_W, POND_SIZE, RAIN_GARDEN_SIZE } from '../config'
 import { idx, inBounds } from '../geometry'
@@ -107,6 +108,28 @@ interface Gesture {
   start?: Cell
 }
 
+/** Rain that follows the storm's intensity, with thunder now and then while it pours. */
+function useStormSound(run: FloodRun | null) {
+  const rain = useLoop('rain', !!run && !run.done)
+  useEffect(() => {
+    if (!run) return
+    let raf = 0
+    let nextThunder = performance.now() + 2500
+    const tick = (now: number) => {
+      const i = run.done ? 0 : run.intensity
+      rain.current.set(0.25 + 0.75 * i)
+      if (i > 0.55 && now > nextThunder) {
+        play('thunder')
+        nextThunder = now + 4000 + Math.random() * 5000
+      }
+      if (!run.done) raf = requestAnimationFrame(tick)
+      else rain.current.set(0)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [run, rain])
+}
+
 export function FloodWorld(props: WorldProps<FloodObject, FloodResult>) {
   const { design, activeTool, selectedId, locked, debug, run, lastResult, showOverlay, onCommit, onSelect, onToolDone } = props
   const { aimingPump } = useFloodUi()
@@ -119,6 +142,7 @@ export function FloodWorld(props: WorldProps<FloodObject, FloodResult>) {
   const controls = useRef<CameraControls>(null)
   const labelEls = useRef<LabelEls>(new Map())
   const floodRun = run as FloodRun | null
+  useStormSound(floodRun)
 
   // The ground shape follows the design: ponds, gardens, and channels are dug into it.
   const bed = useMemo(() => new FloodRun(design).bed, [design])

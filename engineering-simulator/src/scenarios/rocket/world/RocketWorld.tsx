@@ -1,16 +1,23 @@
-import { AlertTriangle, Briefcase, CheckCircle2, Circle, Code2, Rocket, Users, Wrench, Zap, type LucideIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { AlertTriangle, Briefcase, CheckCircle2, Circle, Code2, Download, Rocket, Users, Video, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { count, money } from '../../../core/format'
+import { namesLabel, rolesOf, teamRoster } from '../../../core/roles'
 import type { WorldProps } from '../../../core/scenario'
+import { play, useLoop, usePlayOnIncrease } from '../../../shared/audio/sfx'
 import { BLUEPRINT, CIRCUITS, getElectrical, getMechanical, getSoftware, REQUIRED } from '../config'
 import { designCost, designFunds } from '../cost'
 import { assignRocketRoles, extractRolePrefs, ROCKET_ROLES } from '../roles'
 import { boardStatus } from '../sim/board'
+import { readLines } from '../sim/power'
 import { resolveBuild } from '../sim/build'
-import { MS_TO_MPH, M_TO_FT, type RocketResult, type RocketRun } from '../sim/engine'
+import { MS_TO_MPH, M_TO_FT, SMASH_FPS, type RocketResult, type RocketRun } from '../sim/engine'
 import type { RocketObject, RocketRoleId } from '../types'
 import { BusinessStation } from './BusinessStation'
 import { checklist } from './checklists'
+import { droneStart } from './drone'
+import { createLink, useDroneKeys, useMouseLook } from './droneLink'
+import { DroneOsd } from './DroneView'
+import { canRecord, nextLaunch, startRecording, useClips } from './footage'
 import { ElectricalStation } from './ElectricalStation'
 import { lookFor } from './look'
 import { MechanicalStation } from './MechanicalStation'
@@ -35,9 +42,10 @@ export function RocketWorld({ design, locked, run, lastResult, onCommit, sync, o
   const myId = sync?.me ?? 'solo'
   const myName = sync?.meName ?? 'You'
   const teammates = sync?.teammates
-  const assignments = assignRocketRoles(extractRolePrefs(design, teammates))
-  const myRole = assignments.find((a) => a.playerId === myId)?.roleId
-  const tab: TabId = picked ?? myRole ?? 'electrical'
+  const roster = teamRoster(sync)
+  const assignments = assignRocketRoles(extractRolePrefs(design, roster))
+  const myRoles = rolesOf(assignments, myId)
+  const tab: TabId = picked ?? myRoles[0] ?? 'electrical'
 
   const funds = designFunds(design)
   const spent = designCost(design)
@@ -45,18 +53,19 @@ export function RocketWorld({ design, locked, run, lastResult, onCommit, sync, o
   const steps = checklist(tab, design, now, !!lastResult)
   const rocketRun = (run as RocketRun | null) ?? null
   const look = lookFor(resolveBuild(getMechanical(design)))
+  useFlightSound(rocketRun)
+  usePlayOnIncrease(
+    (['electrical', 'mechanical', 'software', 'business', 'launch'] as TabId[]).reduce((n, id) => n + checklist(id, design, now, !!lastResult).filter((s) => s.done).length, 0),
+  )
 
   if (rocketRun) {
-    return (
-      <div className="relative h-full w-full overflow-hidden">
-        <RocketScene look={look} run={rocketRun} />
-        <FlightHud run={rocketRun} />
-      </div>
-    )
+    // Each teammate gets their own drone, starting from a different spot around the pad.
+    const ids = [...new Set([myId, ...(teammates ?? []).map((t) => t.id)])].sort()
+    return <LaunchView key={runKey(rocketRun)} look={look} run={rocketRun} droneSlot={Math.max(0, ids.indexOf(myId))} />
   }
 
   const tabs: { id: TabId; label: string; icon: LucideIcon; accent: string; who?: string | null }[] = [
-    ...ROCKET_ROLES.map((r) => ({ id: r.id, label: r.shortTitle, icon: ROLE_ICONS[r.id], accent: r.accent, who: assignments.find((a) => a.roleId === r.id)?.playerName })),
+    ...ROCKET_ROLES.map((r) => ({ id: r.id, label: r.shortTitle, icon: ROLE_ICONS[r.id], accent: r.accent, who: namesLabel(assignments[r.id], myId) })),
     { id: 'launch', label: 'Launch Pad', icon: Rocket, accent: '#1b2a20' },
   ]
   const commit = (next: RocketObject[]) => onCommit(next, null)
@@ -71,7 +80,10 @@ export function RocketWorld({ design, locked, run, lastResult, onCommit, sync, o
             <button
               key={t.id}
               type="button"
-              onClick={() => setPicked(t.id)}
+              onClick={() => {
+                play('click')
+                setPicked(t.id)
+              }}
               className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-left transition ${active ? 'bg-ink text-white' : 'hover:bg-paper'}`}
             >
               <span className="grid size-7 place-items-center rounded-lg text-white" style={{ backgroundColor: active ? '#ffffff22' : t.accent }}>
@@ -80,7 +92,7 @@ export function RocketWorld({ design, locked, run, lastResult, onCommit, sync, o
               <span className="leading-tight">
                 <span className="block font-display text-sm font-bold">{t.label}</span>
                 {t.id !== 'launch' && (
-                  <span className={`block text-[11px] ${active ? 'text-white/65' : 'text-ink/50'}`}>{t.who ? (t.id === myRole ? `${t.who} (you)` : t.who) : 'open seat'}</span>
+                  <span className={`block text-[11px] ${active ? 'text-white/65' : 'text-ink/50'}`}>{t.who || 'open seat'}</span>
                 )}
               </span>
             </button>
@@ -133,7 +145,7 @@ export function RocketWorld({ design, locked, run, lastResult, onCommit, sync, o
           design={design}
           myId={myId}
           myName={myName}
-          teammates={teammates}
+          roster={roster}
           locked={locked}
           onCommit={commit}
           onGoTo={(id) => setPicked(id)}
@@ -160,6 +172,8 @@ function LaunchPad({
   onLaunch(): void
 }) {
   const st = boardStatus(getElectrical(design))
+  const leads = Object.values(readLines(getElectrical(design)))
+  const leadsOk = leads.filter((r) => r.state === 'ok').length
   const build = resolveBuild(getMechanical(design))
   const sw = getSoftware(design)
   const row = (label: string, value: string, ok: boolean) => (
@@ -178,6 +192,7 @@ function LaunchPad({
         </p>
         <div className="mt-3 space-y-1.5">
           {row('Circuits connected', `${st.connectedCount} / ${CIRCUITS.length}`, st.connectedCount === CIRCUITS.length)}
+          {row('Battery leads in range', `${leadsOk} / ${leads.length}`, leadsOk === leads.length)}
           {row('Blueprint slots filled', `${build.filled} / ${BLUEPRINT.length}`, build.filled === BLUEPRINT.length)}
           {row('Flight program', sw?.uploadedSource ? (sw.uploadedSource === sw.source ? 'uploaded' : 'uploaded (older version)') : 'none uploaded', !!sw?.uploadedSource)}
           {row('Money spent', `${money(spent)} of ${money(funds)}`, spent <= funds)}
@@ -205,6 +220,157 @@ function LaunchPad({
           </div>
         )}
       </div>
+      <FootagePanel />
+    </div>
+  )
+}
+
+const runKeys = new WeakMap<RocketRun, number>()
+let runCount = 0
+/** A fresh drone (and launch number) for every launch, even back-to-back ones. */
+function runKey(run: RocketRun): number {
+  if (!runKeys.has(run)) runKeys.set(run, ++runCount)
+  return runKeys.get(run)!
+}
+
+/** The launch on screen: everyone flies an FPV drone (or watches the tracking camera) and can record. */
+function LaunchView({ look, run, droneSlot }: { look: ReturnType<typeof lookFor>; run: RocketRun; droneSlot: number }) {
+  const linkRef = useRef(createLink(droneStart(droneSlot)))
+  const [launch] = useState(nextLaunch)
+  const [flying, setFlying] = useState(true)
+  // Once the flight is over the cursor goes back to the student (for the results).
+  const [finished, setFinished] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const recordable = canRecord()
+
+  const stopRecording = () => {
+    const l = linkRef.current
+    if (!l.recording) return
+    l.recording.stop()
+    l.recording = null
+    setRecording(false)
+    setSaved(true)
+  }
+  const toggleRecording = () => {
+    const l = linkRef.current
+    if (l.recording) return stopRecording()
+    if (!l.canvas || run.done) return
+    l.recording = startRecording(l.canvas, launch)
+    if (l.recording) {
+      play('beep')
+      setRecording(true)
+      setSaved(false)
+    }
+  }
+  const mouse = useMouseLook(linkRef, flying && !finished)
+  useDroneKeys(linkRef, { onRecord: toggleRecording, onCamera: () => setFlying((f) => !f), onMouseLook: mouse.toggle })
+
+  // The clip ends with the flight (or when this view closes).
+  const stopRef = useRef(stopRecording)
+  useEffect(() => {
+    stopRef.current = stopRecording
+  })
+  useEffect(() => {
+    let raf = 0
+    const tick = () => {
+      if (run.done) {
+        stopRef.current()
+        setFinished(true)
+      } else raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      stopRef.current()
+    }
+  }, [run])
+  // Ctrl is the mouse-look key, and Ctrl+W closes the tab (pages can't block it): ask first.
+  useEffect(() => {
+    const guard = (e: BeforeUnloadEvent) => {
+      if (run.done) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  }, [run])
+  const drone = useLoop('motor', flying)
+  useEffect(() => {
+    if (!flying) return
+    let raf = 0
+    const tick = () => {
+      const s = linkRef.current.state
+      drone.current.set(0.25 + Math.min(0.75, Math.hypot(s.vx, s.vy, s.vz) / 26))
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [flying, linkRef, drone])
+
+  return (
+    <div
+      className="relative h-full w-full overflow-hidden"
+      // Clicking the picture (not a button) turns on mouse look.
+      onClick={(e) => e.target instanceof HTMLCanvasElement && mouse.lock()}
+    >
+      <RocketScene look={look} run={run} drone={{ linkRef, active: flying }} />
+      <DroneOsd
+        linkRef={linkRef}
+        run={run}
+        active={flying}
+        recording={recording}
+        canRecord={recordable}
+        mouseLook={mouse.locked}
+        onRecord={toggleRecording}
+        onCamera={() => setFlying((f) => !f)}
+      />
+      <FlightHud run={run} />
+      {saved && (
+        <div className="pointer-events-none absolute bottom-16 left-1/2 z-20 -translate-x-1/2 animate-pop rounded-xl bg-ink/85 px-4 py-2 text-sm font-semibold text-white">
+          Clip saved. Watch it on the Launch Pad tab.
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** This browser's drone recordings, newest first. */
+function FootagePanel() {
+  const clips = useClips()
+  const [playing, setPlaying] = useState<string | null>(null)
+  if (!clips.length)
+    return (
+      <div className="absolute bottom-4 right-4 w-[300px] rounded-2xl bg-white/95 p-3.5 text-xs text-ink/65 shadow-xl ring-1 ring-line backdrop-blur">
+        <div className="mb-1 flex items-center gap-1.5 font-display text-sm font-bold text-ink">
+          <Video className="size-4" /> Drone footage
+        </div>
+        At launch, everyone on the team flies their own FPV drone. Press R (or the REC button) to record the flight.
+      </div>
+    )
+  const open = clips.find((c) => c.id === playing) ?? clips[0]
+  return (
+    <div className="absolute bottom-4 right-4 w-[340px] rounded-2xl bg-white/95 p-3 shadow-xl ring-1 ring-line backdrop-blur">
+      <div className="mb-2 flex items-center gap-1.5 font-display text-sm font-bold">
+        <Video className="size-4" /> Drone footage
+      </div>
+      <video key={open.id} src={open.url} controls className="aspect-video w-full rounded-lg bg-ink" />
+      <div className="mt-2 max-h-[132px] space-y-1 overflow-y-auto">
+        {clips.map((c) => (
+          <div key={c.id} className={`flex items-center gap-2 rounded-lg px-2 py-1 text-xs ${c.id === open.id ? 'bg-mint' : 'hover:bg-paper'}`}>
+            <button type="button" onClick={() => setPlaying(c.id)} className="flex-1 text-left">
+              <span className="font-semibold">Launch {c.launch}</span>
+              <span className="ml-2 font-mono text-ink/55">
+                {c.seconds.toFixed(1)} s · rocket in frame {c.inFramePct}%
+              </span>
+            </button>
+            <a href={c.url} download={`rocket-launch-${c.launch}.${c.mime.includes('mp4') ? 'mp4' : 'webm'}`} title="Download" className="text-ink/50 hover:text-forest">
+              <Download className="size-4" />
+            </a>
+          </div>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[10px] text-ink/45">Clips stay in this browser until you close the page.</p>
     </div>
   )
 }
@@ -216,6 +382,35 @@ const CHUTE_TEXT: Record<RocketResult['chute'], string> = {
   separated: 'came loose',
   'no-parachute': 'none in the bay',
   'no-charge': 'charge not wired',
+}
+
+/**
+ * The launch, heard: a countdown beep, ignition and a rumble that follows the motor, the
+ * parachute popping (or ripping), and the landing or the breakup.
+ */
+function useFlightSound(run: RocketRun | null) {
+  const rumble = useLoop('rumble', !!run)
+  useEffect(() => {
+    if (!run) return
+    let raf = 0
+    let prev = { t: -6, thrust: false, chute: 0, shredded: false, phase: 'pad' as string }
+    const tick = () => {
+      const f = run.frame
+      // Countdown: a beep each second for the last five.
+      if (f.tSec < 0 && f.tSec > -6 && Math.ceil(prev.t) !== Math.ceil(f.tSec)) play('beep')
+      if (!prev.thrust && f.rocketThrusting) play('whoosh')
+      if (f.rocketShredded && !prev.shredded) play('boom')
+      if (prev.chute === 0 && f.chute > 0) play('pop')
+      if (prev.chute >= 0 && f.chute < 0) play('rip')
+      if (prev.phase !== 'landed' && f.phase === 'landed') play(f.splatterProgress > 0 || run.result().landingFps > SMASH_FPS ? 'crash' : 'thunk')
+      rumble.current.set(f.rocketThrusting ? 1 : f.rocketShredded ? Math.max(0, 0.5 - f.breakupProgress) : 0)
+      prev = { t: f.tSec, thrust: f.rocketThrusting, chute: f.chute, shredded: f.rocketShredded, phase: f.phase }
+      if (!run.done) raf = requestAnimationFrame(tick)
+      else rumble.current.set(0)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [run, rumble])
 }
 
 function FlightHud({ run }: { run: RocketRun }) {

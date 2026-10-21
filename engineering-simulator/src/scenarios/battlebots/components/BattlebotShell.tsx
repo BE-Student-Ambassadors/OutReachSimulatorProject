@@ -32,6 +32,8 @@ interface BattlebotShellProps {
   checklistSteps: ChecklistStep[];
   spentUsd: number;
   availableUsd: number;
+  /** Multiplayer: this player's jobs, marked on their tabs. */
+  myRoles?: TeamRole[];
   children: React.ReactNode;
   isDevMode?: boolean;
   onDevEnterArena?: () => void;
@@ -45,6 +47,7 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
   checklistSteps,
   spentUsd,
   availableUsd,
+  myRoles,
   children,
   isDevMode = false,
   onDevEnterArena,
@@ -194,6 +197,9 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
                 >
                   {isLockedArena && <Lock className="size-3 text-slate-400" />}
                   <span>{t.label}</span>
+                  {t.roleId && myRoles?.includes(t.roleId) && (
+                    <span className={`rounded-full px-1.5 py-px font-mono text-[9px] font-bold ${active ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-700'}`}>YOU</span>
+                  )}
 
                   {/* Tiny state indicator: ○ Not started, ● In progress, ✓ Done */}
                   {status && (

@@ -21,7 +21,7 @@ This directory (`engineering-simulator/`) contains the React 19 + TypeScript + V
 | File | Purpose |
 | :--- | :--- |
 | [`src/main.tsx`](./src/main.tsx) | React DOM root mounting `<App />`. |
-| [`src/App.tsx`](./src/App.tsx) | Top-level mode router switching between `StartScreen`, solo `Sandbox` (with `IntroModal`), `StudentFlow` (join multiplayer), and `HostFlow` (instructor dashboard). Also handles URL query flags (`?play`, `?join`, `?host`) and auto-resuming saved multiplayer sessions on refresh. |
+| [`src/App.tsx`](./src/App.tsx) | Top-level mode router switching between `StartScreen`, solo `Sandbox` (with `IntroModal`), `StudentFlow` (join multiplayer), and `HostFlow` (instructor dashboard). Also handles URL query flags (`?access`, `?play`, `?join`, `?host`) and auto-resuming saved multiplayer sessions on refresh. |
 | [`src/index.css`](./src/index.css) | Global CSS, `@font-face` declarations, and theme palette (`forest`, `paper`, `mint`, `rust`). |
 
 ---
@@ -32,6 +32,7 @@ The `core/` directory defines the boundary between the shared UI shell and indiv
 | File | Purpose |
 | :--- | :--- |
 | [`src/core/scenario.ts`](./src/core/scenario.ts) | Defines the central `Scenario<O, R>` contract, `ToolDef`, `PlacementMode` (`point`, `footprint`, `path`, `paint`, `link`, `snap`, `program`), `Requirement<R>`, `SimRun<R>`, `WorldProps<O, R>`, and the multiplayer `GroupSync<O>` interface. |
+| [`src/core/roles.ts`](./src/core/roles.ts) | Pure job splitting shared by Formula SAE, Rocket Team and Battlebots: `divideRoles` splits a scenario's jobs among however many teammates there are (fewer people than jobs: some take two; more: jobs are shared), guided by each player's 1st/2nd picks (`rolePref` objects in the shared design). |
 | [`src/core/history.ts`](./src/core/history.ts) | Generic undo/reset state reducer (`designReducer`) managing `design: O[]`, `past: O[][]`, and `selectedId`. |
 | [`src/core/format.ts`](./src/core/format.ts) | Currency (`money`) and numeric formatting helpers. |
 
@@ -48,6 +49,7 @@ The shell renders the surrounding engineering workstation UI for any `Scenario`:
 | [`src/shell/ResultsModal.tsx`](./src/shell/ResultsModal.tsx) | Post-run modal showing requirement pass/fail badges, factual observations (`scenario.observations(result)`), detailed metrics (`scenario.stats(result, design)`), and the unlock banner for the advanced challenge variant. |
 | [`src/shell/IntroModal.tsx`](./src/shell/IntroModal.tsx) | Scenario briefing modal shown before entering a solo challenge. |
 | [`src/shell/StartScreen.tsx`](./src/shell/StartScreen.tsx) | Landing page displaying scenario cards (from `scenarios/registry.ts`) plus "Join Session" and "Host Session" multiplayer entry points. |
+| [`src/shell/access.ts`](./src/shell/access.ts) | Access-code lock for solo practice. Codes come from `VITE_ACCESS_CODES` (comma-separated); `?access=CODE` or the start-screen form unlocks a browser. Live games need no code. |
 | [`src/shell/BrandMark.tsx`](./src/shell/BrandMark.tsx) | BESA Engineering Lab logo and header badge. |
 
 ---
@@ -103,7 +105,7 @@ A 4-person team (Electrical, Mechanical, Software, Business) builds a hobby rock
 | :--- | :--- |
 | [`index.ts`](./src/scenarios/rocket/index.ts) | Exports `rocketScenario`: requirements, factual observations, stats. |
 | [`config.ts`](./src/scenarios/rocket/config.ts) & [`types.ts`](./src/scenarios/rocket/types.ts) | Circuits, SurplusBay part listings, blueprint slots, sponsors, money, and the four station objects. |
-| [`roles.ts`](./src/scenarios/rocket/roles.ts) | The 4 roles and the 1st/2nd-choice role matcher (`assignRocketRoles`). |
+| [`roles.ts`](./src/scenarios/rocket/roles.ts) | The 4 roles; `assignRocketRoles` splits them across the team from 1st/2nd picks (see `core/roles.ts`). |
 | [`sim/engine.ts`](./src/scenarios/rocket/sim/engine.ts) | **Headless flight engine.** Integrates thrust, drag, gravity and parachute drag while interpreting the team's uploaded RocketScript; wiring and assembly gate ignition and deployment. `RocketRun` plays it back for the 3D scene. |
 | [`sim/board.ts`](./src/scenarios/rocket/sim/board.ts) | Seeded breadboard ("Flow") puzzles, generated from a random path through every hole so each board has a full solution. |
 | [`sim/rocketScript.ts`](./src/scenarios/rocket/sim/rocketScript.ts) | The RocketScript compiler (line-numbered errors, never fix suggestions) and the seeded starter program with injected bugs. |
@@ -123,7 +125,7 @@ Provides real-time classroom sessions backed by Firebase Auth and Cloud Firestor
 | [`firebase.ts`](./src/multiplayer/firebase.ts) | Initializes Firebase App, Auth, and Firestore; connects to local emulators when `VITE_USE_EMULATORS=1`, and provides `signInStudent` (anonymous) and `signInInstructor` (Google OAuth). |
 | [`types.ts`](./src/multiplayer/types.ts) | Scenario-agnostic TypeScript interfaces: `Session`, `Player`, `Group`, `SharedDoc`, and `GroupEvent`. |
 | [`api.ts`](./src/multiplayer/api.ts) | Firestore operations: `createSession`, `joinSession`, `setChoices`, `makeTeams`, `assignLateJoiner`, `setSessionState`, `pushDesign`, `postEvent`, and `deleteSession`. |
-| [`teams.ts`](./src/multiplayer/teams.ts) & [`teams.test.ts`](./src/multiplayer/teams.test.ts) | Pure algorithm (`planTeams`, `placeLate`) that groups students into balanced teams and assigns physical room stations (`1..N`) based on students' ranked challenge preferences. |
+| [`teams.ts`](./src/multiplayer/teams.ts) & [`teams.test.ts`](./src/multiplayer/teams.test.ts) | Pure algorithm (`planTeams`, `placeLate`) that groups students into teams of 1 up to the host's max size and assigns physical room stations (`1..N`) based on students' ranked challenge preferences. Late joiners never overfill a team; a new team starts instead. |
 | [`hooks.ts`](./src/multiplayer/hooks.ts) | React hooks subscribing to Firestore documents (`useSession`, `usePlayers`, `useGroups`, `useGroupSync`, `useGroupEvents`, `useCountdown`) and implementing the `GroupSync` interface passed to `<Sandbox />`. |
 | [`saved.ts`](./src/multiplayer/saved.ts) | `sessionStorage` / `localStorage` persistence so refreshing a tab returns a student or instructor straight back into their active session. |
 | [`ui/HostFlow.tsx`](./src/multiplayer/ui/HostFlow.tsx) | Instructor UI: Google sign-in, challenge picker, lobby with 6-digit join code & live player list, team/station generator, round timer, broadcast announcements, and live group leaderboard/spectator view. |

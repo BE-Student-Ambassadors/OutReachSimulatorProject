@@ -1,15 +1,16 @@
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Flag, LogOut } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CONE_PENALTY_S, getElectrical, getMechanical, TRACE_DT } from '../config'
+import { play, useLoop, type Loop } from '../../../shared/audio/sfx'
+import { CONE_PENALTY_S, getMechanical, TRACE_DT } from '../config'
 import type { CarParams } from '../sim/car'
 import { MS_TO_MPH } from '../sim/car'
-import { readAll } from '../sim/power'
 import { pushTrace, startState, stepDrive, tracePose, type DriveInput, type DriveState } from '../sim/race'
 import { getTrack } from '../sim/track'
 import type { FsaeObject, LapObject } from '../types'
 import { GHOST_COLORS, lookOf } from './look'
 import { ChaseCamera, TrackCar, TrackScene } from './TrackScene'
+import { WorldErrorBoundary } from '../../../shell/WorldErrorBoundary'
 
 export interface FinishedLap {
   driveS: number
@@ -43,11 +44,11 @@ export function RaceView({
 }) {
   const track = getTrack()
   const look = lookOf(getMechanical(design))
-  const lights = readAll(getElectrical(design)).headlights.level
   const input = useRef<DriveInput>({ throttle: 0, brake: 0, steer: 0 })
   const state = useRef<DriveState>(startState(track))
   const [result, setResult] = useState<FinishedLap | null>(null)
   const hud = useRef<Record<string, HTMLElement | null>>({})
+  const engine = useLoop('engine')
 
   useEffect(() => {
     const keys = new Set<string>()
@@ -97,25 +98,29 @@ export function RaceView({
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl ring-1 ring-line">
-      <Canvas dpr={[1, 1.5]} camera={{ fov: 60, near: 0.2, far: 800 }}>
-        <TrackScene night={night} knocked={knocked} />
-        <Driver
-          params={params}
-          startAt={startAt}
-          inputRef={input}
-          stateRef={state}
-          hudRef={hud}
-          onDone={(lap) => {
-            setResult(lap)
-            onFinish(lap)
-          }}
-        />
-        <TrackCar get={() => state.current} look={look} night={night} headlights={lights} brake={() => input.current.brake > 0 && state.current.v > 0.5} />
-        {ghostCars.map((g, i) => (
-          <TrackCar key={g.id} ghost get={() => tracePose(g.trace, state.current.timeS)} look={look} body={GHOST_COLORS[i % GHOST_COLORS.length]} />
-        ))}
-        <ChaseCamera get={() => state.current} />
-      </Canvas>
+      <WorldErrorBoundary>
+        <Canvas dpr={[1, 1.5]} camera={{ fov: 60, near: 0.2, far: 800 }}>
+          <TrackScene night={night} knocked={knocked} />
+          <Driver
+            params={params}
+            startAt={startAt}
+            inputRef={input}
+            stateRef={state}
+            hudRef={hud}
+            engineRef={engine}
+            onDone={(lap) => {
+              play('success')
+              setResult(lap)
+              onFinish(lap)
+            }}
+          />
+          <TrackCar get={() => state.current} look={look} night={night} brake={() => input.current.brake > 0 && state.current.v > 0.5} />
+          {ghostCars.map((g, i) => (
+            <TrackCar key={g.id} ghost get={() => tracePose(g.trace, state.current.timeS)} look={look} body={GHOST_COLORS[i % GHOST_COLORS.length]} />
+          ))}
+          <ChaseCamera get={() => state.current} />
+        </Canvas>
+      </WorldErrorBoundary>
 
       {/* Countdown lights */}
       <div ref={(el) => { hud.current.countdown = el }} className="pointer-events-none absolute inset-x-0 top-[28%] mx-auto hidden w-fit flex-col items-center">
@@ -210,6 +215,7 @@ function Driver({
   inputRef,
   stateRef,
   hudRef,
+  engineRef,
   onDone,
 }: {
   params: CarParams
@@ -217,6 +223,7 @@ function Driver({
   inputRef: { current: DriveInput }
   stateRef: { current: DriveState }
   hudRef: { current: Record<string, HTMLElement | null> }
+  engineRef: { current: Loop }
   onDone(lap: FinishedLap): void
 }) {
   const track = getTrack()
@@ -224,10 +231,25 @@ function Driver({
   const trace = useRef<number[]>([])
   const nextSample = useRef(0)
   const reported = useRef(false)
+  // Last countdown number beeped (0 = GO already sounded) and cones already heard.
+  const lastBeep = useRef(4)
+  const conesHeard = useRef(0)
 
   useFrame((_, dt) => {
     const h = hudRef.current
     const untilGo = (startAt - Date.now()) / 1000
+    const count = untilGo > 0 ? Math.ceil(untilGo) : 0
+    if (count < lastBeep.current && count <= 3) {
+      play(count === 0 ? 'go' : 'beep')
+      lastBeep.current = count
+    }
+    const live = stateRef.current
+    const revs = live.finished ? 0.05 : Math.min(1, Math.abs(live.v) / 38) * 0.85 + inputRef.current.throttle * 0.15
+    engineRef.current.set(Math.max(0.06, revs))
+    if (live.conesHit.length > conesHeard.current) {
+      conesHeard.current = live.conesHit.length
+      play('thunk')
+    }
     if (h.countdown) h.countdown.style.display = untilGo > -1 ? 'flex' : 'none'
     if (untilGo > 0) {
       const lit = untilGo > 3 ? 0 : 3 - Math.ceil(untilGo) + 1
@@ -284,14 +306,16 @@ export function ReplayView({ design, laps, night, onExit }: { design: FsaeObject
   const longest = Math.max(...sorted.map((l) => l.trace.length / 3)) * TRACE_DT
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl ring-1 ring-line">
-      <Canvas dpr={[1, 1.5]} camera={{ fov: 55, near: 0.2, far: 800 }}>
-        <TrackScene night={night} knocked={knocked} />
-        <ReplayClock tRef={t} loop={longest + 2} />
-        {sorted.map((l, i) => (
-          <TrackCar key={l.id} get={() => tracePose(l.trace, t.current)} look={look} body={i === 0 ? '#2c5b3c' : GHOST_COLORS[i % GHOST_COLORS.length]} night={night} />
-        ))}
-        {sorted[follow] && <ChaseCamera get={() => tracePose(sorted[follow].trace, t.current)} distance={9} height={4} />}
-      </Canvas>
+      <WorldErrorBoundary>
+        <Canvas dpr={[1, 1.5]} camera={{ fov: 55, near: 0.2, far: 800 }}>
+          <TrackScene night={night} knocked={knocked} />
+          <ReplayClock tRef={t} loop={longest + 2} />
+          {sorted.map((l, i) => (
+            <TrackCar key={l.id} get={() => tracePose(l.trace, t.current)} look={look} body={i === 0 ? '#2c5b3c' : GHOST_COLORS[i % GHOST_COLORS.length]} night={night} />
+          ))}
+          {sorted[follow] && <ChaseCamera get={() => tracePose(sorted[follow].trace, t.current)} distance={9} height={4} />}
+        </Canvas>
+      </WorldErrorBoundary>
       <div className="absolute left-3 top-3 rounded-xl bg-white/95 p-3 shadow ring-1 ring-black/10">
         <div className="font-mono text-[10px] uppercase tracking-wider text-ink/50">Replay · camera follows</div>
         <div className="mt-1 space-y-1">

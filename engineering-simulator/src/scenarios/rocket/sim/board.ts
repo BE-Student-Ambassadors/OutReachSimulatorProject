@@ -1,28 +1,34 @@
-import { BOARD_COLS, BOARD_ROWS, CIRCUITS } from '../config'
-import type { CircuitId, ElectricalObject } from '../types'
+import { BOARD_BY_ID, BOARDS, CIRCUITS, type CircuitSpec } from '../config'
+import type { BoardId, CircuitId, ElectricalObject } from '../types'
 import { mulberry32 } from './rng'
 
 /**
- * The breadboard puzzle (a "Flow"-style board): every circuit has two pins, wires run between
- * neighbouring holes, wires can't cross, and a finished board uses every hole.
+ * The breadboard puzzles (a "Flow"-style board each): every circuit has two pins, wires run between
+ * neighbouring holes, wires can't cross, and a finished board uses every hole. There are two boards
+ * on the avionics sled, each with its own circuits.
  *
  * Boards are generated from a seed by walking one random path through every hole and cutting it
  * into one piece per circuit, so every board is guaranteed to have at least one full solution.
  */
 
 export interface Board {
+  id: BoardId
   rows: number
   cols: number
-  /** Pin cells for each circuit. */
-  pins: Record<CircuitId, [number, number]>
+  /** The circuits wired on this board. */
+  circuits: CircuitSpec[]
+  /** Pin cells for each of its circuits. */
+  pins: Partial<Record<CircuitId, [number, number]>>
   /** One full-board solution (used by tests and reference designs). */
-  solution: Record<CircuitId, number[]>
+  solution: Partial<Record<CircuitId, number[]>>
 }
 
-export const cellRow = (cell: number, cols = BOARD_COLS) => Math.floor(cell / cols)
-export const cellCol = (cell: number, cols = BOARD_COLS) => cell % cols
+export const circuitsOn = (id: BoardId) => CIRCUITS.filter((c) => c.board === id)
 
-export function adjacent(a: number, b: number, cols = BOARD_COLS): boolean {
+export const cellRow = (cell: number, cols: number) => Math.floor(cell / cols)
+export const cellCol = (cell: number, cols: number) => cell % cols
+
+export function adjacent(a: number, b: number, cols: number): boolean {
   const dr = Math.abs(cellRow(a, cols) - cellRow(b, cols))
   const dc = Math.abs(cellCol(a, cols) - cellCol(b, cols))
   return dr + dc === 1
@@ -62,9 +68,11 @@ function hamiltonianPath(rand: () => number, rows: number, cols: number): number
 
 const MIN_WIRE = 5
 
-export function generateBoard(seed: number, rows = BOARD_ROWS, cols = BOARD_COLS): Board {
-  const rand = mulberry32(seed)
-  const n = CIRCUITS.length
+export function generateBoard(seed: number, id: BoardId): Board {
+  const { rows, cols } = BOARD_BY_ID[id]
+  const circuits = circuitsOn(id)
+  const rand = mulberry32(seed * 31 + BOARDS.findIndex((b) => b.id === id))
+  const n = circuits.length
   for (let attempt = 0; attempt < 200; attempt++) {
     const path = hamiltonianPath(rand, rows, cols)
     // Random wire lengths, each at least MIN_WIRE long, adding up to the whole board.
@@ -83,37 +91,38 @@ export function generateBoard(seed: number, rows = BOARD_ROWS, cols = BOARD_COLS
     // Pins right next to each other make a wire that doesn't need drawing; try again.
     if (pieces.some((p) => adjacent(p[0], p[p.length - 1], cols))) continue
 
-    const pins = {} as Record<CircuitId, [number, number]>
-    const solution = {} as Record<CircuitId, number[]>
-    CIRCUITS.forEach((c, i) => {
+    const pins: Board['pins'] = {}
+    const solution: Board['solution'] = {}
+    circuits.forEach((c, i) => {
       const p = rand() < 0.5 ? pieces[i] : [...pieces[i]].reverse()
       pins[c.id] = [p[0], p[p.length - 1]]
       solution[c.id] = p
     })
-    return { rows, cols, pins, solution }
+    return { id, rows, cols, circuits, pins, solution }
   }
   throw new Error('could not generate a breadboard')
 }
 
-const boardCache = new Map<number, Board>()
-export function boardFor(seed: number): Board {
-  let b = boardCache.get(seed)
+const boardCache = new Map<string, Board>()
+export function boardFor(seed: number, id: BoardId): Board {
+  const key = `${seed}|${id}`
+  let b = boardCache.get(key)
   if (!b) {
-    b = generateBoard(seed)
-    boardCache.set(seed, b)
+    b = generateBoard(seed, id)
+    boardCache.set(key, b)
   }
   return b
 }
 
 /** Which circuit's pin sits on this cell, if any. */
 export function pinAt(board: Board, cell: number): CircuitId | null {
-  for (const c of CIRCUITS) if (board.pins[c.id].includes(cell)) return c.id
+  for (const c of board.circuits) if (board.pins[c.id]!.includes(cell)) return c.id
   return null
 }
 
 /** A wire is connected when it runs hole by hole from one of its pins to the other, over no other pins. */
 export function wireConnected(board: Board, id: CircuitId, path: number[] | undefined): boolean {
-  if (!path || path.length < 2) return false
+  if (!path || path.length < 2 || !board.pins[id]) return false
   const [a, b] = board.pins[id]
   const ends = (path[0] === a && path[path.length - 1] === b) || (path[0] === b && path[path.length - 1] === a)
   if (!ends) return false
@@ -130,18 +139,41 @@ export interface BoardStatus {
   complete: boolean
 }
 
-export function boardStatus(el: ElectricalObject | null): BoardStatus {
+export interface StationStatus extends BoardStatus {
+  boards: Record<BoardId, BoardStatus>
+  boardsComplete: number
+}
+
+function oneBoard(el: ElectricalObject | null, id: BoardId): BoardStatus {
+  const circuits = circuitsOn(id)
   const connected = Object.fromEntries(CIRCUITS.map((c) => [c.id, false])) as Record<CircuitId, boolean>
   if (!el) return { connected, connectedCount: 0, fill: 0, complete: false }
-  const board = boardFor(el.seed)
+  const board = boardFor(el.seed, id)
   const used = new Set<number>()
-  for (const c of CIRCUITS) {
-    board.pins[c.id].forEach((p) => used.add(p))
+  for (const c of circuits) {
+    board.pins[c.id]!.forEach((p) => used.add(p))
     const path = el.paths[c.id]
     connected[c.id] = wireConnected(board, c.id, path)
     path?.forEach((p) => used.add(p))
   }
-  const connectedCount = Object.values(connected).filter(Boolean).length
+  const connectedCount = circuits.filter((c) => connected[c.id]).length
   const fill = used.size / (board.rows * board.cols)
-  return { connected, connectedCount, fill, complete: connectedCount === CIRCUITS.length && used.size === board.rows * board.cols }
+  return { connected, connectedCount, fill, complete: connectedCount === circuits.length && used.size === board.rows * board.cols }
+}
+
+/** Both breadboards: which circuits are connected, and how much of each board is used. */
+export function boardStatus(el: ElectricalObject | null): StationStatus {
+  const boards = Object.fromEntries(BOARDS.map((b) => [b.id, oneBoard(el, b.id)])) as Record<BoardId, BoardStatus>
+  const connected = Object.fromEntries(CIRCUITS.map((c) => [c.id, boards[c.board].connected[c.id]])) as Record<CircuitId, boolean>
+  const holes = BOARDS.reduce((n, b) => n + b.rows * b.cols, 0)
+  const fill = BOARDS.reduce((n, b) => n + boards[b.id].fill * b.rows * b.cols, 0) / holes
+  const boardsComplete = BOARDS.filter((b) => boards[b.id].complete).length
+  return {
+    connected,
+    connectedCount: Object.values(connected).filter(Boolean).length,
+    fill,
+    complete: boardsComplete === BOARDS.length,
+    boards,
+    boardsComplete,
+  }
 }

@@ -16,6 +16,7 @@ import {
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { soundEngine } from '../../audio/soundEngine';
+import { useLoop } from '../../../../shared/audio/sfx';
 import { getBossById } from '../../data/bosses';
 import {
   ARENA_HALF_SIZE,
@@ -158,6 +159,10 @@ const Arena3DScene: React.FC<{
   const bullGroupRef = useRef<THREE.Group>(null);
   const hudTimerRef = useRef<number>(0);
   const lastEventIdRef = useRef<number>(0);
+  // Drive motors hum with the robot's speed; the weapon whines as it spins up.
+  const fighting = battlePhase === 'fighting';
+  const motorHum = useLoop('motor', fighting);
+  const weaponWhine = useLoop('whine', fighting);
   const lastImpactEventIdRef = useRef<number>(0);
   const hitstopTimerRef = useRef<number>(0);
 
@@ -182,6 +187,8 @@ const Arena3DScene: React.FC<{
     } else if (battlePhase === 'fighting' && !sim.isFinished) {
       const input = keyboardRef.current ? keyboardRef.current.getInput() : undefined;
       stepBattleSimulation(sim, delta, input);
+      motorHum.current.set(0.08 + Math.min(1, Math.hypot(sim.player.vx, sim.player.vz) / 3.5) * 0.92);
+      weaponWhine.current.set(sim.player.weaponSpinPct / 100);
 
       // Play sound and trigger hitstop from authoritative CombatImpactEvent
       if (sim.lastImpactEvent && sim.lastImpactEvent.id !== lastImpactEventIdRef.current) {
@@ -231,6 +238,8 @@ const Arena3DScene: React.FC<{
       }
 
       if (sim.isFinished) {
+        motorHum.current.set(0);
+        weaponWhine.current.set(0);
         const finalReport = generateBattleAnalysisReport(sim);
         soundEngine.playBattleEnd(finalReport.winner === 'player');
         onSyncHud(

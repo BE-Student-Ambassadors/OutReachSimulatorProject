@@ -1,3 +1,4 @@
+import type { RolePrefObject as CoreRolePrefObject } from '../../core/roles'
 import type { DesignObject } from '../../core/scenario'
 
 /**
@@ -11,13 +12,16 @@ export type FsaeVariantId = 'standard' | 'night'
 
 // ---- Mechanical ----
 
+export type FrontWingId = 'flat' | 'single' | 'dual' | 'triple'
+
 export interface MechanicalObject extends DesignObject {
   id: 'station:mechanical'
   kind: 'mechanical'
   /** Weld quality per frame joint, 0..1. -1 = not welded yet. */
   welds: number[]
-  /** How far each wing is slid out, 0..100 %. */
-  frontWing: number
+  /** Which front wing design is fitted. */
+  frontWing: FrontWingId
+  /** How far the rear wing is slid out, 0..100 %. */
   rearWing: number
   wheelbaseMm: number
   trackMm: number
@@ -31,7 +35,7 @@ export interface MechanicalObject extends DesignObject {
 
 // ---- Electrical ----
 
-export type PowerPathId = 'motor' | 'pump' | 'headlights' | 'brake' | 'computer'
+export type PowerPathId = 'motor' | 'computer'
 export type PowerPartType = 'resistor' | 'booster'
 
 export interface PowerPart {
@@ -40,81 +44,113 @@ export interface PowerPart {
   value: number
 }
 
+/** What a stretch of harness wire runs past: something hot, something that moves, or nothing. */
+export type SpliceZone = 'hot' | 'moving' | 'clear'
+
+/** The work on one wire of the harness: cut it, crimp the two new ends, fit a part, tie it down. */
+export interface LineWork {
+  /** Where the wire was cut, 0 (power end) .. 1 (part end). null = not cut. */
+  cutAt: number | null
+  /** Quality of the two crimped connectors, 0..1 (power side, part side). null = not crimped. */
+  crimps: [number | null, number | null]
+  /** The part spliced into the cut. */
+  part: PowerPart | null
+  /** Routing board wires (Flow puzzle): wire id → board cells, pin to pin. */
+  routes: Record<string, number[]>
+}
+
+export type SensorId = 'lidar' | 'camera' | 'wheel'
+
 export interface ElectricalObject extends DesignObject {
   id: 'station:electrical'
   kind: 'electrical'
-  /** Up to two parts on each path, in slot order. null = empty slot. */
-  slots: Record<PowerPathId, [PowerPart | null, PowerPart | null]>
+  /** Picks this team's routing boards. */
+  seed: number
+  lines: Record<PowerPathId, LineWork>
+  /** Where each autonomy sensor is mounted (an id from SENSOR_MOUNTS). null = not mounted. */
+  mounts: Record<SensorId, string | null>
+  /** Routing board for the sensor cables to the driverless computer. */
+  sensorRoutes: Record<string, number[]>
   updatedAt: number
 }
 
 // ---- Software ----
 
-export type FeatureId = 'shape' | 'color' | 'stripe' | 'size'
+/** Which number the LiDAR color rule compares, computed from one cone's scan. */
+export type ScanFeatureId = 'overall' | 'middle' | 'contrast'
+
+export interface ColorRule {
+  feature: ScanFeatureId
+  threshold: number
+  /** true: values above the threshold are read as orange (right-side) cones. */
+  orangeAbove: boolean
+}
+
+export type GraphLevelId = 'easy' | 'medium' | 'hard'
+
+/** One of the path planner's graph courses. */
+export interface GraphLevelState {
+  cleared: boolean
+  shots: number
+  /** The function that cleared it. */
+  solution: string | null
+}
 
 export interface SoftwareObject extends DesignObject {
   id: 'station:software'
   kind: 'software'
-  /** Picks this team's images, equations and test set. */
+  /** Picks this team's graph courses. */
   seed: number
-  /** How many of the 4 data rounds are done. */
-  roundsDone: number
-  /** Wrong guesses so far (only shown as a count). */
-  misses: number
-  /** The student's answer for each weight, in feature order. null = not answered. */
-  weights: (number | null)[]
-  /** Accuracy from the last validation run, 0..1, or null if never validated. */
-  validatedAccuracy: number | null
+  levels: Record<GraphLevelId, GraphLevelState>
   updatedAt: number
 }
 
 // ---- Business ----
 
-export type ToyId = 'car' | 'trophy' | 'cone' | 'flag' | 'crowd' | 'battery' | 'robot' | 'school' | 'pizza' | 'wrench' | 'tire' | 'heart'
+export type SponsorId = 'voltcell' | 'gripline' | 'roadking' | 'nimbus' | 'harbor' | 'slice'
 
-export interface ToyPlacement {
-  toy: ToyId
-  /** Position inside the panel, 0..1. */
-  x: number
-  y: number
-  flip: boolean
+export type FlyerMotif = 'car' | 'flag' | 'bolt' | 'stars' | 'food' | 'sun' | 'tools' | 'money'
+export type FlyerLayout = 'poster' | 'banner' | 'badge'
+
+/** The generated flyer: what the vibe-design prompt turned into. */
+export interface FlyerSpec {
+  prompt: string
+  headline: string
+  tagline: string
+  palette: [string, string, string]
+  motif: FlyerMotif
+  layout: FlyerLayout
 }
 
-export interface StoryPanel {
-  toys: ToyPlacement[]
-  caption: string
-}
-
-export type SponsorId = 'voltcell' | 'gripline' | 'nimbus' | 'harbor' | 'slice'
-
-export interface SponsorDeal {
+export interface Deal {
   sponsorId: SponsorId
-  /** What the sponsor offered after the pitch. */
+  /** offer → (counter) → design → paid; or walked away. */
+  stage: 'offer' | 'design' | 'paid' | 'declined'
+  /** Base amount the sponsor agreed to (0 until a deal is struck). */
+  agreed: number
+  /** Their current offer while negotiating. */
   offer: number
-  accepted: boolean
-  /** The 0..1 interest score behind the offer, for the reaction text. */
-  interest: number
+  /** A team gets one counter-offer per sponsor. */
+  countered: boolean
+  flyer: FlyerSpec | null
+  /** 0..1 effort score of the finished flyer. */
+  effort: number
+  payout: number
 }
 
 export interface BusinessObject extends DesignObject {
   id: 'station:business'
   kind: 'business'
-  panels: StoryPanel[]
-  deals: SponsorDeal[]
+  /** Picks each sponsor's hidden limit for this team. */
+  seed: number
+  deals: Deal[]
   updatedAt: number
 }
 
 // ---- Team ----
 
-/** Who is doing which job. Anyone can still open any station. */
-export interface ClaimObject extends DesignObject {
-  id: `claim:${FsaeRoleId}`
-  kind: 'claim'
-  role: FsaeRoleId
-  playerId: string | null
-  playerName: string | null
-  updatedAt: number
-}
+/** A player's 1st and 2nd job picks. Jobs are split among the whole team (see roles.ts); anyone can still open any station. */
+export type RolePrefObject = CoreRolePrefObject<FsaeRoleId>
 
 /** "Everyone to the start line": every device counts down to the same start time. */
 export interface RaceCallObject extends DesignObject {
@@ -148,6 +184,6 @@ export type FsaeObject =
   | ElectricalObject
   | SoftwareObject
   | BusinessObject
-  | ClaimObject
+  | RolePrefObject
   | RaceCallObject
   | LapObject

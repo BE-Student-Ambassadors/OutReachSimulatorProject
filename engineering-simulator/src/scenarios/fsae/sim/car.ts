@@ -1,4 +1,4 @@
-import { CAR, DIMS, getElectrical, getMechanical, POWER_PATH_BY_ID } from '../config'
+import { CAR, DIMS, FRONT_WING_BY_ID, getElectrical, getMechanical, POWER_PATH_BY_ID } from '../config'
 import type { FsaeObject, MechanicalObject } from '../types'
 import { readPath, type PowerState } from './power'
 
@@ -27,7 +27,6 @@ export interface CarParams {
   powerW: number
   motorVolts: number
   motorState: PowerState
-  pumpState: PowerState
   /** 0..1 average weld quality (unwelded joints count as 0). */
   stiffness: number
   jointsWelded: number
@@ -38,7 +37,8 @@ export interface CarParams {
 }
 
 export function aeroFor(mech: MechanicalObject): Aero {
-  const clFront = CAR.clFrontBase + CAR.clFrontPerPct * mech.frontWing
+  const wing = FRONT_WING_BY_ID[mech.frontWing]
+  const clFront = wing.cl
   const clRear = CAR.clRearBase + CAR.clRearPerPct * mech.rearWing
   const h = mech.rideHeightMm
   const floorShare = Math.max(0, Math.min(1, (CAR.floorNoneMm - h) / (CAR.floorNoneMm - CAR.floorFullMm)))
@@ -47,7 +47,7 @@ export function aeroFor(mech: MechanicalObject): Aero {
   const cl = clFront + clRear + clFloor
   // The floor's downforce sits a little ahead of the middle of the car.
   const balance = (clFront + 0.55 * clFloor) / cl
-  const cd = CAR.cdBase + CAR.cdFrontPerPct * mech.frontWing + CAR.cdRearPerPct * mech.rearWing + CAR.cdPerMmTrack * (mech.trackMm - DIMS.track.min)
+  const cd = CAR.cdBase + wing.cd + CAR.cdRearPerPct * mech.rearWing + CAR.cdPerMmTrack * (mech.trackMm - DIMS.track.min)
   const handling = balance < CAR.balanceLow ? 'understeer' : balance > CAR.balanceHigh ? 'oversteer' : 'neutral'
   return { clFront, clRear, clFloor, cl, cd, balance, handling, bottoming }
 }
@@ -57,7 +57,7 @@ export function aeroForces(aero: Aero, v: number) {
   return { downforce: aero.cl * v * v, front: aero.clFront * v * v + 0.55 * aero.clFloor * v * v, drag: aero.cd * v * v }
 }
 
-export function motorPower(volts: number, pumpState: PowerState, pumpVolts: number): { powerW: number; state: PowerState } {
+export function motorPower(volts: number): { powerW: number; state: PowerState } {
   const spec = POWER_PATH_BY_ID.motor
   const mid = (spec.lo + spec.hi) / 2
   let powerW: number
@@ -72,8 +72,6 @@ export function motorPower(volts: number, pumpState: PowerState, pumpVolts: numb
     powerW = CAR.ratedPowerW * (volts / mid)
     state = 'ok'
   }
-  // A weak cooling pump lets the motor heat up, and the controller trims power to cope.
-  if (pumpState === 'low') powerW *= pumpVolts < 12 ? 0.72 : 0.85
   return { powerW, state }
 }
 
@@ -87,7 +85,7 @@ export function carParams(design: FsaeObject[]): CarParams {
 
   const massKg =
     CAR.baseMassKg +
-    CAR.frontWingKg +
+    FRONT_WING_BY_ID[mech.frontWing].kg +
     CAR.rearWingKg +
     CAR.kgPerMmTrack * (mech.trackMm - DIMS.track.min) +
     CAR.kgPerMmWheelbase * (mech.wheelbaseMm - DIMS.wheelbase.min)
@@ -98,9 +96,8 @@ export function carParams(design: FsaeObject[]): CarParams {
   mu *= 1 - Math.min(0.25, off * 1.4)
   if (aero.bottoming) mu *= 0.94
 
-  const motor = readPath(elec, POWER_PATH_BY_ID.motor)
-  const pump = readPath(elec, POWER_PATH_BY_ID.pump)
-  const { powerW, state } = motorPower(motor.volts, pump.state, pump.volts)
+  const motor = readPath(elec, POWER_PATH_BY_ID.motor, true)
+  const { powerW, state } = motorPower(motor.volts)
 
   return {
     massKg,
@@ -109,7 +106,6 @@ export function carParams(design: FsaeObject[]): CarParams {
     powerW,
     motorVolts: motor.volts,
     motorState: state,
-    pumpState: pump.state,
     stiffness,
     jointsWelded: welded.length,
     wheelbaseNorm: (mech.wheelbaseMm - DIMS.wheelbase.min) / (DIMS.wheelbase.max - DIMS.wheelbase.min),

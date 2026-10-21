@@ -17,6 +17,7 @@ import { benchItem, itemTakes, type BenchItem } from '../sim/build'
 import type { KitPartId, MechanicalObject, PartCategory, RocketObject, SlotId } from '../types'
 import { PartArt } from './PartArt'
 import { useNow } from './useNow'
+import { play } from '../../../shared/audio/sfx'
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as PartCategory[]
 const KIT_IDS = Object.keys(KIT_PARTS) as KitPartId[]
@@ -107,6 +108,7 @@ function Shop({ mech, locked, funds, spent, onSave }: { mech: MechanicalObject; 
 
   const buy = (l: PartListing) => {
     if (locked) return
+    play('coin')
     onSave({ ...mech, orders: [...mech.orders, { id: uid('order'), listingId: l.id, orderedAt: Date.now(), returned: false }] })
     setJustBought(l.id)
   }
@@ -256,14 +258,17 @@ function Bench({
     const placements = { ...mech.placements }
     for (const [s, v] of Object.entries(placements) as [SlotId, string][]) if (v === itemId) delete placements[s]
     placements[slot] = itemId
+    play('place')
     onSave({ ...mech, placements })
   }
   const unplace = (slot: SlotId) => {
     const placements = { ...mech.placements }
     delete placements[slot]
+    play('remove')
     onSave({ ...mech, placements })
   }
   const giveBack = (orderId: string) => {
+    play('remove')
     onSave({ ...mech, orders: mech.orders.map((o) => (o.id === orderId ? { ...o, returned: true } : o)) })
   }
 

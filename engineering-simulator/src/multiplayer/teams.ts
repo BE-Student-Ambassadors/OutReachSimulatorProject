@@ -2,13 +2,14 @@
  * Turn students' ranked challenge choices into teams. Pure and deterministic given a
  * seed, so it's unit-tested without Firebase.
  *
+ * The host's team size is a maximum: a team can have anywhere from 1 student up to it
+ * (each scenario splits its jobs among however many people a team has).
+ *
  * 1. Everyone starts in their 1st choice (students with no choice fill the emptiest challenge).
- * 2. A challenge too small for a real team first pulls in students who ranked it 2nd;
- *    if it still can't reach the minimum, it closes and its students move to their 2nd choice.
- * 3. A challenge far above its fair share sends students who ranked a less-full challenge 2nd
- *    (then step 2 runs again, so this never leaves a lone student).
- * 4. Each challenge's students are split evenly into teams near the target size, and teams get
- *    station numbers 1, 2, 3… in challenge order, so students know which table to go to.
+ * 2. A challenge far above its fair share sends students who ranked a less-full challenge 2nd.
+ * 3. Each challenge's students are split into as few teams as fit under the maximum, with sizes
+ *    as even as possible, and teams get station numbers 1, 2, 3… in challenge order, so students
+ *    know which table to go to.
  */
 
 export interface Chooser {
@@ -21,10 +22,6 @@ export interface PlannedTeam {
   gameId: string
   station: number
   members: string[]
-}
-
-export function minTeamSize(teamSize: number) {
-  return Math.max(2, Math.ceil(teamSize / 2))
 }
 
 function rng(seed: number) {
@@ -41,6 +38,7 @@ function rng(seed: number) {
 export function planTeams(players: Chooser[], gameIds: string[], teamSize: number, seed = Date.now()): PlannedTeam[] {
   const games = gameIds.filter((g, i) => gameIds.indexOf(g) === i)
   if (!games.length || !players.length) return []
+  const max = Math.max(1, Math.floor(teamSize))
   const rand = rng(seed)
   const shuffled = [...players].sort(() => rand() - 0.5)
   const at = new Map<string, string>() // player -> game
@@ -57,56 +55,24 @@ export function planTeams(players: Chooser[], gameIds: string[], teamSize: numbe
   }
   for (const p of shuffled) if (!at.has(p.id)) at.set(p.id, emptiest(games))
 
-  const min = minTeamSize(teamSize)
-  const open = new Set(games)
-
-  // 2. Rescue or close challenges that are too small for a team
-  const fixSmall = () => {
-    for (let pass = 0; pass < games.length; pass++) {
-      const small = [...open].filter((g) => count(g) > 0 && count(g) < min).sort((a, b) => count(b) - count(a))[0]
-      if (!small) break
-      // Pull in students who ranked it 2nd, from the challenge with the most to spare.
-      const donors = shuffled.filter((p) => choice(p, 1) === small && at.get(p.id) !== small && count(at.get(p.id)!) > min)
-      for (const p of donors) {
-        if (count(small) >= min) break
-        if (count(at.get(p.id)!) > min) at.set(p.id, small)
-      }
-      if (count(small) >= min) continue
-      // Still too small: close it, but only if another active challenge can take its students.
-      const others = [...open].filter((g) => g !== small && count(g) > 0)
-      if (!others.length) break
-      open.delete(small)
-      for (const p of members(small)) {
-        const second = choice(p, 1)
-        at.set(p.id, second && others.includes(second) ? second : emptiest(others))
-      }
-    }
-  }
-  fixSmall()
-
-  // 3. Ease overloaded challenges toward a fair share, using 2nd choices only.
-  const active = [...open].filter((g) => count(g) > 0)
-  const fair = Math.ceil(players.length / Math.max(1, open.size))
-  const cap = fair + teamSize
-  for (const g of active) {
+  // 2. Ease overloaded challenges toward a fair share, using 2nd choices only.
+  const fair = Math.ceil(players.length / games.length)
+  const cap = fair + max
+  for (const g of games) {
     for (const p of members(g)) {
       if (count(g) <= cap) break
       const second = choice(p, 1)
-      if (second && open.has(second) && count(second) < count(g) - 1 && count(second) < cap) at.set(p.id, second)
+      if (second && count(second) < count(g) - 1 && count(second) < cap) at.set(p.id, second)
     }
   }
 
-  // Easing can leave a challenge with a lone student; clean up again.
-  fixSmall()
-
-  // 4. Teams near the target size, spread evenly; stations in challenge order.
+  // 3. As few teams as fit under the maximum, sizes spread evenly; stations in challenge order.
   const teams: PlannedTeam[] = []
   let station = 1
   for (const g of games) {
     const list = members(g).map((p) => p.id)
     if (!list.length) continue
-    // Near the target size, but never so many teams that one falls below the minimum.
-    const n = Math.max(1, Math.min(Math.round(list.length / teamSize), Math.floor(list.length / min)))
+    const n = Math.ceil(list.length / max)
     const split: string[][] = Array.from({ length: n }, () => [])
     list.forEach((id, i) => split[i % n].push(id))
     for (const m of split) teams.push({ gameId: g, station: station++, members: m })
@@ -114,12 +80,23 @@ export function planTeams(players: Chooser[], gameIds: string[], teamSize: numbe
   return teams
 }
 
-/** Where a student who joins mid-game should go: smallest team in their 1st choice, then 2nd, then anywhere. */
-export function placeLate(choices: string[], teams: { id: string; gameId: string; size: number }[]): string | null {
+export type LatePlacement = { groupId: string } | { newTeam: string } | null
+
+/**
+ * Where a student who joins mid-game should go, never pushing a team past the maximum:
+ * the smallest team with room in their 1st choice, then their 2nd, then (with no picks) any
+ * team with room. If every fitting team is full, a new team starts for their top pick (or the
+ * least-played challenge).
+ */
+export function placeLate(choices: string[], teams: { id: string; gameId: string; size: number }[], teamSize: number, gameIds: string[]): LatePlacement {
+  const roomy = teams.filter((t) => t.size < teamSize).sort((a, b) => a.size - b.size)
   for (const c of choices) {
-    const options = teams.filter((t) => t.gameId === c).sort((a, b) => a.size - b.size)
-    if (options.length) return options[0].id
+    const t = roomy.find((x) => x.gameId === c)
+    if (t) return { groupId: t.id }
   }
-  const any = [...teams].sort((a, b) => a.size - b.size)
-  return any[0]?.id ?? null
+  if (choices.length) return { newTeam: choices[0] }
+  if (roomy.length) return { groupId: roomy[0].id }
+  const played = (g: string) => teams.filter((t) => t.gameId === g).reduce((n, t) => n + t.size, 0)
+  const game = [...gameIds].sort((a, b) => played(a) - played(b))[0]
+  return game ? { newTeam: game } : null
 }
