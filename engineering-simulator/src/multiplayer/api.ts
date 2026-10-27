@@ -21,9 +21,11 @@ import type { Group, Player, Session, SessionState, SharedDoc } from './types'
 export const GROUP_NAMES = ['Redwood', 'Oak', 'Cedar', 'Pine', 'Maple', 'Willow', 'Aspen', 'Birch', 'Cypress', 'Juniper', 'Spruce', 'Laurel']
 export const GROUP_COLORS = ['#2c5b3c', '#b8461b', '#5d7ea6', '#d9a52b', '#7c5cbf', '#2b8a8a', '#c4568d', '#74a85f', '#8e5a3c', '#3d4a43', '#d0702a', '#4a6fa5']
 export const MAX_GROUPS = GROUP_NAMES.length * 3
-/** Teams can have anywhere from MIN_TEAM_SIZE up to the host's chosen size. */
+/** The host's team size is a target (see teams.ts): teams have that many, or one more for an odd one out. */
 export const MIN_TEAM_SIZE = 1
-export const MAX_TEAM_SIZE = 8
+export const MAX_TEAM_SIZE = 6
+/** Pairs: two jobs each in the four-job challenges. */
+export const DEFAULT_TEAM_SIZE = 2
 
 const sessionRef = (db: Firestore, sid: string) => doc(db, 'sessions', sid)
 const playersCol = (db: Firestore, sid: string) => collection(db, 'sessions', sid, 'players')
@@ -125,8 +127,8 @@ export async function makeTeams(db: Firestore, sid: string): Promise<Group[]> {
 }
 
 /**
- * Host: place students who joined after teams were made (see placeLate). A team is never pushed
- * past the session's team size; if every fitting team is full, a new team (and station) starts.
+ * Host: place students who joined after teams were made (see placeLate). A team takes at most one
+ * more than the session's team size; if every fitting team is full, a new team (and station) starts.
  * Deterministic for the same players and groups, so a repeat run writes the same thing.
  */
 export async function placeLateJoiners(db: Firestore, sid: string, players: Player[], groups: Group[], teamSize: number, gameIds: string[]) {

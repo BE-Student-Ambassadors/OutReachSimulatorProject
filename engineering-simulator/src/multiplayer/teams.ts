@@ -2,14 +2,18 @@
  * Turn students' ranked challenge choices into teams. Pure and deterministic given a
  * seed, so it's unit-tested without Firebase.
  *
- * The host's team size is a maximum: a team can have anywhere from 1 student up to it
- * (each scenario splits its jobs among however many people a team has).
+ * The host's team size is a target: teams have that many students, and when a challenge's
+ * count doesn't divide evenly the extra students join existing teams (size 2: pairs, plus a
+ * team of 3 for an odd one out). Each scenario splits its jobs among however many people a
+ * team has. Several teams can play the same challenge; each gets its own station.
  *
  * 1. Everyone starts in their 1st choice (students with no choice fill the emptiest challenge).
  * 2. A challenge far above its fair share sends students who ranked a less-full challenge 2nd.
- * 3. Each challenge's students are split into as few teams as fit under the maximum, with sizes
- *    as even as possible, and teams get station numbers 1, 2, 3… in challenge order, so students
- *    know which table to go to.
+ * 3. A challenge with too few students for one team sends them to their 2nd choice (or the
+ *    nearest challenge that has a team), so nobody plays alone in a class big enough for teams.
+ * 4. Each challenge's students are split into teams of the target size (one more where needed),
+ *    and teams get station numbers 1, 2, 3… in challenge order, so students know which table to
+ *    go to.
  */
 
 export interface Chooser {
@@ -38,7 +42,8 @@ function rng(seed: number) {
 export function planTeams(players: Chooser[], gameIds: string[], teamSize: number, seed = Date.now()): PlannedTeam[] {
   const games = gameIds.filter((g, i) => gameIds.indexOf(g) === i)
   if (!games.length || !players.length) return []
-  const max = Math.max(1, Math.floor(teamSize))
+  const size = Math.max(1, Math.floor(teamSize))
+  const max = size + 1
   const rand = rng(seed)
   const shuffled = [...players].sort(() => rand() - 0.5)
   const at = new Map<string, string>() // player -> game
@@ -66,13 +71,29 @@ export function planTeams(players: Chooser[], gameIds: string[], teamSize: numbe
     }
   }
 
-  // 3. As few teams as fit under the maximum, sizes spread evenly; stations in challenge order.
+  // 3. Too few for a team: move to the 2nd choice, else to the fullest challenge (it has a team to join).
+  if (players.length >= size) {
+    for (const g of games) {
+      const few = members(g)
+      if (!few.length || few.length >= size) continue
+      for (const p of few) {
+        const second = choice(p, 1)
+        const others = games.filter((x) => x !== g && count(x) > 0)
+        const target = second && second !== g && count(second) > 0 ? second : [...others].sort((a, b) => count(b) - count(a))[0]
+        if (target) at.set(p.id, target)
+      }
+    }
+  }
+
+  // 4. Teams of the target size; extra students join teams (never more than one extra each, so a
+  //    count that can't absorb them makes one more, smaller team). Stations in challenge order.
   const teams: PlannedTeam[] = []
   let station = 1
   for (const g of games) {
     const list = members(g).map((p) => p.id)
     if (!list.length) continue
-    const n = Math.ceil(list.length / max)
+    let n = Math.max(1, Math.floor(list.length / size))
+    if (list.length - n * size > n) n++
     const split: string[][] = Array.from({ length: n }, () => [])
     list.forEach((id, i) => split[i % n].push(id))
     for (const m of split) teams.push({ gameId: g, station: station++, members: m })
@@ -83,13 +104,13 @@ export function planTeams(players: Chooser[], gameIds: string[], teamSize: numbe
 export type LatePlacement = { groupId: string } | { newTeam: string } | null
 
 /**
- * Where a student who joins mid-game should go, never pushing a team past the maximum:
- * the smallest team with room in their 1st choice, then their 2nd, then (with no picks) any
- * team with room. If every fitting team is full, a new team starts for their top pick (or the
- * least-played challenge).
+ * Where a student who joins mid-game should go. A team has room up to one more than the target
+ * size (a pair can become a three). The smallest team with room in their 1st choice, then their
+ * 2nd, then (with no picks) any team with room. If every fitting team is full, a new team starts
+ * for their top pick (or the least-played challenge), and the next late joiner fills it.
  */
 export function placeLate(choices: string[], teams: { id: string; gameId: string; size: number }[], teamSize: number, gameIds: string[]): LatePlacement {
-  const roomy = teams.filter((t) => t.size < teamSize).sort((a, b) => a.size - b.size)
+  const roomy = teams.filter((t) => t.size < teamSize + 1).sort((a, b) => a.size - b.size)
   for (const c of choices) {
     const t = roomy.find((x) => x.gameId === c)
     if (t) return { groupId: t.id }

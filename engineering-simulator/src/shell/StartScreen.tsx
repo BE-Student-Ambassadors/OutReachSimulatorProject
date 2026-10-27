@@ -1,21 +1,15 @@
-import { ArrowRight, KeyRound, Lock, Sparkles, Users } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowRight, Sparkles, Users } from 'lucide-react'
 import type { AnyScenario } from '../core/scenario'
 import { play } from '../shared/audio/sfx'
 import { BaskinLogo } from './BrandMark'
 
 export function StartScreen({
   scenarios,
-  unlocked = true,
-  onUnlock,
   onStart,
   onJoin,
   onHost,
 }: {
   scenarios: AnyScenario[]
-  /** Solo practice needs an access code; live games don't. */
-  unlocked?: boolean
-  onUnlock?(code: string): boolean
   onStart(s: AnyScenario): void
   onJoin?(): void
   onHost?(): void
@@ -73,12 +67,6 @@ export function StartScreen({
           <p className="mx-auto mt-2 max-w-xl text-sm sm:text-base font-normal text-slate-200">
             Choose a challenge below to design, simulate, and optimize real engineering systems.
           </p>
-
-          {!unlocked && onUnlock && (
-            <div className="mt-5 flex justify-center">
-              <AccessForm onUnlock={onUnlock} />
-            </div>
-          )}
         </div>
       </section>
 
@@ -88,9 +76,7 @@ export function StartScreen({
           {scenarios.map((s, i) => (
             <div
               key={s.id}
-              className={`group flex flex-col overflow-hidden rounded-2xl border bg-white shadow-xs transition-all duration-200 hover:shadow-xl hover:-translate-y-1 ${
-                unlocked ? 'border-[#d8e0ea] hover:border-[#f29813]' : 'border-slate-200 opacity-75'
-              }`}
+              className="group flex flex-col overflow-hidden rounded-2xl border border-[#d8e0ea] bg-white shadow-xs transition-all duration-200 hover:border-[#f29813] hover:shadow-xl hover:-translate-y-1"
             >
               {/* Card visual banner */}
               <div className="relative h-40 w-full overflow-hidden bg-[#002b4d]">
@@ -117,24 +103,17 @@ export function StartScreen({
                 </p>
 
                 <div className="mt-4 pt-3 border-t border-[#f4f6fa]">
-                  {unlocked ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        play('start')
-                        onStart(s)
-                      }}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#003c6c] px-4 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-white shadow-xs transition-all hover:bg-[#f29813] hover:text-white cursor-pointer active:translate-y-0.5"
-                    >
-                      <span>Start Challenge</span>
-                      <ArrowRight className="size-3.5" />
-                    </button>
-                  ) : (
-                    <div className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-4 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
-                      <Lock className="size-3.5" />
-                      Locked
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      play('start')
+                      onStart(s)
+                    }}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#003c6c] px-4 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-white shadow-xs transition-all hover:bg-[#f29813] hover:text-white cursor-pointer active:translate-y-0.5"
+                  >
+                    <span>Start Challenge</span>
+                    <ArrowRight className="size-3.5" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -168,46 +147,6 @@ export function StartScreen({
         </div>
       </footer>
     </div>
-  )
-}
-
-function AccessForm({ onUnlock }: { onUnlock(code: string): boolean }) {
-  const [code, setCode] = useState('')
-  const [wrong, setWrong] = useState(false)
-  return (
-    <form
-      className="flex items-center gap-2 rounded-xl bg-white/10 p-1.5 backdrop-blur-md border border-white/20"
-      onSubmit={(e) => {
-        e.preventDefault()
-        const ok = onUnlock(code)
-        play(ok ? 'success' : 'buzz')
-        setWrong(!ok)
-      }}
-    >
-      <input
-        value={code}
-        onChange={(e) => {
-          setCode(e.target.value.slice(0, 32))
-          setWrong(false)
-        }}
-        aria-label="Access code"
-        placeholder="Enter Access Code"
-        autoCapitalize="characters"
-        autoComplete="off"
-        spellCheck={false}
-        className={`w-40 rounded-lg px-3 py-1.5 text-center font-mono text-xs font-bold uppercase tracking-wider outline-none text-white placeholder:text-white/50 bg-black/25 border ${
-          wrong ? 'border-red-400 bg-red-900/40' : 'border-white/20 focus:border-[#f29813]'
-        }`}
-      />
-      <button
-        type="submit"
-        disabled={!code.trim()}
-        className="inline-flex items-center justify-center gap-1 rounded-lg bg-[#f29813] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-[#d98207] disabled:opacity-40 cursor-pointer"
-      >
-        <KeyRound className="size-3" />
-        Unlock
-      </button>
-    </form>
   )
 }
 

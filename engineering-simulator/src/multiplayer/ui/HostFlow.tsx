@@ -2,7 +2,7 @@ import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth'
 import { Clock, LogOut, Play, Plus, Shuffle, Square, UserX, Users } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { AnyScenario } from '../../core/scenario'
-import { createSession, makeTeams, MAX_TEAM_SIZE, MIN_TEAM_SIZE, movePlayer, placeLateJoiners, removePlayer, setSessionState, updateSession } from '../api'
+import { createSession, DEFAULT_TEAM_SIZE, makeTeams, MAX_TEAM_SIZE, MIN_TEAM_SIZE, movePlayer, placeLateJoiners, removePlayer, setSessionState, updateSession } from '../api'
 import { auth, db } from '../firebase'
 import { isOnline, useAuthUser, useEvents, useGroups, useNow, usePlayers, useSession } from '../hooks'
 import type { Group, Player, Session } from '../types'
@@ -62,7 +62,7 @@ export function HostFlow({ scenarios, onExit }: { scenarios: AnyScenario[]; onEx
 
 function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: AnyScenario[]; hostName: string; email: string | null; onCreate(gameIds: string[], teamSize: number): Promise<void>; onBack(): void }) {
   const [picked, setPicked] = useState<string[]>(scenarios.map((s) => s.id))
-  const [teamSize, setTeamSize] = useState(4)
+  const [teamSize, setTeamSize] = useState(DEFAULT_TEAM_SIZE)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : scenarios.map((s) => s.id).filter((x) => x === id || p.includes(x))))
@@ -83,7 +83,7 @@ function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: An
         </div>
         <div className="mt-6">
           <div className="text-sm font-semibold">Challenges to offer</div>
-          <p className="text-xs text-ink/55">Students rank their top two; teams form within each challenge.</p>
+          <p className="text-xs text-ink/55">Students rank their top two; teams form within each challenge. A popular challenge is played by several teams at once, each at its own station.</p>
           <div className="mt-2 space-y-2">
             {scenarios.map((s) => (
               <label key={s.id} className={`flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-1 ${picked.includes(s.id) ? 'bg-mint ring-2 ring-forest' : 'ring-line hover:bg-paper'}`}>
@@ -98,8 +98,8 @@ function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: An
         </div>
         <div className="mt-6 flex items-center justify-between">
           <span>
-            <span className="block text-sm font-semibold">Max students per team</span>
-            <span className="block text-xs text-ink/55">Teams have 1 to {teamSize} students. Each team splits its jobs among whoever is on it.</span>
+            <span className="block text-sm font-semibold">Students per team</span>
+            <span className="block text-xs text-ink/55">{teamSizeLine(teamSize)}</span>
           </span>
           <Stepper value={teamSize} min={MIN_TEAM_SIZE} max={MAX_TEAM_SIZE} onChange={setTeamSize} />
         </div>
@@ -125,6 +125,13 @@ function Setup({ scenarios, hostName, email, onCreate, onBack }: { scenarios: An
       </Card>
     </Screen>
   )
+}
+
+/** What a team size means, for the host. */
+function teamSizeLine(size: number): string {
+  const jobs = size === 1 ? 'one student does all four jobs' : size === 2 ? 'two jobs each' : size === 3 ? 'one student takes two jobs' : size === 4 ? 'one job each' : 'some jobs are shared'
+  if (size === 1) return 'Everyone plays alone; one student does all four jobs.'
+  return `Teams of ${size} (${jobs} in the four-job challenges). With an odd number, a few teams get ${size + 1}. Nobody plays alone.`
 }
 
 function Stepper({ value, min, max, onChange }: { value: number; min: number; max: number; onChange(v: number): void }) {
@@ -258,7 +265,7 @@ function Lobby({ session, offered, players, groups, minutes, setMinutes }: { ses
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-xl font-bold">Teams</h2>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-ink/60">max per team</span>
+              <span className="text-sm text-ink/60" title={teamSizeLine(session.teamSize)}>per team</span>
               <Stepper value={session.teamSize} min={MIN_TEAM_SIZE} max={MAX_TEAM_SIZE} onChange={(v) => void updateSession(db, sid, { teamSize: v })} />
               <SecondaryButton disabled={!players.length} onClick={() => void makeTeams(db, sid)}>
                 <Shuffle className="size-4" /> {groups.length ? 'Remake teams' : 'Make teams'}
@@ -288,7 +295,7 @@ function Lobby({ session, offered, players, groups, minutes, setMinutes }: { ses
                               <Users className="size-4" /> {g.name}
                             </span>
                             <span className="rounded-full bg-paper px-2 py-0.5 font-mono text-xs text-ink ring-1 ring-line">
-                              {players.filter((p) => p.groupId === g.id).length}/{session.teamSize} · Station {g.station}
+                              {players.filter((p) => p.groupId === g.id).length} · Station {g.station}
                             </span>
                           </div>
                           <div className="flex flex-wrap gap-1.5">
