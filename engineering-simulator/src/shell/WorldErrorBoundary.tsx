@@ -24,31 +24,29 @@ export class WorldErrorBoundary extends Component<{ children: ReactNode }, { err
     const webgl = isWebGLError(this.state.error)
     return (
       <div className="grid h-full place-items-center p-6">
-        <div className="w-full max-w-[520px] rounded-2xl bg-white p-6 shadow-xl ring-1 ring-line">
-          <div className="flex items-center gap-2 text-rust">
+        <div className="w-full max-w-[520px] rounded-2xl bg-white p-6 shadow-xl border border-[#d8e0ea]">
+          <div className="flex items-center gap-2 text-red-600">
             <AlertTriangle className="size-5" />
-            <h2 className="font-display text-xl font-bold">{webgl ? 'This browser can’t show 3D right now' : 'Something went wrong in this view'}</h2>
+            <h2 className="font-sans text-xl font-bold text-[#003c6c]">{webgl ? '3D Graphics Acceleration Required' : 'Simulation View Encountered an Error'}</h2>
           </div>
           {webgl ? (
             <>
-              <p className="mt-2 text-sm text-ink/75">The browser refused to start its 3D graphics (WebGL). Your design is still saved. Things that usually fix it:</p>
-              <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-ink/75">
-                <li>Close other tabs with games, maps or video, then press Try again.</li>
-                <li>Quit Chrome completely and reopen it (a graphics crash turns 3D off until Chrome restarts).</li>
-                <li>
-                  In Chrome Settings → System, turn on <span className="font-semibold">Use graphics acceleration when available</span>, then relaunch.
-                </li>
+              <p className="mt-2 text-sm text-[#75787b]">The browser could not initialize hardware-accelerated 3D graphics (WebGL). Your engineering configuration is safely preserved.</p>
+              <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-[#0b1d2e]/80">
+                <li>Close resource-heavy browser tabs with 3D models or video streams.</li>
+                <li>Ensure hardware acceleration is enabled in Chrome Settings → System.</li>
+                <li>Relaunch Chrome or press Try Again below.</li>
               </ol>
             </>
           ) : (
-            <p className="mt-2 text-sm text-ink/75">Your design is still saved. Try again, or reload the page.</p>
+            <p className="mt-2 text-sm text-[#75787b]">Your design configuration is preserved. Press Try Again to reinitialize the viewport.</p>
           )}
           <button
             type="button"
             onClick={() => this.setState((s) => ({ error: null, attempt: s.attempt + 1 }))}
-            className="btn-press mt-4 flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 font-display text-sm font-bold text-white hover:bg-forest-dark"
+            className="btn-press mt-5 flex items-center gap-2 rounded-xl bg-[#003c6c] px-5 py-2.5 font-sans text-sm font-bold uppercase tracking-wider text-white hover:bg-[#f29813] transition"
           >
-            <RotateCcw className="size-4" /> Try again
+            <RotateCcw className="size-4" /> Try Again
           </button>
         </div>
       </div>

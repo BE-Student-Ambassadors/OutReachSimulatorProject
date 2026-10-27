@@ -4,7 +4,7 @@ import { money } from '../core/format'
 import { designReducer, initDesignState } from '../core/history'
 import type { AnyScenario, DesignObject, GroupSync, SimRun } from '../core/scenario'
 import { play, toggleMuted, useMuted } from '../shared/audio/sfx'
-import { BrandMark } from './BrandMark'
+import { BaskinLogo } from './BrandMark'
 import { RequirementsPanel } from './RequirementsPanel'
 import { ResultsModal } from './ResultsModal'
 import { Toolbox } from './Toolbox'
@@ -242,9 +242,9 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
   const showResults = status === 'results' && result !== null && run
 
   return (
-    <div className="relative flex h-full flex-col bg-paper">
-      {/* Top bar */}
-      <header className="flex h-[60px] shrink-0 items-center gap-5 border-b border-line bg-white px-5">
+    <div className="relative flex h-full flex-col bg-[#f4f6fa] text-[#0b1d2e] antialiased">
+      {/* Top bar with official Baskin Navy & Gold accents */}
+      <header className="flex h-16 shrink-0 items-center gap-5 border-b border-[#d8e0ea] bg-white px-5 shadow-xs">
         <button
           type="button"
           onClick={() => {
@@ -252,14 +252,17 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
             if (sync ? !confirm('Leave this game? You can rejoin with the same code.') : state.design.length && !confirm('Leave this challenge? Your design will be cleared.')) return
             onExit?.()
           }}
-          className="flex items-center gap-2.5 text-left"
-          title="Back to challenges"
+          className="flex items-center gap-3 text-left transition hover:opacity-90 cursor-pointer"
+          title="Back to BE Lab challenges"
         >
-          <BrandMark />
-          <span className="leading-none">
-            <span className="block font-display text-[17px] font-bold tracking-tight text-forest">BESA Engineering Lab</span>
-            <span className="block pt-0.5 text-xs text-ink/55">
-              {scenario.title} · {scenario.discipline}
+          <BaskinLogo height={28} />
+          <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+          <span className="leading-tight">
+            <span className="block font-sans text-[15px] font-black tracking-tight text-[#003c6c]">
+              {scenario.title}
+            </span>
+            <span className="block text-xs font-semibold text-[#75787b]">
+              {scenario.discipline} · <span className="text-[#003c6c]">BE Lab</span>
             </span>
           </span>
         </button>
@@ -269,18 +272,20 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
           {!scenario.minimalShell && (
             <div className="w-64">
               <div className="flex items-baseline justify-between">
-                <span className="text-xs font-medium text-ink/60">Project cost</span>
-                <span className={`font-mono text-sm font-semibold tabular ${over ? 'text-rust' : 'text-ink'}`}>
-                  {money(cost)} <span className="font-normal text-ink/45">/ {money(scenario.budget)}</span>
+                <span className="text-xs font-bold text-[#75787b]">Project Budget</span>
+                <span className={`font-mono text-sm font-bold tabular ${over ? 'text-red-600' : 'text-[#0b1d2e]'}`}>
+                  {money(cost)} <span className="font-normal text-[#75787b]">/ {money(scenario.budget)}</span>
                 </span>
               </div>
-              <div className="mt-1 h-2 overflow-hidden rounded-full bg-paper ring-1 ring-line">
+              <div className="mt-1 h-2 overflow-hidden rounded-full bg-[#f4f6fa] ring-1 ring-[#d8e0ea]">
                 <div
-                  className={`h-full rounded-full transition-[width] duration-300 ${over ? 'bg-rust' : budgetPct > 85 ? 'bg-sun' : 'bg-leaf'}`}
+                  className={`h-full rounded-full transition-[width] duration-300 ${
+                    over ? 'bg-red-600' : budgetPct > 85 ? 'bg-[#f29813]' : 'bg-[#003c6c]'
+                  }`}
                   style={{ width: `${over ? 100 : budgetPct}%` }}
                 />
               </div>
-              {over && <div className="mt-0.5 text-right text-[11px] font-bold uppercase tracking-wide text-rust">Over budget ✕</div>}
+              {over && <div className="mt-0.5 text-right text-[11px] font-bold uppercase tracking-wide text-red-600">Over Budget ✕</div>}
             </div>
           )}
           <SoundToggle />
@@ -322,9 +327,9 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
             />
           </WorldErrorBoundary>
           {overlay && !!result && scenario.overlayLegend && (
-            <div className="pointer-events-none absolute left-6 top-6 rounded-xl bg-white/95 px-3 py-2 shadow ring-1 ring-black/10">
-              <div className="font-display text-sm font-semibold">{scenario.overlayLegend.title}</div>
-              <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-ink/70">
+            <div className="pointer-events-none absolute left-6 top-6 rounded-xl bg-white/95 px-3.5 py-2.5 shadow-md border border-[#d8e0ea]">
+              <div className="font-sans text-sm font-bold text-[#003c6c]">{scenario.overlayLegend.title}</div>
+              <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-[#75787b]">
                 <span className="h-2.5 w-28 rounded-full" style={{ background: `linear-gradient(to right, ${scenario.overlayLegend.colors.join(', ')})` }} />
                 {scenario.overlayLegend.range}
               </div>
@@ -333,20 +338,20 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
         </main>
 
         {!scenario.minimalShell && (
-          <aside className="flex w-[288px] shrink-0 flex-col overflow-y-auto border-l border-line bg-white">
+          <aside className="flex w-[290px] shrink-0 flex-col overflow-y-auto border-l border-[#d8e0ea] bg-white">
             <RequirementsPanel requirements={scenario.requirements} result={result} cost={cost} />
 
             <section className="px-4 pt-5">
-              <h2 className="font-display text-[15px] font-semibold text-ink">Selected</h2>
+              <h2 className="font-sans text-[15px] font-bold text-[#003c6c]">Inspector</h2>
               {selected && selectedTool ? (
-                <div className="mt-2 rounded-xl border border-line p-3">
-                  <div className="mb-1 flex items-center gap-2">
-                    <span className="grid size-7 place-items-center rounded-lg text-white" style={{ backgroundColor: selectedTool.accent }}>
+                <div className="mt-2 rounded-xl border border-[#d8e0ea] bg-[#f8fafc] p-3">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span className="grid size-7 place-items-center rounded-lg text-white" style={{ backgroundColor: selectedTool.accent || '#003c6c' }}>
                       <selectedTool.icon className="size-4" />
                     </span>
-                    <span className="font-display text-[15px] font-semibold">{selectedTool.label}</span>
+                    <span className="font-sans text-[15px] font-bold text-[#0b1d2e]">{selectedTool.label}</span>
                   </div>
-                  <p className="mb-1 text-xs text-ink/60">{selectedTool.summary}</p>
+                  <p className="mb-2 text-xs text-[#75787b]">{selectedTool.summary}</p>
                   <Properties
                     object={selected}
                     design={state.design}
@@ -357,26 +362,26 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
                     type="button"
                     disabled={locked}
                     onClick={deleteSelected}
-                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-rust ring-1 ring-rust/30 transition hover:bg-[#fbeee6] disabled:opacity-40"
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-red-600 transition hover:bg-red-50 disabled:opacity-40"
                   >
-                    <Trash2 className="size-4" /> Remove
+                    <Trash2 className="size-4" /> Remove Component
                   </button>
                 </div>
               ) : (
-                <p className="mt-1 text-xs text-ink/50">Click something you placed to inspect or change it.</p>
+                <p className="mt-1 text-xs text-[#75787b]">Click any placed component on the campus canvas to inspect its parameters.</p>
               )}
             </section>
 
             {log.length > 0 && (
               <section className="px-4 pb-4 pt-5">
-                <h2 className="font-display text-[15px] font-semibold text-ink">Test log</h2>
+                <h2 className="font-sans text-[15px] font-bold text-[#003c6c]">Simulation Log</h2>
                 <ol className="mt-2 space-y-1">
                   {[...log].reverse().map((e) => (
-                    <li key={e.n} className="flex items-center gap-2 rounded-lg bg-paper px-2.5 py-1.5 font-mono text-[11.5px]">
-                      <span className="text-ink/45">#{e.n}</span>
-                      <span className={`size-2 rounded-full ${e.pass ? 'bg-forest' : 'bg-rust'}`} />
-                      <span className="flex-1 truncate">{e.summary}</span>
-                      <span className="text-ink/60">{money(e.cost / 1000)}k</span>
+                    <li key={e.n} className="flex items-center gap-2 rounded-lg bg-[#f4f6fa] border border-[#d8e0ea]/50 px-2.5 py-1.5 font-mono text-[11.5px]">
+                      <span className="text-[#75787b]">#{e.n}</span>
+                      <span className={`size-2 rounded-full ${e.pass ? 'bg-[#003c6c]' : 'bg-red-500'}`} />
+                      <span className="flex-1 truncate text-[#0b1d2e]">{e.summary}</span>
+                      <span className="text-[#75787b]">{money(e.cost / 1000)}k</span>
                     </li>
                   ))}
                 </ol>
@@ -388,10 +393,10 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
 
       {/* Bottom bar */}
       {!scenario.minimalShell && (
-        <footer className="flex h-[68px] shrink-0 items-center gap-2 border-t border-line bg-white px-5">
+        <footer className="flex h-[68px] shrink-0 items-center gap-2 border-t border-[#d8e0ea] bg-white px-5 shadow-xs">
           <BarButton icon={Undo2} label="Undo" onClick={undo} disabled={locked || state.past.length === 0} />
           <BarButton icon={RotateCcw} label="Reset" onClick={() => !locked && state.design.length && setConfirmReset(true)} disabled={locked || !state.design.length} />
-          <BarButton icon={Trash2} label="Delete selected" onClick={deleteSelected} disabled={locked || !state.selectedId} />
+          <BarButton icon={Trash2} label="Delete" onClick={deleteSelected} disabled={locked || !state.selectedId} />
           {scenario.overlayLabel && (
             <BarButton icon={Layers} label={scenario.overlayLabel} onClick={() => setOverlay((o) => !o)} disabled={locked || !result} active={overlay} />
           )}
@@ -399,7 +404,7 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
             type="button"
             onClick={() => setDebug((d) => !d)}
             title="Debug view (Shift+D)"
-            className={`grid size-9 place-items-center rounded-lg transition ${debug ? 'bg-[#f3e8f7] text-[#86198f]' : 'text-ink/25 hover:text-ink/50'}`}
+            className={`grid size-9 place-items-center rounded-lg transition ${debug ? 'bg-purple-100 text-purple-800' : 'text-[#75787b]/60 hover:text-[#0b1d2e]'}`}
           >
             <Bug className="size-4" />
           </button>
@@ -411,19 +416,18 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
                 disabled={locked || !passed}
                 onClick={() => startRun(advanced.id)}
                 title={passed ? advanced.blurb : `Pass the ${scenario.variants[0].label.toLowerCase()} first`}
-                style={{ ['--edge' as string]: '#a77c17' }}
-                className="btn-press flex items-center gap-2 rounded-xl bg-sun px-4 py-2.5 text-sm font-bold text-ink disabled:cursor-not-allowed disabled:bg-paper disabled:text-ink/35 disabled:shadow-none"
+                className="btn-press flex items-center gap-2 rounded-xl bg-[#fdc700] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#003c6c] shadow-xs hover:bg-[#f29813] hover:text-white transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
               >
-                {passed ? <Zap className="size-4" /> : <Lock className="size-4" />}
+                {passed ? <Zap className="size-4 text-[#003c6c]" /> : <Lock className="size-4" />}
                 {advanced.label}
-                {passed && <span className="font-mono text-[11px] font-medium opacity-70">{advanced.blurb}</span>}
+                {passed && <span className="font-mono text-[10px] font-medium opacity-80">{advanced.blurb}</span>}
               </button>
             )}
             <button
               type="button"
               disabled={locked}
               onClick={() => startRun(scenario.variants[0].id)}
-              className="btn-press flex items-center gap-2.5 rounded-xl bg-forest px-7 py-3 font-display text-[15px] font-bold uppercase tracking-wide text-white hover:bg-forest-dark disabled:cursor-not-allowed disabled:opacity-60"
+              className="btn-press flex items-center gap-2.5 rounded-xl bg-[#003c6c] px-7 py-3 font-sans text-sm font-bold uppercase tracking-wider text-white shadow-sm hover:bg-[#f29813] transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               <CloudRain className="size-5" strokeWidth={2.4} />
               {scenario.runLabel}
@@ -448,19 +452,22 @@ export function Sandbox({ scenario, onExit, sync, headerExtra, frozen = false }:
       )}
 
       {confirmReset && (
-        <div className="absolute inset-0 z-40 grid place-items-center bg-ink/30 p-6">
-          <div className="w-full max-w-sm animate-pop rounded-2xl bg-white p-5 shadow-2xl">
-            <h2 className="font-display text-xl font-bold">Reset the campus?</h2>
-            <p className="mt-1 text-sm text-ink/70">This removes everything you have placed. Your test log stays.</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="rounded-xl px-4 py-2 text-sm font-semibold ring-1 ring-line hover:bg-paper" onClick={() => setConfirmReset(false)}>
-                Keep design
+        <div className="absolute inset-0 z-40 grid place-items-center bg-[#0b1d2e]/40 p-6 backdrop-blur-xs">
+          <div className="w-full max-w-sm animate-pop rounded-2xl bg-white p-6 shadow-2xl border border-[#d8e0ea]">
+            <h2 className="font-sans text-xl font-bold text-[#003c6c]">Reset Campus Design?</h2>
+            <p className="mt-1 text-sm text-[#75787b]">This clears all components you have placed. Your simulation log will remain.</p>
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                className="rounded-xl border border-[#d8e0ea] px-4 py-2 text-sm font-semibold text-[#0b1d2e] hover:bg-[#f4f6fa]"
+                onClick={() => setConfirmReset(false)}
+              >
+                Keep Design
               </button>
               <button
                 type="button"
                 autoFocus
-                style={{ ['--edge' as string]: '#7d2e10' }}
-                className="btn-press rounded-xl bg-rust px-4 py-2 text-sm font-bold text-white"
+                className="btn-press rounded-xl bg-red-600 px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:bg-red-700"
                 onClick={() => {
                   play('remove')
                   dispatch({ type: 'reset', design: scenario.initialDesign() })
@@ -490,7 +497,11 @@ function SoundToggle() {
       }}
       title={muted ? 'Turn sound on' : 'Turn sound off'}
       aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
-      className={`grid size-9 place-items-center rounded-full ring-1 transition ${muted ? 'text-ink/40 ring-line hover:text-ink' : 'bg-mint text-forest ring-forest/20 hover:bg-white'}`}
+      className={`grid size-9 place-items-center rounded-full border transition ${
+        muted
+          ? 'text-[#75787b] border-[#d8e0ea] hover:text-[#0b1d2e]'
+          : 'bg-[#e0f2fe] text-[#003c6c] border-[#003c6c]/20 hover:bg-white'
+      }`}
     >
       {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
     </button>
@@ -515,12 +526,12 @@ function StatusPill({ status, variantLabel, run }: { status: Status; variantLabe
   if (status === 'running')
     return (
       <div className="w-44">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-forest">
-          <span className="size-2 animate-pulse rounded-full bg-forest" /> {variantLabel} running
-          <span ref={clock} className="ml-auto font-mono text-ink/70" />
+        <div className="flex items-center gap-1.5 text-xs font-bold text-[#003c6c]">
+          <span className="size-2 animate-pulse rounded-full bg-[#f29813]" /> {variantLabel} running
+          <span ref={clock} className="ml-auto font-mono text-[#75787b]" />
         </div>
-        <div className="mt-1 h-2 overflow-hidden rounded-full bg-mint">
-          <div ref={bar} className="h-full rounded-full bg-forest" style={{ width: 0 }} />
+        <div className="mt-1 h-2 overflow-hidden rounded-full bg-[#e0f2fe]">
+          <div ref={bar} className="h-full rounded-full bg-[#003c6c]" style={{ width: 0 }} />
         </div>
       </div>
     )
@@ -545,8 +556,10 @@ function BarButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-35 ${
-        active ? 'bg-forest text-white' : 'text-ink ring-1 ring-line hover:bg-paper'
+      className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold uppercase tracking-wider transition disabled:cursor-not-allowed disabled:opacity-35 ${
+        active
+          ? 'bg-[#003c6c] text-white shadow-xs'
+          : 'text-[#0b1d2e] border border-[#d8e0ea] hover:bg-[#f4f6fa] hover:border-[#003c6c]/40'
       }`}
     >
       <Icon className="size-4" />
