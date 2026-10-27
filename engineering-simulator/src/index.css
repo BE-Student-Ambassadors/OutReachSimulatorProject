@@ -1,19 +1,34 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-display: 'Bricolage Grotesque Variable', 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  --font-display: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-sans: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Roboto Mono', 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
 
-  --color-paper: #f4f3ec;
-  --color-line: #e1dfd3;
-  --color-ink: #1b2a20;
-  --color-forest: #2c5b3c;
-  --color-forest-dark: #1d4029;
-  --color-leaf: #74a85f;
-  --color-mint: #e5eedf;
-  --color-rust: #b8461b;
-  --color-sun: #d9a52b;
+  /* Official UC Santa Cruz Baskin Engineering brand palette */
+  --color-baskin-navy: #003c6c;
+  --color-baskin-navy-dark: #002b4d;
+  --color-baskin-navy-light: #0d4e85;
+  --color-baskin-orange: #f29813;
+  --color-baskin-orange-dark: #d98207;
+  --color-baskin-orange-light: #ffa929;
+  --color-baskin-gold: #fdc700;
+  --color-baskin-cyan: #13a5dc;
+  --color-baskin-gray-dark: #75787b;
+  --color-baskin-gray-light: #d0d0ce;
+
+  /* Semantic UI surfaces */
+  --color-paper: #f4f6fa;
+  --color-line: #d8e0ea;
+  --color-ink: #0b1d2e;
+
+  /* Compatibility mappings aligned with Baskin brand standards */
+  --color-forest: #003c6c;
+  --color-forest-dark: #002b4d;
+  --color-leaf: #0284c7;
+  --color-mint: #e1effa;
+  --color-rust: #c2410c;
+  --color-sun: #f29813;
 
   --animate-confetti: confetti 2.6s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
   --animate-pop: pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both;
@@ -74,7 +89,7 @@ body {
 
 /* Tactile "pressable" button: solid fill with an offset edge, no gradients. */
 .btn-press {
-  box-shadow: 0 3px 0 0 var(--edge, #1d4029);
+  box-shadow: 0 3px 0 0 var(--edge, #002b4d);
   transform: translateY(0);
   transition:
     transform 80ms ease,
@@ -83,5 +98,5 @@ body {
 }
 .btn-press:active:not(:disabled) {
   transform: translateY(3px);
-  box-shadow: 0 0 0 0 var(--edge, #1d4029);
+  box-shadow: 0 0 0 0 var(--edge, #002b4d);
 }

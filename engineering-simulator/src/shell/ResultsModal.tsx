@@ -1,4 +1,4 @@
-import { Check, Eye, Wrench, X, Zap } from 'lucide-react'
+import { Check, Eye, Trophy, Wrench, X, Zap } from 'lucide-react'
 import { useMemo } from 'react'
 import type { AnyScenario, Stat } from '../core/scenario'
 
@@ -15,37 +15,79 @@ interface Props {
   onShowOverlay(): void
 }
 
-export function ResultsModal({ scenario, result, cost, variantLabel, stats, observations, justUnlocked, canShowOverlay, onClose, onShowOverlay }: Props) {
+export function ResultsModal({
+  scenario,
+  result,
+  cost,
+  variantLabel,
+  stats,
+  observations,
+  justUnlocked,
+  canShowOverlay,
+  onClose,
+  onShowOverlay,
+}: Props) {
   const rows = scenario.requirements.map((r) => ({ r, s: r.status(result, cost) }))
   const passed = rows.every(({ s }) => s.pass)
 
   return (
-    <div className="absolute inset-0 z-40 grid place-items-center bg-ink/35 p-4 backdrop-blur-[2px]">
+    <div className="absolute inset-0 z-40 grid place-items-center bg-[#0b1d2e]/50 p-4 backdrop-blur-xs">
       {passed && <Confetti />}
-      <div className="relative max-h-full w-full max-w-[560px] animate-pop overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-black/10">
-        <div className={`px-6 pb-4 pt-5 ${passed ? 'bg-forest text-white' : 'bg-paper text-ink'}`}>
-          <div className={`font-mono text-xs uppercase tracking-wider ${passed ? 'text-white/70' : 'text-ink/55'}`}>
-            {variantLabel} complete
+      <div className="relative max-h-full w-full max-w-[580px] animate-pop overflow-y-auto rounded-2xl bg-white shadow-2xl border border-[#d8e0ea]">
+        {/* Header */}
+        <div
+          className={`px-6 pb-5 pt-6 ${
+            passed
+              ? 'bg-gradient-to-r from-[#003c6c] to-[#002b4d] text-white'
+              : 'bg-gradient-to-r from-[#002b4d] to-[#0b1d2e] text-white'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#fdc700]">
+              {variantLabel} · Simulation Complete
+            </span>
+            {passed && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#f29813] px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                <Trophy className="size-3" /> Requirements Met
+              </span>
+            )}
           </div>
-          <h2 className="mt-1 font-display text-[26px] font-bold leading-tight">
-            {passed ? 'Engineering requirements met' : 'Design does not yet meet the requirements'}
+          <h2 className="mt-2 font-sans text-2xl font-black leading-tight text-white">
+            {passed ? 'Engineering Specifications Achieved!' : 'Iteration Needed: Constraints Unmet'}
           </h2>
-          {passed && <p className="mt-1 text-white/85">Your design passed the {variantLabel.toLowerCase()}.</p>}
+          <p className="mt-1 text-sm text-slate-200">
+            {passed
+              ? `Your design satisfied all criteria for the ${variantLabel.toLowerCase()}.`
+              : `One or more physical or budget parameters failed during the ${variantLabel.toLowerCase()}.`}
+          </p>
         </div>
 
-        <div className="space-y-2 px-6 py-4">
+        {/* Requirements status list */}
+        <div className="space-y-2.5 px-6 py-4">
+          <div className="text-xs font-bold uppercase tracking-wider text-[#75787b]">Verification Checklist</div>
           {rows.map(({ r, s }) => (
-            <div key={r.id} className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5">
-              <span className={`grid size-7 shrink-0 place-items-center rounded-full text-white ${s.pass ? 'bg-forest' : 'bg-rust'}`}>
+            <div
+              key={r.id}
+              className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${
+                s.pass
+                  ? 'border-emerald-200 bg-emerald-50/50'
+                  : 'border-red-200 bg-red-50/60'
+              }`}
+            >
+              <span
+                className={`grid size-7 shrink-0 place-items-center rounded-full text-white ${
+                  s.pass ? 'bg-[#003c6c]' : 'bg-[#dc2626]'
+                }`}
+              >
                 {s.pass ? <Check className="size-4" strokeWidth={3} /> : <X className="size-4" strokeWidth={3} />}
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold">{passed ? r.passLabel : r.label}</div>
-                <div className="font-mono text-xs text-ink/55">Required {r.target}</div>
+                <div className="font-sans text-sm font-bold text-[#0b1d2e]">{passed ? r.passLabel : r.label}</div>
+                <div className="font-mono text-xs text-[#75787b]">Target: {r.target}</div>
               </div>
               <div className="text-right">
-                <div className="font-mono text-lg font-semibold tabular">{s.value}</div>
-                <div className={`text-[11px] font-bold uppercase tracking-wide ${s.pass ? 'text-forest' : 'text-rust'}`}>
+                <div className="font-mono text-base font-bold tabular text-[#0b1d2e]">{s.value}</div>
+                <div className={`text-[11px] font-bold uppercase tracking-wide ${s.pass ? 'text-emerald-700' : 'text-red-600'}`}>
                   {s.pass ? 'Passed' : 'Failed'}
                 </div>
               </div>
@@ -53,54 +95,61 @@ export function ResultsModal({ scenario, result, cost, variantLabel, stats, obse
           ))}
         </div>
 
+        {/* Observations telemetry */}
         {(!passed || observations.length > 1) && (
-          <div className="px-6 pb-2">
-            <h3 className="mb-1.5 font-display text-sm font-semibold">What the sensors recorded</h3>
-            <ul className="space-y-1 text-sm text-ink/80">
+          <div className="border-t border-[#f4f6fa] px-6 py-3">
+            <h3 className="mb-2 font-sans text-xs font-bold uppercase tracking-wider text-[#003c6c]">
+              Telemetry & Diagnostic Observations
+            </h3>
+            <ul className="space-y-1.5 text-sm text-[#0b1d2e]/85">
               {observations.map((o) => (
-                <li key={o} className="flex gap-2">
-                  <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-ink/40" />
-                  {o}
+                <li key={o} className="flex items-start gap-2">
+                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#f29813]" />
+                  <span>{o}</span>
                 </li>
               ))}
             </ul>
           </div>
         )}
 
+        {/* Key stats summary */}
         {passed && (
-          <div className="mx-6 mb-2 mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-xl bg-paper px-4 py-3">
+          <div className="mx-6 mb-2 mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-[#d8e0ea] bg-[#f4f6fa] px-4 py-3">
             {stats.map((s) => (
               <div key={s.label} className="flex items-baseline justify-between gap-2">
-                <span className="text-xs text-ink/60">{s.label}</span>
-                <span className="font-mono text-xs font-semibold">{s.value}</span>
+                <span className="text-xs text-[#75787b]">{s.label}</span>
+                <span className="font-mono text-xs font-bold text-[#003c6c]">{s.value}</span>
               </div>
             ))}
           </div>
         )}
 
+        {/* Unlock notification */}
         {justUnlocked && (
-          <div className="mx-6 mt-2 flex items-center gap-2 rounded-xl bg-sun/15 px-3 py-2 text-sm font-semibold text-ink ring-1 ring-sun/40">
-            <Zap className="size-4 text-sun" /> {justUnlocked} unlocked
+          <div className="mx-6 mt-3 flex items-center gap-2.5 rounded-xl border border-[#f29813]/40 bg-[#f29813]/10 px-3.5 py-2.5 text-sm font-bold text-[#003c6c]">
+            <Zap className="size-4 text-[#f29813]" />
+            <span>Bonus Track Unlocked: {justUnlocked}</span>
           </div>
         )}
 
-        <div className="flex items-center gap-2 px-6 pb-5 pt-4">
+        {/* Footer actions */}
+        <div className="flex items-center gap-2 border-t border-[#d8e0ea] px-6 pb-5 pt-4">
           {canShowOverlay && (
             <button
               type="button"
               onClick={onShowOverlay}
-              className="flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-ink ring-1 ring-line hover:bg-paper"
+              className="flex items-center gap-2 rounded-xl border border-[#d8e0ea] px-4 py-2.5 text-sm font-bold text-[#003c6c] transition hover:bg-[#f4f6fa]"
             >
-              <Eye className="size-4" /> See {scenario.overlayLabel?.toLowerCase() ?? 'overlay'}
+              <Eye className="size-4" /> View {scenario.overlayLabel?.toLowerCase() ?? 'overlay'}
             </button>
           )}
           <button
             type="button"
             autoFocus
             onClick={onClose}
-            className="btn-press ml-auto flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-sm font-bold text-white hover:bg-forest-dark"
+            className="btn-press ml-auto flex items-center gap-2 rounded-xl bg-[#003c6c] px-6 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition hover:bg-[#f29813]"
           >
-            <Wrench className="size-4" /> {passed ? 'Optimize design' : 'Modify design'}
+            <Wrench className="size-4" /> {passed ? 'Optimize Design' : 'Refine & Re-engineer'}
           </button>
         </div>
       </div>
@@ -116,7 +165,8 @@ function Confetti() {
         delay: (i % 10) * 0.08,
         dx: `${((i * 53) % 40) - 20}vw`,
         rot: `${(i * 97) % 720}deg`,
-        color: ['#2c5b3c', '#74a85f', '#d9a52b', '#ffffff', '#b8d8a8'][i % 5],
+        // Official UCSC Baskin Engineering color confetti: Navy, Orange, Gold, Cyan, White
+        color: ['#003c6c', '#f29813', '#fdc700', '#13a5dc', '#ffffff'][i % 5],
         w: 6 + (i % 4) * 2,
       })),
     [],

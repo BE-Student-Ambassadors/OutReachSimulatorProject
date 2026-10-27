@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import React from 'react';
 import { money } from '../../../core/format';
+import { BaskinLogo } from '../../../shell/BrandMark';
 import { soundEngine } from '../audio/soundEngine';
 import {
   type AppScreen,
@@ -135,9 +136,9 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
   ];
 
   return (
-    <div className="relative flex h-full w-full flex-col bg-slate-100 text-slate-800 font-sans select-none overflow-hidden">
+    <div className="relative flex h-full w-full flex-col bg-[#f4f6fa] text-[#0b1d2e] font-sans select-none overflow-hidden antialiased">
       {/* 1. Global BESA Engineering Lab Header & Role Navigation Strip */}
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 z-30 shadow-xs">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#d8e0ea] bg-white px-4 py-2 z-30 shadow-xs">
         {/* Left: Lab branding & Station Tabs */}
         <div className="flex items-center gap-3 overflow-x-auto min-w-0">
           {/* Lab title */}
@@ -147,16 +148,15 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
               soundEngine.playClick();
               onNavigate('team-dashboard');
             }}
-            className="flex items-center gap-2 pr-3 border-r border-slate-200 hover:opacity-80 transition shrink-0 text-left"
+            className="flex items-center gap-2.5 pr-3 border-r border-[#d8e0ea] hover:opacity-85 transition shrink-0 text-left cursor-pointer"
           >
-            <span className="grid size-8 place-items-center rounded-xl bg-slate-900 text-cyan-400 font-bold text-xs shadow-xs">
-              🤖
-            </span>
+            <BaskinLogo height={26} />
+            <div className="h-5 w-px bg-slate-200 hidden sm:block" />
             <div>
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-700 block leading-tight">
-                BESA Engineering Lab
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-[#003c6c] block leading-tight">
+                BE Lab
               </span>
-              <span className="block font-display text-sm font-extrabold text-slate-900 tracking-tight leading-tight">
+              <span className="block font-sans text-xs font-black text-[#003c6c] tracking-tight leading-tight">
                 BattleBot Incubator
               </span>
             </div>
@@ -182,12 +182,16 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
                     soundEngine.playClick();
                     onNavigate(t.id);
                   }}
-                  className={`cursor-pointer px-3 py-1.5 rounded-xl font-display text-xs font-bold transition flex items-center gap-1.5 ${
+                  className={`cursor-pointer px-3 py-1.5 rounded-xl font-sans text-xs font-bold transition flex items-center gap-1.5 ${
                     active
-                      ? 'bg-slate-900 text-white shadow-xs'
+                      ? t.isArena
+                        ? 'bg-[#f29813] text-white shadow-xs'
+                        : 'bg-[#003c6c] text-white shadow-xs'
                       : isLockedArena
-                      ? 'text-slate-400 hover:bg-slate-50 opacity-70'
-                      : 'text-slate-600 hover:bg-slate-100'
+                      ? 'text-[#75787b]/60 hover:bg-slate-50 opacity-70'
+                      : t.isArena
+                      ? 'text-[#f29813] hover:bg-amber-50 font-black'
+                      : 'text-[#0b1d2e] hover:bg-[#f4f6fa]'
                   }`}
                   title={
                     isLockedArena
@@ -198,16 +202,16 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
                   {isLockedArena && <Lock className="size-3 text-slate-400" />}
                   <span>{t.label}</span>
                   {t.roleId && myRoles?.includes(t.roleId) && (
-                    <span className={`rounded-full px-1.5 py-px font-mono text-[9px] font-bold ${active ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-700'}`}>YOU</span>
+                    <span className={`rounded-full px-1.5 py-px font-mono text-[9px] font-bold ${active ? 'bg-white/20 text-white' : 'bg-blue-50 text-[#003c6c]'}`}>YOU</span>
                   )}
 
                   {/* Tiny state indicator: ○ Not started, ● In progress, ✓ Done */}
                   {status && (
                     <span className="ml-0.5 font-mono text-[11px] leading-none">
                       {status === 'done' ? (
-                        <span className="text-emerald-500 font-bold" title="Done">✓</span>
+                        <span className="text-[#003c6c] font-bold" title="Done">✓</span>
                       ) : status === 'progress' ? (
-                        <span className="text-cyan-500 font-bold" title="In progress">●</span>
+                        <span className="text-[#f29813] font-bold" title="In progress">●</span>
                       ) : (
                         <span className="text-slate-300 font-normal" title="Not started">○</span>
                       )}
@@ -235,7 +239,7 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
                     onDevEnterArena();
                   }}
                   title="Developer Mode: Jump directly into the Combat Arena"
-                  className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-display font-extrabold text-xs shadow-xs transition active:scale-95"
+                  className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#f29813] hover:bg-[#d98207] text-white font-sans font-bold text-xs shadow-xs transition active:scale-95"
                 >
                   <Swords className="w-3.5 h-3.5" />
                   <span>TEST ARENA</span>
@@ -244,11 +248,11 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
             </div>
           )}
           <div className="text-right leading-tight hidden sm:block">
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 block">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-[#75787b] block">
               Budget
             </span>
-            <span className={`font-mono text-xs font-bold ${isOverBudget ? 'text-rose-600' : 'text-slate-800'}`}>
-              {money(spentUsd)} <span className="text-slate-400 font-normal">/ {money(availableUsd)}</span>
+            <span className={`font-mono text-xs font-bold ${isOverBudget ? 'text-red-600' : 'text-[#003c6c]'}`}>
+              {money(spentUsd)} <span className="text-[#75787b] font-normal">/ {money(availableUsd)}</span>
             </span>
           </div>
 
@@ -257,10 +261,10 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
               type="button"
               onClick={onResetGame}
               title="Reset entire BattleBot challenge"
-              className="cursor-pointer flex items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-1.5 font-display text-xs font-semibold text-slate-500 ring-1 ring-slate-200 hover:bg-rose-50 hover:text-rose-700 hover:ring-rose-200 transition"
+              className="cursor-pointer flex items-center gap-1.5 rounded-xl border border-[#d8e0ea] bg-white px-2.5 py-1.5 font-sans text-xs font-semibold text-[#75787b] hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition"
             >
-              <RotateCcw className="size-3.5 text-slate-400 group-hover:text-rose-500" />
-              <span className="hidden sm:inline">↻ Reset Game</span>
+              <RotateCcw className="size-3.5" />
+              <span className="hidden sm:inline">Reset Game</span>
             </button>
           )}
         </div>
@@ -270,7 +274,7 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
       {activeScreen !== 'team-dashboard' && activeScreen !== 'arena' && checklistSteps.length > 0 && (
         <nav
           aria-label="Role objective"
-          className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-1.5 z-20 overflow-x-auto text-xs"
+          className="flex shrink-0 items-center justify-between border-b border-[#d8e0ea] bg-[#f8fafc] px-4 py-1.5 z-20 overflow-x-auto text-xs"
         >
           <div className="flex items-center gap-1.5 flex-wrap">
             {checklistSteps.map((s, i) => (
@@ -279,13 +283,13 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold transition ${
                     s.done
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
-                      : 'bg-slate-50 text-slate-600 border border-slate-200'
+                      ? 'bg-blue-50 text-[#003c6c] border border-blue-200'
+                      : 'bg-white text-[#75787b] border border-[#d8e0ea]'
                   }`}
                 >
-                  <span className="font-mono text-[10px] text-slate-400">{i + 1}</span>
+                  <span className="font-mono text-[10px] text-[#75787b]">{i + 1}</span>
                   <span>{s.label}</span>
-                  {s.done && <span className="text-emerald-600 font-bold">✓</span>}
+                  {s.done && <span className="text-[#003c6c] font-bold">✓</span>}
                 </span>
               </React.Fragment>
             ))}
@@ -294,7 +298,7 @@ export const BattlebotShell: React.FC<BattlebotShellProps> = ({
       )}
 
       {/* 3. Main Workspace */}
-      <main className="min-h-0 flex-1 relative overflow-hidden bg-slate-50">
+      <main className="min-h-0 flex-1 relative overflow-hidden bg-[#f4f6fa]">
         {children}
       </main>
     </div>

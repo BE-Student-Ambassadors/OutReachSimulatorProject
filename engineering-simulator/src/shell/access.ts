@@ -1,6 +1,6 @@
 /**
  * Solo practice is locked behind an access code, so the challenges stay with the visit
- * unless BESA hands the code out. Live games need no code (they need a running session,
+ * unless BE Lab hands the code out. Live games need no code (they need a running session,
  * and only instructors can start one).
  *
  * Codes come from VITE_ACCESS_CODES (comma-separated, set in the Vercel project) and default
@@ -11,10 +11,10 @@
  * Unlock by typing the code on the start screen or with a link: `?access=CODE`.
  */
 
-const ACCESS_CODE_DEFAULT = 'BESALAB'
-const STORAGE_KEY = 'besa-access-code'
+const ACCESS_CODE_DEFAULT = 'BELAB,BESALAB'
+const STORAGE_KEY = 'be-access-code'
 
-/** Case, spaces and dashes don't matter: "besa-lab" works for BESALAB. */
+/** Case, spaces and dashes don't matter: "be-lab" works for BELAB. */
 export const normalizeCode = (code: string) => code.toUpperCase().replace(/[^A-Z0-9]/g, '')
 
 const validCodes = (import.meta.env.VITE_ACCESS_CODES ?? ACCESS_CODE_DEFAULT).split(',').map(normalizeCode).filter(Boolean)
@@ -48,8 +48,9 @@ export function unlockFromUrl(): boolean {
   const q = new URLSearchParams(location.search)
   const code = q.get('access')
   if (code === null) return hasAccess()
+  const ok = unlock(code)
   q.delete('access')
   const rest = q.toString()
-  history.replaceState(null, '', `${location.pathname}${rest ? `?${rest}` : ''}${location.hash}`)
-  return unlock(code) || hasAccess()
+  history.replaceState(null, '', location.pathname + (rest ? `?${rest}` : ''))
+  return ok
 }
