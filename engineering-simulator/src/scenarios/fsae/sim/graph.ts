@@ -66,7 +66,9 @@ function tokenize(src: string): Tok[] | string {
     const c = s[i]
     if (c === ' ') i++
     else if (/[0-9.]/.test(c)) {
-      const m = /^\d*\.?\d+|^\d+\.?/.exec(s.slice(i))!
+      const m = /^\d*\.?\d+|^\d+\.?/.exec(s.slice(i))
+      // A "." with no digit beside it (mid-typing "x + .5", or "2..").
+      if (!m) return 'A “.” needs a number with it, like 0.5.'
       out.push({ t: 'num', v: parseFloat(m[0]) })
       i += m[0].length
     } else if (/[a-z]/.test(c)) {

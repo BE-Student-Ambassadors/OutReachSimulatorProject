@@ -23,7 +23,7 @@ describe('the function parser', () => {
   })
 
   test('explains mistakes instead of crashing', () => {
-    for (const bad of ['', 'y + 1', '2x +', '(x + 1', 'x)', '3 $ x']) {
+    for (const bad of ['', 'y + 1', '2x +', '(x + 1', 'x)', '3 $ x', '.', 'x + .', '2..']) {
       const p = parseFunction(bad)
       expect(p.ok).toBe(false)
       if (!p.ok) expect(p.error.length).toBeGreaterThan(5)
