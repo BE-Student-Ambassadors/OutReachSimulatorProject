@@ -1,7 +1,7 @@
-import { ArrowRight, Info } from 'lucide-react'
+import { ArrowRight, Sparkles, Users } from 'lucide-react'
 import type { AnyScenario } from '../core/scenario'
 import { play } from '../shared/audio/sfx'
-import { BrandMark } from './BrandMark'
+import { BaskinLogo } from './BrandMark'
 
 export function StartScreen({
   scenarios,
@@ -15,86 +15,158 @@ export function StartScreen({
   onHost?(): void
 }) {
   return (
-    <div className="relative flex flex-col items-center justify-center bg-paper px-6 py-8">
-      <Contours />
-      <div className="relative flex flex-col items-center text-center">
-        <BrandMark size={56} />
-        <h1 className="mt-5 font-display text-[clamp(40px,6vw,72px)] font-extrabold leading-[0.95] tracking-tight text-forest">
-          BESA Engineering Lab
-        </h1>
-        <p className="mt-2 font-mono text-xs uppercase tracking-[0.2em] text-ink/50">Baskin Engineering Student Ambassadors</p>
-        <p className="mt-3 font-display text-xl text-ink/70">Can your team engineer a solution?</p>
-        <div className="mt-4 flex max-w-xl items-center gap-2.5 rounded-xl bg-white/80 px-4 py-2.5 text-left text-xs text-ink/70 shadow-sm ring-1 ring-line backdrop-blur-sm">
-          <Info className="size-4 shrink-0 text-forest" />
-          <p>
-            <strong className="font-semibold text-ink">Disclaimer:</strong> These simulators are simplified educational activities and do not represent the actual student clubs or engineering teams in real life.
-          </p>
-        </div>
-        {onJoin && (
-          <div className="mt-6 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onJoin}
-              className="btn-press rounded-xl bg-forest px-7 py-3 font-display text-base font-bold uppercase tracking-wide text-white hover:bg-forest-dark"
-            >
-              Join a game
-            </button>
+    <div className="min-h-full flex flex-col bg-[#f4f6fa] text-[#0b1d2e] antialiased">
+      {/* Top Institutional Bar */}
+      <header className="border-b border-[#002b4d]/20 bg-[#003c6c] px-4 py-3 sm:px-6 lg:px-8 text-white shadow-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <div className="flex items-center gap-3">
+            <BaskinLogo height={32} inverted />
+            <div className="h-5 w-px bg-white/20 hidden sm:block" />
+            <span className="font-mono text-xs font-semibold tracking-wider uppercase text-[#fdc700] hidden sm:inline-block">
+              BE Lab
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            {onJoin && (
+              <button
+                type="button"
+                onClick={onJoin}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#f29813] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-white shadow-xs transition hover:bg-[#d98207] active:translate-y-0.5 cursor-pointer"
+              >
+                <Users className="size-3.5" />
+                Join Live Room
+              </button>
+            )}
             {onHost && (
-              <button type="button" onClick={onHost} className="rounded-xl px-5 py-3 text-sm font-semibold text-ink ring-1 ring-line hover:bg-white">
-                Host a game
+              <button
+                type="button"
+                onClick={onHost}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-white transition hover:bg-white/20 active:translate-y-0.5 cursor-pointer"
+              >
+                Host
               </button>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      </header>
 
-      {onJoin && <p className="relative mt-10 text-sm font-semibold uppercase tracking-wider text-ink/45">Or practice on your own</p>}
-      <div className="relative mt-4 flex flex-wrap justify-center gap-5">
-        {scenarios.map((s, i) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => {
-              play('start')
-              onStart(s)
-            }}
-            className="group w-[min(420px,90vw)] overflow-hidden rounded-2xl bg-white text-left shadow-[0_12px_40px_-12px_rgba(27,42,32,0.35)] ring-1 ring-black/5 transition hover:-translate-y-0.5"
+      {/* Compact Hero Section */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-[#003c6c] via-[#00335c] to-[#002b4d] px-4 py-10 text-center text-white sm:px-6">
+        <HeroGrid />
+        <div className="relative mx-auto max-w-3xl">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#f29813]/40 bg-[#f29813]/15 px-3 py-0.5 text-xs font-bold uppercase tracking-wider text-[#fdc700]">
+            <Sparkles className="size-3 text-[#f29813]" />
+            BE Interactive Lab
+          </div>
+
+          <h1 className="mt-3 font-sans text-3xl font-black tracking-tight sm:text-5xl text-white">
+            BE Engineering Lab
+          </h1>
+
+          <p className="mx-auto mt-2 max-w-xl text-sm sm:text-base font-normal text-slate-200">
+            Choose a challenge below to design, simulate, and optimize real engineering systems.
+          </p>
+        </div>
+      </section>
+
+      {/* Main Challenge Grid */}
+      <main className="mx-auto flex-1 w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {scenarios.map((s, i) => (
+            <div
+              key={s.id}
+              className="group flex flex-col overflow-hidden rounded-2xl border border-[#d8e0ea] bg-white shadow-xs transition-all duration-200 hover:border-[#f29813] hover:shadow-xl hover:-translate-y-1"
+            >
+              {/* Card visual banner */}
+              <div className="relative h-40 w-full overflow-hidden bg-[#002b4d]">
+                {s.CardArt && <s.CardArt />}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
+                <span className="absolute left-3 top-3 rounded-md bg-[#003c6c]/90 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#fdc700] backdrop-blur-xs border border-white/20">
+                  Track 0{i + 1}
+                </span>
+                <span className="absolute bottom-2.5 right-3 rounded bg-black/50 px-2 py-0.5 font-mono text-[11px] font-semibold text-white backdrop-blur-xs">
+                  ${(s.budget / 1000).toFixed(0)}k budget
+                </span>
+              </div>
+
+              {/* Card content */}
+              <div className="flex flex-1 flex-col p-5">
+                <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#003c6c]">
+                  {s.discipline}
+                </span>
+                <h2 className="mt-1 font-sans text-xl font-black text-[#0b1d2e] group-hover:text-[#003c6c] transition-colors">
+                  {s.title}
+                </h2>
+                <p className="mt-1.5 text-xs text-[#75787b] leading-relaxed flex-1 line-clamp-2">
+                  {s.tagline}
+                </p>
+
+                <div className="mt-4 pt-3 border-t border-[#f4f6fa]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      play('start')
+                      onStart(s)
+                    }}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#003c6c] px-4 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-white shadow-xs transition-all hover:bg-[#f29813] hover:text-white cursor-pointer active:translate-y-0.5"
+                  >
+                    <span>Start Challenge</span>
+                    <ArrowRight className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Outreach Disclaimer */}
+        <div className="mt-8 rounded-xl border border-[#d8e0ea] bg-white px-4 py-2.5 text-center text-xs text-[#75787b]">
+          <span className="font-bold text-[#003c6c]">Disclaimer:</span> This is a fun educational activity and is not representative of real collegiate engineering competitions or actual tournament specifications.
+        </div>
+      </main>
+
+      {/* Clean Institutional Footer */}
+      <footer className="mt-auto border-t border-[#d8e0ea] bg-white py-5 text-[#75787b]">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 text-center sm:flex-row sm:px-6 sm:text-left lg:px-8">
+          <div className="flex items-center gap-3">
+            <BaskinLogo height={28} />
+            <span className="text-xs text-[#75787b]">
+              BE Lab · Baskin School of Engineering · UC Santa Cruz
+            </span>
+          </div>
+
+          <a
+            href="https://engineering.ucsc.edu/"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-medium text-[#003c6c] hover:underline"
           >
-            <div className="relative h-36 overflow-hidden bg-forest">
-              {s.CardArt && <s.CardArt />}
-              <span className="absolute left-4 top-4 rounded-full bg-white/15 px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-white">
-                Challenge {i + 1}
-              </span>
-            </div>
-            <div className="p-5">
-              <div className="font-mono text-xs uppercase tracking-wider text-leaf">{s.discipline}</div>
-              <div className="mt-1 font-display text-[28px] font-bold leading-tight text-ink">{s.title}</div>
-              <p className="mt-1.5 text-[15px] text-ink/70">{s.tagline}</p>
-              <span className="btn-press mt-5 inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 font-display text-sm font-bold uppercase tracking-wide text-white group-hover:bg-forest-dark">
-                Start challenge <ArrowRight className="size-4" />
-              </span>
-            </div>
-          </button>
-        ))}
-      </div>
+            engineering.ucsc.edu
+          </a>
+        </div>
+      </footer>
     </div>
   )
 }
 
-/** Faint topographic lines behind the title. */
-function Contours() {
-  const lines = Array.from({ length: 14 }, (_, i) => i)
+/** Subtle engineering blueprint grid for hero background */
+function HeroGrid() {
   return (
-    <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.35]" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" aria-hidden>
-      {lines.map((i) => (
-        <path
-          key={i}
-          d={`M -50 ${120 + i * 48} C 250 ${60 + i * 52}, 450 ${220 + i * 40}, 700 ${140 + i * 50} S 1100 ${80 + i * 55}, 1260 ${160 + i * 46}`}
-          fill="none"
-          stroke="#74a85f"
-          strokeWidth={i % 4 === 0 ? 1.6 : 0.8}
-        />
-      ))}
+    <svg
+      className="pointer-events-none absolute inset-0 h-full w-full opacity-10"
+      xmlns="http://www.w3.org/2000/svg"
+      width="100%"
+      height="100%"
+      aria-hidden
+    >
+      <defs>
+        <pattern id="baskin-grid" width="36" height="36" patternUnits="userSpaceOnUse">
+          <path d="M 36 0 L 0 0 0 36" fill="none" stroke="#13a5dc" strokeWidth="0.8" />
+          <circle cx="0" cy="0" r="1.5" fill="#f29813" />
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#baskin-grid)" />
     </svg>
   )
 }
