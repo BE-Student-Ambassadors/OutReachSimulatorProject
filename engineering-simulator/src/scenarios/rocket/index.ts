@@ -76,15 +76,17 @@ export const rocketScenario: Scenario<RocketObject, RocketResult> = {
   intro: {
     heading: 'Build a rocket on a shoestring',
     paragraphs: [
-      `Your team has ${money(SEED_FUNDS)} and a blueprint. Your rocket has to climb to ${count(REQUIRED.targetApogeeFt)} ft (± ${REQUIRED.apogeeToleranceFt}) and come back down gently enough to fly again.`,
-      'Electrical wires two breadboards and splices resistors into the battery leads. Mechanical buys parts online and builds the rocket. Software debugs and tunes the flight program. Business wins sponsors to pay for it all.',
-      'Every station needs the others. Launch as often as you like: each launch is a test that tells you what happened.',
+      'University rocketry clubs build hobby rockets and fly them to a set height. A rocket like yours is a tube with a motor, fins, a nose cone and a parachute, plus a small flight computer that lights the motor and pops out the parachute on the way down.',
+      `Your team has ${money(SEED_FUNDS)} and a blueprint. The rocket has to reach an apogee (its highest point) of ${count(REQUIRED.targetApogeeFt)} ft (± ${REQUIRED.apogeeToleranceFt}), then land at ${REQUIRED.maxLandingFps} ft/s or slower so it can fly again, without spending more than the team raises.`,
+      'Electrical wires the circuit boards and the battery leads. Mechanical buys parts online and builds the rocket. Software fixes and tunes the flight program. Business wins sponsors to pay for it all. Every station needs the others.',
+      'Launch as often as you like: each launch is a test flight that tells you what happened.',
     ],
   },
   instructions: [
-    'Pick your role (Roles button). You can visit every station.',
-    'Follow the checklist at the top of your station.',
-    'Go to the Launch Pad and launch whenever you want to test.',
+    'Pick your job with the Roles button. You can visit every station.',
+    'Each station has a Guide button explaining what the job is, the steps, and what every option means.',
+    'Follow the checklist under the tabs. It ticks itself off as you go.',
+    'Go to the Launch Pad and launch whenever you want to test. Everyone flies a drone to watch.',
     `Reach ${count(REQUIRED.targetApogeeFt)} ft, land at ${REQUIRED.maxLandingFps} ft/s or slower, and spend no more than you raise.`,
   ],
   budget: SEED_FUNDS,

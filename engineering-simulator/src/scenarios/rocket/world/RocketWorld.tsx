@@ -4,8 +4,11 @@ import { count, money } from '../../../core/format'
 import { namesLabel, rolesOf, teamRoster } from '../../../core/roles'
 import type { WorldProps } from '../../../core/scenario'
 import { play, useLoop, usePlayOnIncrease } from '../../../shared/audio/sfx'
+import { GuideButton, GuideModal } from '../../../shared/ui/Guide'
+import { useGuide } from '../../../shared/ui/useGuide'
 import { BLUEPRINT, CIRCUITS, getElectrical, getMechanical, getSoftware, REQUIRED } from '../config'
 import { designCost, designFunds } from '../cost'
+import { CHALLENGE_GUIDE, STATION_GUIDES } from '../guide'
 import { assignRocketRoles, extractRolePrefs, ROCKET_ROLES } from '../roles'
 import { boardStatus } from '../sim/board'
 import { readLines } from '../sim/power'
@@ -54,6 +57,7 @@ export function RocketWorld({ design, locked, run, lastResult, onCommit, sync, o
   const rocketRun = (run as RocketRun | null) ?? null
   const look = lookFor(resolveBuild(getMechanical(design)))
   useFlightSound(rocketRun)
+  const guide = useGuide('rocket', tab, !rocketRun && !showRoles)
   usePlayOnIncrease(
     (['electrical', 'mechanical', 'software', 'business', 'launch'] as TabId[]).reduce((n, id) => n + checklist(id, design, now, !!lastResult).filter((s) => s.done).length, 0),
   )
@@ -106,6 +110,7 @@ export function RocketWorld({ design, locked, run, lastResult, onCommit, sync, o
               <span className="text-ink/45"> spent / {money(funds)}</span>
             </div>
           </div>
+          <GuideButton onClick={() => guide.show()} />
           <button
             type="button"
             onClick={() => setShowRoles(true)}
@@ -139,6 +144,17 @@ export function RocketWorld({ design, locked, run, lastResult, onCommit, sync, o
         {tab === 'business' && <BusinessStation design={design} locked={locked} onCommit={commit} newSeed={newSeed} />}
         {tab === 'launch' && <LaunchPad design={design} locked={locked} lastResult={lastResult} funds={funds} spent={spent} onLaunch={() => onStartRun?.('standard')} />}
       </div>
+
+      {guide.page && (
+        <GuideModal
+          page={guide.page}
+          challenge={CHALLENGE_GUIDE}
+          station={STATION_GUIDES[tab]}
+          stationLabel={tab === 'launch' ? 'Launch Pad' : (ROCKET_ROLES.find((r) => r.id === tab)?.shortTitle ?? '')}
+          onPage={guide.show}
+          onClose={guide.close}
+        />
+      )}
 
       {showRoles && (
         <RoleTierModal

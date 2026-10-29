@@ -2,11 +2,12 @@ import { Award, ChevronRight, Compass } from 'lucide-react'
 import { useState } from 'react'
 import type { AnyScenario } from '../core/scenario'
 
-const SEEN_KEY = 'sel-instructions-seen'
+/** "How it works" is shown once per scenario. */
+const seenKey = (scenarioId: string) => `sel-instructions-seen:${scenarioId}`
 
-function seenInstructions() {
+function seenInstructions(scenarioId: string) {
   try {
-    return localStorage.getItem(SEEN_KEY) === '1'
+    return localStorage.getItem(seenKey(scenarioId)) === '1'
   } catch {
     return false
   }
@@ -17,7 +18,7 @@ export function IntroModal({ scenario, onDone }: { scenario: AnyScenario; onDone
   const [step, setStep] = useState<'story' | 'how'>('story')
   const finish = () => {
     try {
-      localStorage.setItem(SEEN_KEY, '1')
+      localStorage.setItem(seenKey(scenario.id), '1')
     } catch {
       /* private mode: just show it again next time */
     }
@@ -50,10 +51,10 @@ export function IntroModal({ scenario, onDone }: { scenario: AnyScenario; onDone
               <button
                 type="button"
                 autoFocus
-                onClick={() => (seenInstructions() ? finish() : setStep('how'))}
+                onClick={() => (seenInstructions(scenario.id) ? finish() : setStep('how'))}
                 className="btn-press inline-flex items-center gap-1.5 rounded-xl bg-[#003c6c] px-6 py-2.5 font-sans text-sm font-bold uppercase tracking-wide text-white transition hover:bg-[#f29813]"
               >
-                <span>{seenInstructions() ? 'Start Engineering' : 'Next: How It Works'}</span>
+                <span>{seenInstructions(scenario.id) ? 'Start Engineering' : 'Next: How It Works'}</span>
                 <ChevronRight className="size-4" />
               </button>
             </div>

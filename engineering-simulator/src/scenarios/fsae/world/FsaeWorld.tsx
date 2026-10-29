@@ -4,8 +4,11 @@ import { money } from '../../../core/format'
 import { namesLabel, rolesOf, teamRoster, togglePick, type RoleSplit } from '../../../core/roles'
 import type { WorldProps } from '../../../core/scenario'
 import { play, usePlayOnIncrease } from '../../../shared/audio/sfx'
+import { GuideButton, GuideModal } from '../../../shared/ui/Guide'
+import { useGuide } from '../../../shared/ui/useGuide'
 import { CONE_PENALTY_S, heatStartTime, upsert } from '../config'
 import { designCost, designFunds } from '../cost'
+import { CHALLENGE_GUIDE, STATION_GUIDES } from '../guide'
 import { ROLE_BY_ID, roleChecklist, ROLES, roleSplit, teamChecklist, type CheckItem } from '../roles'
 import { carParams, type CarParams } from '../sim/car'
 import type { FsaeResult, FsaeRun } from '../sim/engine'
@@ -123,6 +126,7 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
   const fsaeRun = run as FsaeRun | null
   // Flyer paint is kept on this device; re-render so the business checklist sees it.
   usePaintVersion()
+  const guide = useGuide('fsae', tab, !racing && !fsaeRun && replay === null)
   usePlayOnIncrease(ROLES.reduce((n, r) => n + roleChecklist(design, r.id).filter((i) => i.done).length, 0) + teamChecklist(design, lastResult).filter((i) => i.done).length)
   const items: CheckItem[] = tab === 'race' ? teamChecklist(design, lastResult) : roleChecklist(design, tab)
   const cost = designCost(design)
@@ -223,6 +227,7 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
               <span className="font-display text-[14px] font-bold text-ink">Test & Race Day</span>
             </button>
             <div className="ml-auto flex items-center gap-2 pb-1">
+              <GuideButton onClick={() => guide.show()} />
               <span className={`rounded-full px-3 py-1 font-mono text-xs font-bold ${funds >= cost ? 'bg-mint text-forest' : 'bg-[#fbeee6] text-rust'}`}>
                 Money {money(funds)} · Car {money(cost)}
               </span>
@@ -250,6 +255,17 @@ export function FsaeWorld({ design, locked, run, lastResult, onCommit, sync, onS
       )}
 
       <div className="min-h-0 flex-1 p-3">{body}</div>
+
+      {guide.page && (
+        <GuideModal
+          page={guide.page}
+          challenge={CHALLENGE_GUIDE}
+          station={STATION_GUIDES[tab]}
+          stationLabel={tab === 'race' ? 'Test & Race Day' : ROLE_BY_ID[tab].short}
+          onPage={guide.show}
+          onClose={guide.close}
+        />
+      )}
 
       {pickerOpen && showChrome && (
         <RolePicker split={split} me={me} picks={myPicks} teamSize={teamRoster(sync).length} onToggle={togglePref} onClose={() => setPickerOpen(false)} />
