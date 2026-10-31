@@ -1,4 +1,5 @@
 import type { AnyScenario } from '../core/scenario'
+import { arenaBuilderScenario } from './arena-builder'
 import { battlebotScenario } from './battlebots'
 import { fsaeScenario } from './fsae'
 import { rocketScenario } from './rocket'
@@ -11,4 +12,5 @@ export const scenarios: AnyScenario[] = [
   fsaeScenario,
   rocketScenario,
   battlebotScenario,
+  arenaBuilderScenario,
 ]
