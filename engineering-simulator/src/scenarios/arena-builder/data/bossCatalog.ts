@@ -65,6 +65,27 @@ export const BOSS_STATES: Record<BossStateId, BossStateSpec> = {
     description: 'Circles the hero to find a clear attack angle.',
     badgeText: 'Flanking',
   },
+  TELEGRAPH_SLAM: {
+    id: 'TELEGRAPH_SLAM',
+    name: 'Telegraph Slam',
+    color: '#ef4444',
+    description: 'Winding up ground slam.',
+    badgeText: 'Windup Slam',
+  },
+  TELEGRAPH_BEAM: {
+    id: 'TELEGRAPH_BEAM',
+    name: 'Telegraph Beam',
+    color: '#f59e0b',
+    description: 'Charging ranged beam.',
+    badgeText: 'Windup Beam',
+  },
+  RETREAT_SHIELD: {
+    id: 'RETREAT_SHIELD',
+    name: 'Retreat Shield',
+    color: '#8b5cf6',
+    description: 'Enrage shield phase.',
+    badgeText: 'Phase 2 Shield',
+  }
 }
 
 export interface BossAttackSpec {
@@ -164,3 +185,4 @@ export const DEBUG_CHALLENGES: DebuggingChallenge[] = [
     isResolved: (cfg) => cfg.attackRange <= 140 && cfg.attackRange < cfg.detectionRange,
   },
 ]
+

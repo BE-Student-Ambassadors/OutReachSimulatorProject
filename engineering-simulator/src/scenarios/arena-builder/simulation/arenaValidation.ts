@@ -18,7 +18,7 @@ export function validateArenaLayout(layout: ArenaLayout): ArenaValidationResult 
   const issues: string[] = []
   const { cols, rows, tiles, playerSpawn, bossSpawn } = layout
 
-  let totalTiles = cols * rows
+  const totalTiles = cols * rows
   let wallTiles = 0
   let hazardTiles = 0
   let coverTiles = 0

@@ -1,13 +1,14 @@
 import {
+  Bug,
   CheckCircle2,
   Code2,
+  Compass,
   Gamepad2,
   Layers,
-  MapPin,
   Play,
   RotateCcw,
-  Scale,
   Sparkles,
+  Sword,
   Trophy,
   Volume2,
   VolumeX,
@@ -48,11 +49,11 @@ export function ArenaBuilderShell({
   }
 
   const roleTabs: Array<{ id: ActiveTab; label: string; icon: typeof Gamepad2; complete?: boolean }> = [
-    { id: 'studio', label: 'Studio Studio', icon: Layers },
-    { id: 'gameplay', label: '1. Hero Design', icon: Gamepad2, complete: project.roleCompletion.gameplay },
-    { id: 'programming', label: '2. Boss AI', icon: Code2, complete: project.roleCompletion.programming },
-    { id: 'arena', label: '3. Arena Design', icon: MapPin, complete: project.roleCompletion.arena },
-    { id: 'balance', label: '4. Balance Lab', icon: Scale, complete: project.roleCompletion.balance },
+    { id: 'studio', label: 'Overview', icon: Layers },
+    { id: 'gameplay', label: '1. Unwinnable Duel', icon: Sword, complete: project.roleCompletion.gameplay },
+    { id: 'programming', label: '2. Broken Boss', icon: Code2, complete: project.roleCompletion.programming },
+    { id: 'arena', label: '3. Three-Wall Arena', icon: Compass, complete: project.roleCompletion.arena },
+    { id: 'balance', label: '4. Intermittent Bug', icon: Bug, complete: project.roleCompletion.balance },
     { id: 'playtest', label: 'Playtest Combat', icon: Play },
     { id: 'publish', label: 'Publish Game', icon: Trophy, complete: project.published },
   ]
@@ -92,7 +93,7 @@ export function ArenaBuilderShell({
         {/* Global Progress Pill */}
         <div className="hidden lg:flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/90">
           <Sparkles className="size-3 text-[#fdc700]" />
-          <span>{totalRolesDone}/4 Roles Ready</span>
+          <span>{totalRolesDone}/4 Puzzles Solved</span>
         </div>
       </div>
 
@@ -165,7 +166,7 @@ export function ArenaBuilderShell({
               Reset Game Project?
             </h3>
             <p className="mt-2 text-sm text-[#475569]">
-              This will restore the entire studio, hero, boss behavior, arena layout, and balance history back to starter defaults.
+              This will restore all four development puzzles, hero attributes, boss behavior, arena layout, and balance history back to starter defect state.
             </p>
             <p className="mt-1 text-xs font-semibold text-red-600">
               This action cannot be undone. Other scenarios (like BattleBot) will not be affected.

@@ -13,7 +13,7 @@ import {
   withPart,
   withProject,
 } from '../teamSync'
-import type { HeroConfig } from '../types/project'
+import type { ArenaLayout, HeroConfig } from '../types/project'
 import { validateArenaLayout } from './arenaValidation'
 import {
   computeBalanceTelemetry,
@@ -654,7 +654,7 @@ describe('State Normalization & Simulation Crash Prevention Regression Tests', (
       cols: 16,
       rows: 12,
       tiles: createStarterArenaLayout().tiles,
-    } as any
+    } as unknown as ArenaLayout
 
     expect(() => new CombatSimulation(project.hero, project.boss, malformedArena)).not.toThrow()
     const sim = new CombatSimulation(project.hero, project.boss, malformedArena)

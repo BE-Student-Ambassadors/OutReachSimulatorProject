@@ -1,27 +1,24 @@
 import {
-  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   Compass,
-  Eraser,
-  Eye,
-  Flame,
-  Footprints,
-  MapPin,
+  HelpCircle,
   RotateCcw,
   Shield,
   Sparkles,
-  User,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { gameAudio } from '../../audio/gameAudio'
 import {
   ARENA_COLS,
   ARENA_ROWS,
   createFlawedStarterArenaLayout,
-  createStarterArenaLayout,
   TILE_SPECS,
 } from '../../data/arenaCatalog'
-import { validateArenaLayout } from '../../simulation/arenaValidation'
+import {
+  MAX_WALL_CHANGES,
+  validateArenaPuzzle,
+} from '../../simulation/arenaPuzzle'
 import type { ArenaLayout, TileType } from '../../types/project'
 
 interface ArenaDesignerScreenProps {
@@ -43,165 +40,101 @@ export function ArenaDesignerScreen({
   isComplete,
   onNextRole,
 }: ArenaDesignerScreenProps) {
+  const [activeTab, setActiveTab] = useState<'puzzle' | 'creative'>('puzzle')
+
+  // Diagnostic Overlays
+  const [showPath, setShowPath] = useState(true)
+  const [showDodgeHeatmap, setShowDodgeHeatmap] = useState(true)
+  const [showCheeseOverlay, setShowCheeseOverlay] = useState(true)
+
+  // Creative Mode Tool
   const [activeTool, setActiveTool] = useState<PaletteTool>('wall')
-  const [isMouseDown, setIsMouseDown] = useState(false)
 
-  // Level Design Investigation Tools
-  const [showPathPreview, setShowPathPreview] = useState(true)
-  const [showSpawnSafety, setShowSpawnSafety] = useState(true)
-  const [showDodgeSpace, setShowDodgeSpace] = useState(false)
-  const [testWalkMode, setTestWalkMode] = useState(false)
-  const [testHeroPos, setTestHeroPos] = useState({
-    col: arena.playerSpawn?.col ?? 3,
-    row: arena.playerSpawn?.row ?? 6,
-  })
-  const [walkStepsTaken, setWalkStepsTaken] = useState(0)
+  // Hints
+  const [showHints, setShowHints] = useState(false)
+  const [activeHintIndex, setActiveHintIndex] = useState(0)
 
-  const validation = validateArenaLayout(arena)
+  const originalFlawedLayout = useMemo(() => createFlawedStarterArenaLayout(), [])
 
-  const pCol = arena.playerSpawn?.col ?? 3
-  const pRow = arena.playerSpawn?.row ?? 6
-  const bCol = arena.bossSpawn?.col ?? 12
-  const bRow = arena.bossSpawn?.row ?? 6
+  // Live validation
+  const validation = useMemo(() => {
+    return validateArenaPuzzle(arena, originalFlawedLayout)
+  }, [arena, originalFlawedLayout])
 
-  // Compute BFS path coordinates for Path Preview
-  const bfsPathCoords = new Set<string>()
-  if (validation.isReachable) {
-    const queue: Array<{ c: number; r: number; path: Array<{ c: number; r: number }> }> = [
-      { c: pCol, r: pRow, path: [{ c: pCol, r: pRow }] },
-    ]
-    const visited = new Set<string>()
-    visited.add(`${pCol},${pRow}`)
+  const hints = [
+    'Simply knocking down the center wall creates a narrow 1-tile corridor flanked by hazards. Check the Dodge Space Heatmap and Cheese Spot detector.',
+    'A 1-tile wide funnel gives zero space to evade boss cleaves. Also, notice the blind alcove at col 12, row 2: it traps the boss while the player shoots for free.',
+    'Within your 3 wall edits: carve a 2-tile wide flank route where open floor already exists (e.g. rows 3-4), and place 1 wall to seal the cheese alcove at (12, 2).',
+  ]
 
-    while (queue.length > 0) {
-      const cur = queue.shift()!
-      if (cur.c === bCol && cur.r === bRow) {
-        cur.path.forEach((pt) => bfsPathCoords.add(`${pt.c},${pt.r}`))
-        break
-      }
+  // Puzzle interaction: click a tile to toggle wall / floor
+  const handlePuzzleTileClick = (r: number, c: number) => {
+    // Outer perimeter walls cannot be edited
+    if (r === 0 || r === arena.rows - 1 || c === 0 || c === arena.cols - 1) return
 
-      const dirs = [
-        { dc: 0, dr: -1 },
-        { dc: 0, dr: 1 },
-        { dc: -1, dr: 0 },
-        { dc: 1, dr: 0 },
-      ]
-      for (const d of dirs) {
-        const nc = cur.c + d.dc
-        const nr = cur.r + d.dr
-        if (nc >= 0 && nc < arena.cols && nr >= 0 && nr < arena.rows) {
-          const key = `${nc},${nr}`
-          const t = arena.tiles[nr]?.[nc]
-          if (!visited.has(key) && t !== 'wall' && t !== 'cover') {
-            visited.add(key)
-            queue.push({ c: nc, r: nr, path: [...cur.path, { c: nc, r: nr }] })
-          }
-        }
+    const currentTile = arena.tiles[r]?.[c] ?? 'empty'
+    const newTiles = arena.tiles.map((rowArr) => [...rowArr])
+
+    if (currentTile === 'wall') {
+      newTiles[r][c] = 'empty'
+      gameAudio.play('hit_player')
+    } else {
+      newTiles[r][c] = 'wall'
+      gameAudio.play('hit_boss')
+    }
+
+    const updated: ArenaLayout = {
+      ...arena,
+      tiles: newTiles,
+    }
+    const val = validateArenaPuzzle(updated, originalFlawedLayout)
+    updated.wallEditsCount = val.wallEditsCount
+    updated.spatialPuzzleSolved = val.solved
+
+    onUpdateArena(updated)
+
+    if (val.solved) {
+      gameAudio.play('victory')
+      if (!isComplete) {
+        onMarkComplete()
       }
     }
   }
 
-  // Count obstacles to verify students haven't just deleted everything
-  let obstacleCount = 0
-  for (let r = 1; r < arena.rows - 1; r++) {
-    for (let c = 1; c < arena.cols - 1; c++) {
-      if (arena.tiles[r][c] === 'wall' || arena.tiles[r][c] === 'cover') obstacleCount++
-    }
-  }
-  const hasTacticalObstacles = obstacleCount >= 2
-
-  // Validation criteria
-  const isArenaValidAndTested =
-    validation.valid &&
-    hasTacticalObstacles &&
-    (arena.hasTestedWalk || walkStepsTaken >= 5)
-
-  // Handle Interactive Walk Test in Arena
-  useEffect(() => {
-    if (!testWalkMode) return
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      let dc = 0
-      let dr = 0
-      if (e.code === 'KeyW' || e.code === 'ArrowUp') dr = -1
-      else if (e.code === 'KeyS' || e.code === 'ArrowDown') dr = 1
-      else if (e.code === 'KeyA' || e.code === 'ArrowLeft') dc = -1
-      else if (e.code === 'KeyD' || e.code === 'ArrowRight') dc = 1
-
-      if (dc !== 0 || dr !== 0) {
-        e.preventDefault()
-        const nc = testHeroPos.col + dc
-        const nr = testHeroPos.row + dr
-
-        if (nc >= 0 && nc < arena.cols && nr >= 0 && nr < arena.rows) {
-          const targetTile = arena.tiles[nr]?.[nc]
-          if (targetTile !== 'wall' && targetTile !== 'cover') {
-            setTestHeroPos({ col: nc, row: nr })
-            const nextSteps = walkStepsTaken + 1
-            setWalkStepsTaken(nextSteps)
-            if (nextSteps >= 5 && !arena.hasTestedWalk) {
-              onUpdateArena({ ...arena, hasTestedWalk: true })
-            }
-          }
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [testWalkMode, testHeroPos, arena, walkStepsTaken, onUpdateArena])
-
-  const handleCellClick = (c: number, r: number) => {
-    if (testWalkMode) return
-    // Outer perimeter remains walls
-    if (r === 0 || r === ARENA_ROWS - 1 || c === 0 || c === ARENA_COLS - 1) return
+  // Creative mode painting
+  const handleCreativeTileClick = (r: number, c: number) => {
+    if (r === 0 || r === arena.rows - 1 || c === 0 || c === arena.cols - 1) return
 
     if (activeTool === 'player_spawn') {
       onUpdateArena({ ...arena, playerSpawn: { col: c, row: r } })
-      setTestHeroPos({ col: c, row: r })
       return
     }
-
     if (activeTool === 'boss_spawn') {
       onUpdateArena({ ...arena, bossSpawn: { col: c, row: r } })
       return
     }
 
-    const tileType: TileType = activeTool === 'eraser' ? 'empty' : activeTool
-    const newTiles = arena.tiles.map((rowArr, rowIndex) =>
-      rowIndex === r ? rowArr.map((cell, colIndex) => (colIndex === c ? tileType : cell)) : rowArr,
-    )
-
+    const tileVal: TileType = activeTool === 'eraser' ? 'empty' : activeTool
+    const newTiles = arena.tiles.map((rowArr) => [...rowArr])
+    newTiles[r][c] = tileVal
     onUpdateArena({ ...arena, tiles: newTiles })
   }
 
-  const handleCellMouseEnter = (c: number, r: number) => {
-    if (isMouseDown && !testWalkMode && activeTool !== 'player_spawn' && activeTool !== 'boss_spawn') {
-      handleCellClick(c, r)
-    }
-  }
-
-  const loadFlawedStarter = () => {
-    onUpdateArena(createFlawedStarterArenaLayout())
-    setWalkStepsTaken(0)
-    setTestWalkMode(false)
-  }
+  const isSolved = validation.solved || arena.spatialPuzzleSolved
 
   return (
-    <div
-      className="mx-auto flex h-full max-w-6xl flex-col gap-6 overflow-y-auto p-6 text-[#0b1d2e]"
-      onMouseUp={() => setIsMouseDown(false)}
-    >
-      {/* Header Banner */}
+    <div className="mx-auto flex h-full max-w-5xl flex-col gap-6 overflow-y-auto p-6 text-[#0b1d2e]">
+      {/* Role Header Banner */}
       <div className="flex flex-col gap-4 rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-50/70 via-white to-slate-50 p-6 shadow-sm md:flex-row md:items-center md:justify-between">
         <div>
           <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600/10 px-3 py-1 text-xs font-bold text-emerald-800">
             <Sparkles className="size-3 text-emerald-600" />
-            Role 3: Arena Designer
+            Role 3: Level Designer
           </div>
-          <h1 className="mt-1 font-sans text-2xl font-black text-[#003c6c]">Battlefield Level Design Studio</h1>
+          <h1 className="mt-1 font-sans text-2xl font-black text-[#003c6c]">The Three-Wall Challenge</h1>
           <p className="mt-1 text-sm text-[#5a6a85]">
-            Redesign the studio’s flawed starter battlefield. Clear blocked corridors, remove hazardous spawn traps, preserve tactical cover, and walk-test navigation!
+            Hero and Boss are partitioned by arena walls. Optimize the spatial geometry in 3 or fewer wall modifications
+            while ensuring dodge space, avoidable hazards, and zero cheese safe spots!
           </p>
         </div>
 
@@ -209,27 +142,18 @@ export function ArenaDesignerScreen({
           <button
             type="button"
             onClick={onResetArena}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
-            title="Reset to clean balanced starter layout"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
           >
             <RotateCcw className="size-3.5" />
-            Reset
-          </button>
-
-          <button
-            type="button"
-            onClick={loadFlawedStarter}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
-          >
-            Load Broken Arena
+            Reset Puzzle
           </button>
 
           <button
             type="button"
             onClick={onMarkComplete}
-            disabled={!isArenaValidAndTested}
+            disabled={!isSolved}
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs cursor-pointer ${
-              isArenaValidAndTested
+              isSolved
                 ? isComplete
                   ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                   : 'bg-[#003c6c] text-white hover:bg-[#002b4d]'
@@ -237,368 +161,336 @@ export function ArenaDesignerScreen({
             }`}
           >
             <CheckCircle2 className="size-4" />
-            <span>{isComplete ? 'Arena Approved ✓' : 'Approve Arena Design'}</span>
+            <span>{isComplete ? 'Arena Layout Verified ✓' : 'Validate & Mark Complete'}</span>
           </button>
         </div>
       </div>
 
-      {/* Problem Briefing Card */}
-      <div className="rounded-2xl border border-amber-300 bg-amber-50/60 p-4 shadow-sm">
-        <span className="font-mono text-[10px] font-black uppercase tracking-wider text-amber-800">
-          YOUR PROBLEM: INHERITED FLAWED LEVEL DESIGN
-        </span>
-        <h3 className="font-sans text-sm font-bold text-amber-950 mt-0.5">
-          Level Design Audit: The boss is trapped behind an impassable wall and spawn points face hazard damage.
-        </h3>
-        <p className="mt-1 text-xs text-amber-900/80">
-          The starter arena layout has two major defects: an unbroken solid wall dividing the center (blocking all navigation between spawns), and a lava pool right next to the hero spawn. Use your investigative tools below to repair the arena.
-        </p>
-      </div>
-
-      {/* Investigation Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-[#75787b]">
-            Design Tools:
-          </span>
-
-          <button
-            type="button"
-            onClick={() => setShowPathPreview((p) => !p)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer border ${
-              showPathPreview
-                ? 'border-emerald-600 bg-emerald-50 text-emerald-900'
-                : 'border-slate-200 bg-slate-50 text-slate-600'
-            }`}
-          >
-            <Compass className="size-3.5 text-emerald-600" />
-            <span>Path Preview: {showPathPreview ? 'ON' : 'OFF'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowSpawnSafety((s) => !s)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer border ${
-              showSpawnSafety
-                ? 'border-cyan-600 bg-cyan-50 text-cyan-900'
-                : 'border-slate-200 bg-slate-50 text-slate-600'
-            }`}
-          >
-            <Shield className="size-3.5 text-cyan-600" />
-            <span>Spawn Safety: {showSpawnSafety ? 'ON' : 'OFF'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowDodgeSpace((d) => !d)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer border ${
-              showDodgeSpace
-                ? 'border-purple-600 bg-purple-50 text-purple-900'
-                : 'border-slate-200 bg-slate-50 text-slate-600'
-            }`}
-          >
-            <Eye className="size-3.5 text-purple-600" />
-            <span>Dodge Space: {showDodgeSpace ? 'ON' : 'OFF'}</span>
-          </button>
-        </div>
-
-        {/* Test Walk Button */}
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         <button
           type="button"
-          onClick={() => {
-            const next = !testWalkMode
-            setTestWalkMode(next)
-            if (next) {
-              setTestHeroPos({ col: arena.playerSpawn.col, row: arena.playerSpawn.row })
-            }
-          }}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer border shadow-sm ${
-            testWalkMode
-              ? 'border-amber-500 bg-amber-500 text-white'
-              : 'border-[#003c6c] bg-[#003c6c] text-white hover:bg-[#002b4d]'
+          onClick={() => setActiveTab('puzzle')}
+          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer ${
+            activeTab === 'puzzle'
+              ? 'bg-[#003c6c] text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-[#475569] hover:bg-slate-50'
           }`}
         >
-          <Footprints className="size-4" />
-          <span>{testWalkMode ? 'Exit Test Walk' : 'Test Arena (Walk Mode)'}</span>
+          <Compass className="size-3.5" />
+          <span>1. The Three-Wall Challenge (Spatial Puzzle)</span>
+          {isSolved && (
+            <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700">
+              Optimal ✓
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('creative')}
+          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer ${
+            activeTab === 'creative'
+              ? 'bg-[#003c6c] text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-[#475569] hover:bg-slate-50'
+          }`}
+        >
+          <Shield className="size-3.5" />
+          <span>2. Free Palette Painter (Full Arena Sandbox)</span>
         </button>
       </div>
 
-      {/* Main Work Area: Palette + Canvas Grid */}
-      <div className="flex flex-col gap-6 lg:flex-row">
-        {/* Left Palette */}
-        <div className="w-full lg:w-64 shrink-0 flex flex-col gap-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#75787b]">
-              Object Palette
-            </span>
-
-            <div className="mt-3 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveTool('wall')}
-                disabled={testWalkMode}
-                className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs font-bold transition cursor-pointer border ${
-                  activeTool === 'wall' && !testWalkMode
-                    ? 'border-[#003c6c] bg-[#003c6c]/10 text-[#003c6c]'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-[#475569]'
-                }`}
-              >
-                <div className="size-5 rounded border border-slate-500 bg-[#090d16]" />
-                <div className="text-left">
-                  <div>Wall Barrier</div>
-                  <div className="text-[10px] font-normal text-[#75787b]">Blocks movement & shots</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('cover')}
-                disabled={testWalkMode}
-                className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs font-bold transition cursor-pointer border ${
-                  activeTool === 'cover' && !testWalkMode
-                    ? 'border-blue-600 bg-blue-50 text-blue-900'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-[#475569]'
-                }`}
-              >
-                <div className="size-5 rounded border border-blue-400 bg-[#1e3a8a] flex items-center justify-center">
-                  <Shield className="size-3 text-blue-300" />
-                </div>
-                <div className="text-left">
-                  <div>Tactical Cover</div>
-                  <div className="text-[10px] font-normal text-[#75787b]">Blocks blaster shots</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('hazard')}
-                disabled={testWalkMode}
-                className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs font-bold transition cursor-pointer border ${
-                  activeTool === 'hazard' && !testWalkMode
-                    ? 'border-red-600 bg-red-50 text-red-900'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-[#475569]'
-                }`}
-              >
-                <div className="size-5 rounded border border-red-500 bg-[#7f1d1d] flex items-center justify-center">
-                  <Flame className="size-3 text-red-300" />
-                </div>
-                <div className="text-left">
-                  <div>Plasma Hazard</div>
-                  <div className="text-[10px] font-normal text-[#75787b]">Deals 8 dmg/s</div>
-                </div>
-              </button>
-
-              <div className="my-1 border-t border-slate-200" />
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('player_spawn')}
-                disabled={testWalkMode}
-                className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs font-bold transition cursor-pointer border ${
-                  activeTool === 'player_spawn' && !testWalkMode
-                    ? 'border-cyan-600 bg-cyan-50 text-cyan-900'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-[#475569]'
-                }`}
-              >
-                <div className="size-5 rounded-full border border-cyan-400 bg-cyan-500 flex items-center justify-center text-white">
-                  <User className="size-3" />
-                </div>
-                <div className="text-left">
-                  <div>Hero Spawn (P)</div>
-                  <div className="text-[10px] font-normal text-[#75787b]">Relocate spawn tile</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('boss_spawn')}
-                disabled={testWalkMode}
-                className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs font-bold transition cursor-pointer border ${
-                  activeTool === 'boss_spawn' && !testWalkMode
-                    ? 'border-red-600 bg-red-50 text-red-900'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-[#475569]'
-                }`}
-              >
-                <div className="size-5 rounded-full border border-red-400 bg-red-600 flex items-center justify-center text-white">
-                  <MapPin className="size-3" />
-                </div>
-                <div className="text-left">
-                  <div>Boss Spawn (B)</div>
-                  <div className="text-[10px] font-normal text-[#75787b]">Relocate spawn tile</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('eraser')}
-                disabled={testWalkMode}
-                className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs font-bold transition cursor-pointer border ${
-                  activeTool === 'eraser' && !testWalkMode
-                    ? 'border-slate-700 bg-slate-100 text-slate-900'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-[#475569]'
-                }`}
-              >
-                <div className="size-5 rounded border border-slate-400 bg-slate-200 flex items-center justify-center">
-                  <Eraser className="size-3 text-slate-700" />
-                </div>
-                <div className="text-left">
-                  <div>Eraser</div>
-                  <div className="text-[10px] font-normal text-[#75787b]">Clear to empty floor</div>
-                </div>
-              </button>
-            </div>
-
-            {/* Presets */}
-            <div className="mt-4 flex flex-col gap-2 border-t border-slate-200 pt-3">
-              <button
-                type="button"
-                onClick={() => onUpdateArena(createStarterArenaLayout())}
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-              >
-                <RotateCcw className="size-3" />
-                Clean Starter Preset
-              </button>
+      {/* Hints Banner */}
+      {showHints && (
+        <div className="rounded-lg border border-amber-900/40 bg-amber-950/20 p-4">
+          <div className="flex items-center justify-between text-xs font-semibold text-amber-300">
+            <span>HINT {activeHintIndex + 1} OF 3</span>
+            <div className="flex gap-1">
+              {[0, 1, 2].map((idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setActiveHintIndex(idx)}
+                  className={`h-2 w-6 rounded-full transition-colors ${
+                    activeHintIndex === idx ? 'bg-amber-400' : 'bg-slate-700'
+                  }`}
+                />
+              ))}
             </div>
           </div>
+          <p className="mt-2 text-sm text-amber-200/90">{hints[activeHintIndex]}</p>
         </div>
+      )}
 
-        {/* Right Canvas: Interactive Grid View */}
-        <div className="flex-1 flex flex-col gap-4">
-          <div
-            className="rounded-2xl border border-slate-200 bg-slate-900 p-4 shadow-inner flex flex-col items-center justify-center select-none"
-            onMouseDown={() => setIsMouseDown(true)}
-          >
-            {testWalkMode && (
-              <div className="mb-2 text-xs font-mono text-amber-300 font-bold animate-pulse">
-                WALK TEST ACTIVE: Use WASD or Arrow Keys to navigate the hero! ({walkStepsTaken} steps taken)
-              </div>
-            )}
+      {/* Main Grid Editor */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Left: Interactive 16x12 Arena Grid */}
+        <div className="flex flex-col gap-4 lg:col-span-8">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-md">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                {activeTab === 'puzzle' ? 'Click wall/floor tile to modify (Budget: max 3)' : 'Click to Paint Tiles'}
+              </span>
 
+              {activeTab === 'puzzle' && (
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showPath}
+                      onChange={(e) => setShowPath(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-sky-500"
+                    />
+                    Path (BFS)
+                  </label>
+
+                  <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showDodgeHeatmap}
+                      onChange={(e) => setShowDodgeHeatmap(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-rose-500"
+                    />
+                    Dodge Chokepoints
+                  </label>
+
+                  <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showCheeseOverlay}
+                      onChange={(e) => setShowCheeseOverlay(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-amber-500"
+                    />
+                    Cheese Alcoves
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {/* Grid Container */}
             <div
-              className="grid gap-[2px] bg-slate-950 p-2 rounded-xl"
+              className="grid aspect-[16/12] w-full gap-1 rounded-xl border border-slate-800 bg-slate-950 p-2 select-none"
               style={{
-                gridTemplateColumns: `repeat(${ARENA_COLS}, minmax(32px, 44px))`,
-                gridTemplateRows: `repeat(${ARENA_ROWS}, minmax(32px, 44px))`,
+                gridTemplateColumns: `repeat(${ARENA_COLS}, minmax(0, 1fr))`,
               }}
             >
               {arena.tiles.map((row, r) =>
                 row.map((tile, c) => {
-                  const isPlayerSpawn = arena.playerSpawn.col === c && arena.playerSpawn.row === r
-                  const isBossSpawn = arena.bossSpawn.col === c && arena.bossSpawn.row === r
-                  const isBorder = r === 0 || r === ARENA_ROWS - 1 || c === 0 || c === ARENA_COLS - 1
+                  const isPlayerSpawn = arena.playerSpawn.row === r && arena.playerSpawn.col === c
+                  const isBossSpawn = arena.bossSpawn.row === r && arena.bossSpawn.col === c
+                  const isPerimeter = r === 0 || r === ARENA_ROWS - 1 || c === 0 || c === ARENA_COLS - 1
+
+                  const isPathStep = Boolean(showPath && validation.path?.some((p) => p.row === r && p.col === c))
+                  const isBottleneck = Boolean(
+                    showDodgeHeatmap && validation.bottlenecks?.some((p) => p.row === r && p.col === c),
+                  )
+                  const isCheeseSpot = Boolean(
+                    showCheeseOverlay && validation.cheeseSpots?.some((p) => p.row === r && p.col === c),
+                  )
+
                   const spec = TILE_SPECS[tile]
 
-                  const isPathCell = showPathPreview && bfsPathCoords.has(`${c},${r}`)
-                  const isTestHeroHere = testWalkMode && testHeroPos.col === c && testHeroPos.row === r
-
-                  // Dodge space: count walkable neighbors
-                  const isDodgeCell = showDodgeSpace && tile === 'empty'
-
                   return (
-                    <div
-                      key={`${c}-${r}`}
-                      onClick={() => handleCellClick(c, r)}
-                      onMouseEnter={() => handleCellMouseEnter(c, r)}
-                      className={`relative flex items-center justify-center aspect-square rounded transition duration-75 cursor-pointer border ${
-                        isBorder ? 'cursor-not-allowed opacity-90' : 'hover:ring-2 hover:ring-white/40'
+                    <button
+                      key={`${r}-${c}`}
+                      type="button"
+                      disabled={isPerimeter}
+                      onClick={() =>
+                        activeTab === 'puzzle' ? handlePuzzleTileClick(r, c) : handleCreativeTileClick(r, c)
+                      }
+                      className={`relative flex items-center justify-center rounded transition-all ${
+                        isPerimeter ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:ring-2 hover:ring-sky-400'
                       }`}
                       style={{
-                        backgroundColor: isPathCell ? '#064e3b' : spec.color,
-                        borderColor: isPathCell ? '#10b981' : spec.borderColor,
+                        backgroundColor: spec.color,
+                        border: `1px solid ${spec.borderColor}`,
                       }}
-                      title={`[${c}, ${r}] ${spec.name}`}
                     >
-                      {/* Walk Mode Hero */}
-                      {isTestHeroHere && (
-                        <div className="z-20 flex size-7 items-center justify-center rounded-full bg-cyan-400 text-slate-950 font-black text-xs shadow-lg border-2 border-white animate-bounce">
-                          ★
+                      {/* Path step marker */}
+                      {isPathStep && !isPlayerSpawn && !isBossSpawn && (
+                        <div className="h-2 w-2 rounded-full bg-cyan-400 shadow-sm" />
+                      )}
+
+                      {/* Bottleneck warning indicator */}
+                      {isBottleneck && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-rose-500/40 text-[9px] font-bold text-rose-200">
+                          !
+                        </div>
+                      )}
+
+                      {/* Cheese alcove indicator */}
+                      {isCheeseSpot && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-amber-500/40 text-[9px] font-bold text-amber-200">
+                          CHEESE
                         </div>
                       )}
 
                       {/* Spawns */}
-                      {isPlayerSpawn && !isTestHeroHere && (
-                        <div className="z-10 flex size-6 items-center justify-center rounded-full bg-cyan-500 text-white font-black text-xs shadow-md border-2 border-white">
-                          P
+                      {isPlayerSpawn && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-[10px] font-black text-white shadow">
+                          H
                         </div>
                       )}
                       {isBossSpawn && (
-                        <div className="z-10 flex size-6 items-center justify-center rounded-full bg-red-600 text-white font-black text-xs shadow-md border-2 border-white">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow">
                           B
                         </div>
                       )}
-
-                      {/* Dodge space dot */}
-                      {isDodgeCell && !isPlayerSpawn && !isBossSpawn && !isTestHeroHere && (
-                        <div className="size-1.5 rounded-full bg-purple-400/40" />
-                      )}
-
-                      {/* Tile icons */}
-                      {!isPlayerSpawn && !isBossSpawn && !isTestHeroHere && tile === 'cover' && (
-                        <Shield className="size-3.5 text-blue-300 opacity-60" />
-                      )}
-                      {!isPlayerSpawn && !isBossSpawn && !isTestHeroHere && tile === 'hazard' && (
-                        <Flame className="size-3.5 text-red-400 opacity-80" />
-                      )}
-                    </div>
+                    </button>
                   )
                 }),
               )}
             </div>
-          </div>
 
-          {/* Validation & Level Design Checklist */}
-          <div
-            className={`rounded-xl border p-4 text-xs transition ${
-              isArenaValidAndTested
-                ? 'border-emerald-300 bg-emerald-50 text-emerald-950'
-                : 'border-amber-300 bg-amber-50 text-amber-950'
-            }`}
-          >
-            <div className="flex items-center justify-between font-bold">
-              <span className="flex items-center gap-1.5">
-                {isArenaValidAndTested ? (
-                  <CheckCircle2 className="size-4 text-emerald-600" />
-                ) : (
-                  <AlertTriangle className="size-4 text-amber-600" />
-                )}
-                <span>{isArenaValidAndTested ? 'Battlefield Layout Verified' : 'Level Design Defects Active'}</span>
+            {/* Creative Palette Bar */}
+            {activeTab === 'creative' && (
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">
+                <span className="text-xs font-semibold text-slate-400">Tool:</span>
+                {(
+                  [
+                    { id: 'wall', label: 'Wall' },
+                    { id: 'cover', label: 'Cover' },
+                    { id: 'hazard', label: 'Hazard' },
+                    { id: 'eraser', label: 'Floor (Eraser)' },
+                    { id: 'player_spawn', label: 'Move Hero' },
+                    { id: 'boss_spawn', label: 'Move Boss' },
+                  ] as const
+                ).map((tool) => (
+                  <button
+                    key={tool.id}
+                    onClick={() => setActiveTool(tool.id)}
+                    className={`rounded px-3 py-1 text-xs font-medium transition ${
+                      activeTool === tool.id ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {tool.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Constraints & Diagnostic Telemetry */}
+        <div className="flex flex-col gap-4 lg:col-span-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-md">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Spatial Constraints Audit
               </span>
-              <span className="font-mono text-[11px]">
-                Walk Distance: {validation.pathDistance > 0 ? `${validation.pathDistance} tiles` : 'Blocked!'}
-              </span>
+              <button
+                onClick={() => setShowHints(!showHints)}
+                className="flex items-center gap-1 text-xs text-amber-400 hover:underline"
+              >
+                <HelpCircle className="h-3 w-3" />
+                Hints
+              </button>
             </div>
 
-            <ul className="mt-2 space-y-1 text-[11px]">
-              <li className={`flex items-center gap-1.5 ${validation.isReachable ? 'text-emerald-700 font-semibold' : 'text-amber-800 font-bold'}`}>
-                {validation.isReachable ? '✓' : '•'} Unobstructed path between Player and Boss spawns
-              </li>
-              <li className={`flex items-center gap-1.5 ${validation.playerSpawnValid && validation.bossSpawnValid ? 'text-emerald-700 font-semibold' : 'text-amber-800 font-bold'}`}>
-                {validation.playerSpawnValid && validation.bossSpawnValid ? '✓' : '•'} Spawns are placed on safe, walkable tiles (no hazard traps)
-              </li>
-              <li className={`flex items-center gap-1.5 ${hasTacticalObstacles ? 'text-emerald-700 font-semibold' : 'text-amber-800'}`}>
-                {hasTacticalObstacles ? '✓' : '•'} Preserves tactical cover pillars/walls (don&rsquo;t wipe everything empty)
-              </li>
-              <li className={`flex items-center gap-1.5 ${walkStepsTaken >= 5 ? 'text-emerald-700 font-semibold' : 'text-amber-800'}`}>
-                {walkStepsTaken >= 5 ? '✓' : '•'} Walk test completed ({walkStepsTaken}/5 steps verified in Test Walk)
-              </li>
-            </ul>
+            {/* Modifications Budget Meter */}
+            <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-300">Wall Modifications Budget</span>
+                <span
+                  className={`font-mono font-bold ${
+                    validation.wallEditsCount <= MAX_WALL_CHANGES ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {validation.wallEditsCount} / {MAX_WALL_CHANGES} used
+                </span>
+              </div>
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    validation.wallEditsCount <= MAX_WALL_CHANGES ? 'bg-sky-500' : 'bg-rose-500'
+                  }`}
+                  style={{ width: `${Math.min(100, (validation.wallEditsCount / MAX_WALL_CHANGES) * 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Four Real Engineering Checks */}
+            <div className="mt-4 space-y-2.5">
+              <div
+                className={`flex items-center justify-between rounded-lg border p-2.5 text-xs ${
+                  validation.isReachable ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-rose-500/30 bg-rose-950/20 text-rose-300'
+                }`}
+              >
+                <span>1. Hero ⟷ Boss Reachability</span>
+                <span className="font-bold">{validation.isReachable ? 'CONNECTED' : 'BLOCKED'}</span>
+              </div>
+
+              <div
+                className={`flex items-center justify-between rounded-lg border p-2.5 text-xs ${
+                  !validation.budgetExceeded ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-rose-500/30 bg-rose-950/20 text-rose-300'
+                }`}
+              >
+                <span>2. Budget Enforcement (&le; 3 changes)</span>
+                <span className="font-bold">{!validation.budgetExceeded ? 'PASS' : 'EXCEEDED'}</span>
+              </div>
+
+              <div
+                className={`flex items-center justify-between rounded-lg border p-2.5 text-xs ${
+                  validation.dodgeClearancePassed ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-rose-500/30 bg-rose-950/20 text-rose-300'
+                }`}
+              >
+                <span>3. Lateral Dodge Maneuver Room</span>
+                <span className="font-bold">{validation.dodgeClearancePassed ? 'CLEAR' : 'CHOKEPOINT'}</span>
+              </div>
+
+              <div
+                className={`flex items-center justify-between rounded-lg border p-2.5 text-xs ${
+                  validation.hazardAvoidablePassed ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-rose-500/30 bg-rose-950/20 text-rose-300'
+                }`}
+              >
+                <span>4. Hazard Transit Isolation</span>
+                <span className="font-bold">{validation.hazardAvoidablePassed ? 'PASS' : 'FORCED LAVA'}</span>
+              </div>
+
+              <div
+                className={`flex items-center justify-between rounded-lg border p-2.5 text-xs ${
+                  validation.noCheeseSafeSpotPassed ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-rose-500/30 bg-rose-950/20 text-rose-300'
+                }`}
+              >
+                <span>5. No Cheese Safe-Spots</span>
+                <span className="font-bold">{validation.noCheeseSafeSpotPassed ? 'SEALED' : 'EXPLOITABLE'}</span>
+              </div>
+            </div>
+
+            {/* Validation Message Box */}
+            <div
+              className={`mt-4 rounded-xl border p-3.5 text-xs leading-relaxed ${
+                validation.solved ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-200' : 'border-slate-800 bg-slate-950 text-slate-300'
+              }`}
+            >
+              {validation.feedback}
+            </div>
+          </div>
+
+          {/* Educational Takeaway */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400">
+            <span className="font-bold text-slate-300">Engineering Takeaway: </span>
+            Level design is an optimization problem between player freedom, spatial chokepoints, and AI navigation.
+            Fixing one corridor can accidentally create fatal bottlenecks or exploitable safe spots.
           </div>
         </div>
       </div>
 
       {/* Footer Navigation */}
-      <div className="flex items-center justify-between border-t border-slate-200 pt-4">
-        <span className="text-xs text-[#75787b]">
-          {!isArenaValidAndTested
-            ? 'Action required: Remove impassable walls, verify spawn safety, and test-walk the arena.'
-            : 'Arena level design validated and ready.'}
-        </span>
+      <div className="mt-auto flex items-center justify-between border-t border-slate-200 pt-4">
+        <div className="text-xs text-[#5a6a85]">
+          {isComplete ? (
+            <span className="font-bold text-emerald-700">✓ Role 3: Level Designer Complete</span>
+          ) : (
+            <span>Satisfy all spatial constraints within 3 wall changes.</span>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={onNextRole}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] px-4 py-2 text-xs font-bold text-white hover:bg-[#002b4d] shadow-xs cursor-pointer"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] px-4 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-[#002b4d] cursor-pointer"
         >
-          <span>Next: Balance Lab & QA Investigation</span>
+          <span>Next: QA Tester</span>
           <ArrowRight className="size-4" />
         </button>
       </div>

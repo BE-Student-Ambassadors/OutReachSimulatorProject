@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { gameAudio } from '../../audio/gameAudio'
 import { TILE_SIZE, TILE_SPECS } from '../../data/arenaCatalog'
 import {
@@ -12,6 +12,7 @@ import type {
   BossConfig,
   HeroConfig,
   PlaytestResult,
+  QaSettings,
   WeaponType,
 } from '../../types/project'
 import { DevCombatControls } from './DevCombatControls'
@@ -22,6 +23,7 @@ interface PlayableArenaCanvasProps {
   hero: HeroConfig
   boss: BossConfig
   arena: ArenaLayout
+  qa?: QaSettings
   attemptNumber: number
   onFinishCombat(result: PlaytestResult): void
   onNavigate(tab: ActiveTab): void
@@ -32,6 +34,7 @@ export function PlayableArenaCanvas({
   hero,
   boss,
   arena,
+  qa,
   attemptNumber,
   onFinishCombat,
   onNavigate,
@@ -40,34 +43,46 @@ export function PlayableArenaCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const simRef = useRef<CombatSimulation | null>(null)
 
-  const [activeHero, setActiveHero] = useState<HeroConfig>(hero)
-  const [activeBoss, setActiveBoss] = useState<BossConfig>(boss)
+  const [overrideWeapon, setOverrideWeapon] = useState<WeaponType | null>(null)
+  const [overrideAbility, setOverrideAbility] = useState<AbilityType | null>(null)
+
+  const activeHero = useMemo<HeroConfig>(() => ({
+    ...hero,
+    ...(overrideWeapon ? { weapon: overrideWeapon } : {}),
+    ...(overrideAbility ? { ability: overrideAbility } : {}),
+  }), [hero, overrideWeapon, overrideAbility])
+  const activeBoss = boss
+
+  const [sessionKey, setSessionKey] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
   const [godMode, setGodMode] = useState(false)
   const [showHitboxes, setShowHitboxes] = useState(false)
   const [latestResult, setLatestResult] = useState<PlaytestResult | null>(null)
   const [, setHudTick] = useState(0)
 
-  useEffect(() => {
-    setActiveHero(hero)
-  }, [hero])
+  // Simulation instance created/recreated when hero, boss, arena, qa, or sessionKey changes
+  const sim = useMemo(() => {
+    return new CombatSimulation(activeHero, activeBoss, arena, qa)
+    // sessionKey triggers recreation on manual combat restart
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeHero, activeBoss, arena, qa, sessionKey])
 
+  // Synchronize simRef for the 60fps animation frame loop
   useEffect(() => {
-    setActiveBoss(boss)
-  }, [boss])
+    simRef.current = sim
+  }, [sim])
 
-  // Initialize simulation
-  const restartCombat = () => {
-    const newSim = new CombatSimulation(activeHero, activeBoss, arena)
-    simRef.current = newSim
+  // Reset result and pause state when simulation changes
+  const [prevSim, setPrevSim] = useState(sim)
+  if (prevSim !== sim) {
+    setPrevSim(sim)
     setLatestResult(null)
     setIsPaused(false)
   }
 
-  useEffect(() => {
-    restartCombat()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeHero, activeBoss, arena])
+  const restartCombat = useCallback(() => {
+    setSessionKey((k) => k + 1)
+  }, [])
 
   // Track keyboard inputs
   const inputsRef = useRef<CombatInputs>({
@@ -144,36 +159,36 @@ export function PlayableArenaCanvas({
       lastTime = currentTime
 
       const canvas = canvasRef.current
-      const sim = simRef.current
+      const currentSim = simRef.current
 
-      if (canvas && sim) {
+      if (canvas && currentSim) {
         const ctx = canvas.getContext('2d')
         if (ctx) {
           // Update simulation if not paused
-          if (!isPaused && !sim.isGameOver) {
+          if (!isPaused && !currentSim.isGameOver) {
             // God Mode protection
             if (godMode) {
-              sim.heroHp = activeHero.maxHealth
+              currentSim.heroHp = activeHero.maxHealth
             }
 
-            sim.update(dt, inputsRef.current)
+            currentSim.update(dt, inputsRef.current)
 
             // Play audio events
-            while (sim.soundEvents.length > 0) {
-              const evt = sim.soundEvents.shift()!
+            while (currentSim.soundEvents.length > 0) {
+              const evt = currentSim.soundEvents.shift()!
               gameAudio.play(evt.type)
             }
 
             // Check game over
-            if (sim.isGameOver && !latestResult) {
-              const res = sim.generateResult(attemptNumber)
+            if (currentSim.isGameOver && !latestResult) {
+              const res = currentSim.generateResult(attemptNumber)
               setLatestResult(res)
               onFinishCombat(res)
             }
           }
 
           // Render game scene
-          renderScene(ctx, sim, arena, showHitboxes)
+          renderScene(ctx, currentSim, arena, showHitboxes)
           setHudTick((t) => t + 1)
         }
       }
@@ -199,11 +214,11 @@ export function PlayableArenaCanvas({
       />
 
       {/* Arcade Combat HUD */}
-      {simRef.current && (
+      {sim && (
         <PlaytestHud
           hero={activeHero}
           boss={activeBoss}
-          sim={simRef.current}
+          sim={sim}
           onTogglePause={() => setIsPaused((p) => !p)}
           isPaused={isPaused}
         />
@@ -213,12 +228,10 @@ export function PlayableArenaCanvas({
       {devMode && (
         <DevCombatControls
           hero={activeHero}
-          onSwapWeapon={(w: WeaponType) => setActiveHero((h) => ({ ...h, weapon: w }))}
-          onSwapAbility={(a: AbilityType) => setActiveHero((h) => ({ ...h, ability: a }))}
+          onSwapWeapon={(w: WeaponType) => setOverrideWeapon(w)}
+          onSwapAbility={(a: AbilityType) => setOverrideAbility(a)}
           onInstantDefeatBoss={() => {
-            if (simRef.current) {
-              simRef.current.damageBoss(9999, 'DEV OBLITERATE')
-            }
+            sim.damageBoss(9999, 'DEV OBLITERATE')
           }}
           onRestart={restartCombat}
           godMode={godMode}
