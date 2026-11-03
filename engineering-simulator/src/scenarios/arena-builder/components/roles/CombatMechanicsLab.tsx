@@ -1,517 +1,592 @@
 import {
   AlertTriangle,
   CheckCircle2,
-  Crosshair,
-  Eye,
+  HelpCircle,
+  Play,
   RotateCcw,
-  Sword,
-  Target,
+  Shield,
+  Swords,
+  Zap,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { gameAudio } from '../../audio/gameAudio'
+import {
+  DUEL_OPPONENTS,
+  simulateDuelMatch,
+  validateDuelMystery,
+  type DuelSimulationResult,
+  type DuelValidationResult,
+} from '../../simulation/duelPuzzle'
 import type { HeroConfig } from '../../types/project'
 
 interface CombatMechanicsLabProps {
   hero: HeroConfig
-  onUpdateHitbox(reach: number, arcDegrees: number, validated: boolean): void
+  onUpdateTuning(params: {
+    heavyEndlag: number
+    heavyPoiseStartup: boolean
+    heavyDashCancelWindow: boolean
+    swiftRecoveryGap: number
+    solved: boolean
+  }): void
+  onResetPuzzle(): void
 }
 
-export function CombatMechanicsLab({ hero, onUpdateHitbox }: CombatMechanicsLabProps) {
+export function CombatMechanicsLab({ hero, onUpdateTuning, onResetPuzzle }: CombatMechanicsLabProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  // Lab internal state
-  const [showHitboxOverlay, setShowHitboxOverlay] = useState(true)
-  const [movingDummy, setMovingDummy] = useState(false)
-  const [hitsLanded, setHitsLanded] = useState(0)
-  const [missesCount, setMissesCount] = useState(0)
-  const [lastHitFeedback, setLastHitFeedback] = useState<string | null>(null)
+  // Puzzle tuning parameters
+  const heavyEndlag = hero.heavyEndlag ?? 1.2
+  const heavyPoiseStartup = hero.heavyPoiseStartup ?? false
+  const heavyDashCancelWindow = hero.heavyDashCancelWindow ?? false
+  const swiftRecoveryGap = hero.swiftRecoveryGap ?? 0.05
 
-  // Hero position inside testing room (400x300 canvas)
-  const heroPos = useRef({ x: 120, y: 150, facing: 0 })
-  const dummyPos = useRef({ x: 195, y: 150, radius: 18, hp: 100, maxHp: 100, dir: 1 })
-  const movingDummyPos = useRef({ x: 290, y: 100, radius: 16, hp: 80, maxHp: 80, dir: 1 })
-  const swingEffect = useRef<{ active: boolean; timer: number; reach: number; arc: number } | null>(null)
-  const floaters = useRef<Array<{ id: number; x: number; y: number; text: string; color: string; life: number }>>([])
-  const nextFloaterId = useRef(1)
+  const [selectedMatchup, setSelectedMatchup] = useState<'scout' | 'sentinel' | 'mirror'>('scout')
+  const [activeHintIndex, setActiveHintIndex] = useState(0)
+  const [showHints, setShowHints] = useState(false)
+  const [validationResult, setValidationResult] = useState<DuelValidationResult | null>(() => {
+    return hero.duelMysterySolved ? validateDuelMystery(hero) : null
+  })
 
-  // Validation criteria:
-  // 1. Reach >= 55px (so it doesn't fail basic melee distance)
-  // 2. Reach <= 95px (so it doesn't hit enemies across the screen)
-  // 3. Arc >= 70° (so it's not a pixel-thin needle)
-  // 4. Arc <= 150° (not a 360 degree aura)
-  // 5. Must have landed at least 3 hits on the dummy in the lab
-  const reach = hero.attackReach ?? 70
-  const arcDegrees = hero.attackArcDegrees ?? 110
+  const [activeSim, setActiveSim] = useState<DuelSimulationResult | null>(null)
+  const [isSimulating, setIsSimulating] = useState(false)
+  const [playbackProgress, setPlaybackProgress] = useState(1)
 
-  const isGeometrySensible =
-    reach >= 55 &&
-    reach <= 95 &&
-    arcDegrees >= 70 &&
-    arcDegrees <= 150
+  const hints = [
+    'Analyze the combat replay log when Heavy Colossus fights Agile Scout. What state is the Heavy in when taking the most damage?',
+    "Heavy Colossus is trapped in a 1.2s 'endlag' (recovery window) after each blow, and gets staggered during startup without Poise. Try tuning endlag down to ~0.45s and enabling Poise Armor.",
+    'Swift Striker attacks every 0.05s, which feels like infinite stun-lock, but it immediately folds against Iron Sentinel. Tune Swift recovery gap to ~0.25s so neither archetype is broken.',
+  ]
 
-  const isValidated = Boolean(hero.hitboxValidated) || (isGeometrySensible && hitsLanded >= 3)
+  // Run single matchup simulation with visual animation
+  const runLiveMatch = (opponentKey: 'scout' | 'sentinel' | 'mirror') => {
+    const opp = DUEL_OPPONENTS[opponentKey]
+    const playstyle = opponentKey === 'sentinel' ? 'swift' : 'heavy'
+    const res = simulateDuelMatch(playstyle, opp, {
+      heavyEndlag,
+      heavyPoiseStartup,
+      heavyDashCancelWindow,
+      swiftRecoveryGap,
+    })
 
-  // Execute test swing
-  const performTestSwing = () => {
+    setActiveSim(res)
+    setIsSimulating(true)
+    setPlaybackProgress(0)
     gameAudio.play('slash')
-    const swingReach = hero.attackReach ?? 70
-    const swingArcDegrees = hero.attackArcDegrees ?? 110
-    const arcRad = (swingArcDegrees * Math.PI) / 180
-
-    swingEffect.current = { active: true, timer: 0.18, reach: swingReach, arc: arcRad }
-
-    // Check stationary dummy hit
-    const dx = dummyPos.current.x - heroPos.current.x
-    const dy = dummyPos.current.y - heroPos.current.y
-    const dist = Math.hypot(dx, dy)
-    const angleToDummy = Math.atan2(dy, dx)
-    let diff = Math.abs(angleToDummy - heroPos.current.facing)
-    while (diff > Math.PI) diff = Math.abs(diff - 2 * Math.PI)
-
-    const isHit = dist <= swingReach + dummyPos.current.radius && diff <= arcRad / 2
-
-    if (isHit) {
-      gameAudio.play('hit_boss')
-      const nextHits = hitsLanded + 1
-      setHitsLanded(nextHits)
-      setLastHitFeedback(`HIT! Connected at ${Math.round(dist)}px distance.`)
-
-      floaters.current.push({
-        id: nextFloaterId.current++,
-        x: dummyPos.current.x,
-        y: dummyPos.current.y - 15,
-        text: `-${hero.attackDamage}`,
-        color: '#22d3ee',
-        life: 0.8,
-      })
-
-      if (isGeometrySensible && nextHits >= 3 && !hero.hitboxValidated) {
-        onUpdateHitbox(hero.attackReach, hero.attackArcDegrees, true)
-      }
-    } else {
-      setMissesCount((m) => m + 1)
-      const reason = dist > reach + dummyPos.current.radius ? `Whiff! Distance (${Math.round(dist)}px) exceeds reach (${reach}px).` : 'Whiff! Dummy outside hitbox arc angle.'
-      setLastHitFeedback(reason)
-
-      floaters.current.push({
-        id: nextFloaterId.current++,
-        x: dummyPos.current.x,
-        y: dummyPos.current.y - 15,
-        text: 'MISS',
-        color: '#ef4444',
-        life: 0.8,
-      })
-    }
   }
 
-  // Keyboard controls in the lab
+  // Animation playback loop
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        e.preventDefault()
-        performTestSwing()
-      } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
-        heroPos.current.x = Math.min(260, heroPos.current.x + 8)
-      } else if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
-        heroPos.current.x = Math.max(50, heroPos.current.x - 8)
-      } else if (e.code === 'KeyW' || e.code === 'ArrowUp') {
-        heroPos.current.y = Math.max(50, heroPos.current.y - 8)
-      } else if (e.code === 'KeyS' || e.code === 'ArrowDown') {
-        heroPos.current.y = Math.min(250, heroPos.current.y + 8)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hero.attackReach, hero.attackArcDegrees, hitsLanded, isGeometrySensible])
-
-  // Canvas render loop
-  useEffect(() => {
+    if (!isSimulating) return
     let animId: number
-    let lastTime = performance.now()
+    const startTime = performance.now()
+    const duration = 2000 // 2 seconds visualization
 
-    const loop = (currentTime: number) => {
-      const dt = (currentTime - lastTime) / 1000
-      lastTime = currentTime
+    const frame = (now: number) => {
+      const elapsed = now - startTime
+      const p = Math.min(1, elapsed / duration)
+      setPlaybackProgress(p)
 
-      // Update moving dummy
-      if (movingDummy) {
-        movingDummyPos.current.y += movingDummyPos.current.dir * 45 * dt
-        if (movingDummyPos.current.y > 220) movingDummyPos.current.dir = -1
-        if (movingDummyPos.current.y < 80) movingDummyPos.current.dir = 1
+      if (p < 1) {
+        animId = requestAnimationFrame(frame)
+      } else {
+        setIsSimulating(false)
+        gameAudio.play('hit_player')
       }
-
-      // Update swing timer
-      if (swingEffect.current && swingEffect.current.active) {
-        swingEffect.current.timer -= dt
-        if (swingEffect.current.timer <= 0) {
-          swingEffect.current.active = false
-        }
-      }
-
-      // Update floaters
-      floaters.current = floaters.current
-        .map((f) => ({ ...f, y: f.y - 30 * dt, life: f.life - dt }))
-        .filter((f) => f.life > 0)
-
-      // Draw canvas
-      const canvas = canvasRef.current
-      if (canvas) {
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-          renderLabRoom(ctx, heroPos.current, dummyPos.current, movingDummyPos.current, movingDummy, hero, showHitboxOverlay, swingEffect.current, floaters.current)
-        }
-      }
-
-      animId = requestAnimationFrame(loop)
     }
 
-    animId = requestAnimationFrame(loop)
+    animId = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(animId)
-  }, [movingDummy, hero, showHitboxOverlay])
+  }, [isSimulating])
 
-  const restoreBrokenDefect = () => {
-    onUpdateHitbox(32, 35, false)
-    setHitsLanded(0)
-    setMissesCount(0)
-    setLastHitFeedback('Reset to broken starter configuration: reach is only 32px (too short).')
+  // Canvas visual rendering for the combat ring
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const w = canvas.width
+    const h = canvas.height
+
+    // Background
+    ctx.fillStyle = '#0b0f19'
+    ctx.fillRect(0, 0, w, h)
+
+    // Duel Ring Grid & Markings
+    ctx.strokeStyle = '#1e293b'
+    ctx.lineWidth = 1
+    for (let x = 0; x < w; x += 30) {
+      ctx.beginPath()
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, h)
+      ctx.stroke()
+    }
+    for (let y = 0; y < h; y += 30) {
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(w, y)
+      ctx.stroke()
+    }
+
+    // Octagon ring boundary
+    ctx.strokeStyle = '#334155'
+    ctx.lineWidth = 3
+    ctx.strokeRect(30, 20, w - 60, h - 40)
+
+    // Current Opponent Specs
+    const opp = DUEL_OPPONENTS[selectedMatchup]
+    const playstyle = selectedMatchup === 'sentinel' ? 'swift' : 'heavy'
+
+    // Fighter positions
+    const pX = 140 + Math.sin(playbackProgress * Math.PI * 4) * 15
+    const pY = h / 2
+    const oX = w - 140 - Math.sin(playbackProgress * Math.PI * 4) * 15
+    const oY = h / 2
+
+    // 1. Draw Player Character
+    ctx.save()
+    ctx.translate(pX, pY)
+
+    // Poise aura
+    if (heavyPoiseStartup && playstyle === 'heavy') {
+      ctx.beginPath()
+      ctx.arc(0, 0, 26, 0, Math.PI * 2)
+      ctx.strokeStyle = 'rgba(234, 179, 8, 0.4)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+    }
+
+    // Body
+    ctx.beginPath()
+    ctx.arc(0, 0, playstyle === 'heavy' ? 20 : 14, 0, Math.PI * 2)
+    ctx.fillStyle = playstyle === 'heavy' ? '#38bdf8' : '#34d399'
+    ctx.fill()
+    ctx.strokeStyle = '#f8fafc'
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    // Weapon representation
+    ctx.fillStyle = '#fbbf24'
+    if (playstyle === 'heavy') {
+      ctx.fillRect(14, -8, 22, 16) // Hammer head
+    } else {
+      ctx.fillRect(10, -2, 18, 4) // Rapier blade
+    }
+    ctx.restore()
+
+    // Player Label & HP
+    ctx.fillStyle = '#94a3b8'
+    ctx.font = '11px monospace'
+    ctx.textAlign = 'center'
+    ctx.fillText(`${playstyle.toUpperCase()} (HERO)`, pX, pY - 32)
+
+    // 2. Draw Opponent
+    ctx.save()
+    ctx.translate(oX, oY)
+
+    ctx.beginPath()
+    ctx.arc(0, 0, opp.archetype === 'iron_sentinel' ? 24 : opp.archetype === 'agile_scout' ? 14 : 18, 0, Math.PI * 2)
+    ctx.fillStyle = opp.archetype === 'iron_sentinel' ? '#64748b' : opp.archetype === 'agile_scout' ? '#f43f5e' : '#a855f7'
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    ctx.restore()
+
+    ctx.fillStyle = '#94a3b8'
+    ctx.fillText(opp.name.toUpperCase(), oX, oY - 36)
+
+    // Slash VFX during animation
+    if (isSimulating && playbackProgress < 0.9) {
+      ctx.strokeStyle = '#fef08a'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      const midX = (pX + oX) / 2 + (Math.random() - 0.5) * 40
+      const midY = (pY + oY) / 2 + (Math.random() - 0.5) * 40
+      ctx.arc(midX, midY, 20 + Math.random() * 15, 0, Math.PI)
+      ctx.stroke()
+    }
+  }, [playbackProgress, selectedMatchup, heavyEndlag, heavyPoiseStartup, isSimulating])
+
+  // Run comprehensive 3-scenario validation
+  const handleValidatePuzzle = () => {
+    const updatedHero: HeroConfig = {
+      ...hero,
+      heavyEndlag,
+      heavyPoiseStartup,
+      heavyDashCancelWindow,
+      swiftRecoveryGap,
+    }
+    const result = validateDuelMystery(updatedHero)
+    setValidationResult(result)
+
+    onUpdateTuning({
+      heavyEndlag,
+      heavyPoiseStartup,
+      heavyDashCancelWindow,
+      swiftRecoveryGap,
+      solved: result.solved,
+    })
+
+    if (result.solved) {
+      gameAudio.play('victory')
+    } else {
+      gameAudio.play('hit_boss')
+    }
   }
 
   return (
-    <div className="rounded-2xl border border-cyan-500/30 bg-white p-6 shadow-sm flex flex-col gap-5">
-      {/* Problem Header */}
-      <div className="flex flex-col gap-2 border-b border-cyan-100 pb-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-cyan-600/10 px-3 py-0.5 text-xs font-bold text-cyan-800">
-            <Crosshair className="size-3.5 text-cyan-600" />
-            Hands-on Combat Mechanics Lab
+    <div className="flex flex-col gap-6">
+      {/* Challenge Header */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-5 shadow-lg backdrop-blur">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-sky-500/20 px-2 py-0.5 font-mono text-xs font-semibold text-sky-400">
+                ROLE 1 — GAMEPLAY DESIGNER
+              </span>
+              <span className="text-xs text-slate-400">Combat Rhythm & Frame Data Mystery</span>
+            </div>
+            <h2 className="mt-1 text-xl font-bold text-slate-100">The Unwinnable Duel</h2>
+            <p className="mt-1 text-sm text-slate-300">
+              Playtesters report that Swift Striker dominates duels 100% of the time, yet both playstyles fail
+              miserably against different enemy types. Investigate recovery windows, endlag, and poise armor to
+              restore combat parity without breaking damage scaling.
+            </p>
           </div>
-          <h2 className="mt-1 font-sans text-lg font-black text-[#003c6c]">
-            Investigate & Repair the Hero&rsquo;s Broken Attack Hitbox
-          </h2>
-          <p className="mt-0.5 text-xs text-[#5a6a85]">
-            Playtesters reported that the hero&rsquo;s melee attacks constantly miss even when standing right in front of targets! Diagnose the collision geometry on the training dummy.
-          </p>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowHints(!showHints)}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700"
+            >
+              <HelpCircle className="h-4 w-4 text-amber-400" />
+              {showHints ? 'Hide Hints' : 'Hints (3)'}
+            </button>
+
+            <button
+              onClick={onResetPuzzle}
+              className="flex items-center gap-1.5 rounded-lg border border-rose-900/50 bg-rose-950/30 px-3 py-2 text-xs font-medium text-rose-300 hover:bg-rose-900/50"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset Lab
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {isValidated ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 border border-emerald-300">
-              <CheckCircle2 className="size-4 text-emerald-600" />
-              Hitbox Validated & Repaired
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 border border-amber-300">
-              <AlertTriangle className="size-4 text-amber-600" />
-              Repair Required ({hitsLanded}/3 Hits)
-            </span>
-          )}
-
-          <button
-            type="button"
-            onClick={restoreBrokenDefect}
-            title="Reset to broken starter defect"
-            className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
-          >
-            <RotateCcw className="size-3" />
-            Load Broken Hitbox
-          </button>
-        </div>
+        {/* Progressive Hints Accordion */}
+        {showHints && (
+          <div className="mt-4 rounded-lg border border-amber-900/40 bg-amber-950/20 p-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-amber-300">
+              <span>HINT {activeHintIndex + 1} OF 3</span>
+              <div className="flex gap-1">
+                {[0, 1, 2].map((idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveHintIndex(idx)}
+                    className={`h-2 w-6 rounded-full transition-colors ${
+                      activeHintIndex === idx ? 'bg-amber-400' : 'bg-slate-700'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+            <p className="mt-2 text-sm text-amber-200/90">{hints[activeHintIndex]}</p>
+          </div>
+        )}
       </div>
 
-      {/* Main Lab Area: Interactive Canvas Room + Geometry Tooling */}
-      <div className="flex flex-col gap-6 lg:flex-row">
-        {/* Left: 2D Canvas Testing Room */}
-        <div className="flex-1 flex flex-col items-center">
-          <div className="relative rounded-2xl border-2 border-slate-800 bg-slate-950 p-2 shadow-inner">
-            <canvas
-              ref={canvasRef}
-              width={420}
-              height={260}
-              className="rounded-xl bg-[#090d16]"
-            />
-
-            {/* In-room controls overlay */}
-            <div className="absolute top-4 left-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowHitboxOverlay((s) => !s)}
-                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase transition cursor-pointer border ${
-                  showHitboxOverlay
-                    ? 'border-cyan-400 bg-cyan-500/20 text-cyan-200'
-                    : 'border-slate-700 bg-slate-900 text-slate-400'
-                }`}
-              >
-                <Eye className="size-3" />
-                {showHitboxOverlay ? 'Hitbox Overlay: ON' : 'Hitbox Overlay: OFF'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMovingDummy((m) => !m)}
-                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase transition cursor-pointer border ${
-                  movingDummy
-                    ? 'border-purple-400 bg-purple-500/20 text-purple-200'
-                    : 'border-slate-700 bg-slate-900 text-slate-400'
-                }`}
-              >
-                <Target className="size-3" />
-                {movingDummy ? 'Moving Dummy: ON' : 'Moving Dummy: OFF'}
-              </button>
+      {/* Main Duel Simulation Arena */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Left: 2D Combat Canvas & Matchup Selector */}
+        <div className="flex flex-col gap-4 lg:col-span-7">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-md">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Combat Ring Simulation
+              </span>
+              <div className="flex gap-1.5">
+                {(['scout', 'sentinel', 'mirror'] as const).map((key) => {
+                  const opp = DUEL_OPPONENTS[key]
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setSelectedMatchup(key)
+                        setActiveSim(null)
+                      }}
+                      className={`rounded px-2.5 py-1 text-xs font-medium transition-all ${
+                        selectedMatchup === key
+                          ? 'bg-sky-600 text-white shadow'
+                          : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                      }`}
+                    >
+                      {opp.name}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
-            <div className="absolute bottom-4 right-4">
+            <div className="relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+              <canvas ref={canvasRef} width={520} height={280} className="h-full w-full object-contain" />
+            </div>
+
+            <div className="mt-3 flex items-center justify-between">
+              <div className="text-xs text-slate-400">
+                Testing Matchup:{' '}
+                <span className="font-semibold text-slate-200">
+                  {selectedMatchup === 'sentinel' ? 'Swift Striker' : 'Heavy Colossus'} vs{' '}
+                  {DUEL_OPPONENTS[selectedMatchup].name}
+                </span>
+              </div>
               <button
-                type="button"
-                onClick={performTestSwing}
-                className="flex items-center gap-1.5 rounded-xl bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500 shadow-md cursor-pointer transition active:translate-y-0.5"
+                onClick={() => runLiveMatch(selectedMatchup)}
+                disabled={isSimulating}
+                className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-all hover:bg-sky-500 disabled:opacity-50"
               >
-                <Sword className="size-3.5" />
-                <span>Test Attack (Space)</span>
+                <Play className="h-3.5 w-3.5" />
+                {isSimulating ? 'Simulating...' : 'Simulate Matchup'}
               </button>
             </div>
           </div>
 
-          <div className="mt-2 flex w-full max-w-[420px] items-center justify-between text-[11px] font-mono text-[#5a6a85]">
-            <span>Controls: <kbd className="rounded bg-slate-100 px-1 border">WASD</kbd> Move · <kbd className="rounded bg-slate-100 px-1 border">Space</kbd> Attack</span>
-            <span>Target Dummy: 75px away</span>
-          </div>
-
-          {/* Test Feedback Bar */}
-          {lastHitFeedback && (
-            <div className="mt-2 w-full max-w-[420px] rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-[#0b1d2e] font-mono">
-              <span className="font-bold text-[#003c6c]">Test Result: </span>
-              {lastHitFeedback}
+          {/* Telemetry & Replay Frame Inspector */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Combat Frame Log & Replay Telemetry
+              </span>
+              {activeSim && (
+                <span
+                  className={`rounded px-2 py-0.5 text-xs font-bold ${
+                    activeSim.winner === 'player' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                  }`}
+                >
+                  RESULT: {activeSim.winner === 'player' ? 'HERO VICTORY' : 'OPPONENT DEFEAT'} ({activeSim.duration}s)
+                </span>
+              )}
             </div>
-          )}
+
+            <div className="h-28 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950 p-2.5 font-mono text-xs text-slate-300">
+              {activeSim ? (
+                activeSim.log.map((line, idx) => (
+                  <div
+                    key={idx}
+                    className={`py-0.5 ${
+                      line.includes('CRITICAL') || line.includes('interrupted')
+                        ? 'text-rose-400'
+                        : line.includes('Poise') || line.includes('absorbed')
+                          ? 'text-amber-300'
+                          : line.includes('staggered')
+                            ? 'text-emerald-300'
+                            : 'text-slate-400'
+                    }`}
+                  >
+                    {line}
+                  </div>
+                ))
+              ) : (
+                <div className="flex h-full items-center justify-center text-slate-500">
+                  Select a matchup and click &quot;Simulate Matchup&quot; to inspect frame data and combat telemetry.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Right: Hitbox Geometry Controls */}
-        <div className="w-full lg:w-80 flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="flex flex-col gap-4">
-            <h3 className="font-sans text-xs font-bold uppercase tracking-wider text-[#003c6c] flex items-center gap-1.5">
-              <Crosshair className="size-4 text-cyan-600" />
-              Hitbox Geometry Controls
+        {/* Right: Tactical Tuning Levers & Validation Suite */}
+        <div className="flex flex-col gap-4 lg:col-span-5">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-md">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">
+              Combat Action Economy Levers
             </h3>
-            <p className="text-xs text-[#5a6a85]">
-              Adjust the reach and coverage arc of the weapon hitbox. Watch the green/cyan collision sector update live on the dummy!
+            <p className="mt-1 text-xs text-slate-400">
+              Do not adjust damage numbers. Alter the vulnerability windows and poise armor to balance action pacing.
             </p>
 
-            {/* Reach Slider */}
-            <div>
-              <div className="flex justify-between text-xs font-bold">
-                <span className="text-[#475569]">Attack Reach (Radius)</span>
-                <span className="font-mono text-cyan-700">{hero.attackReach ?? 70} px</span>
+            <div className="mt-5 space-y-4">
+              {/* Heavy Endlag Slider */}
+              <div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-300">Heavy Strike Endlag (Recovery)</span>
+                  <span className="font-mono text-sky-400">{heavyEndlag.toFixed(2)}s</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.2}
+                  max={1.4}
+                  step={0.05}
+                  value={heavyEndlag}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value)
+                    onUpdateTuning({
+                      heavyEndlag: val,
+                      heavyPoiseStartup,
+                      heavyDashCancelWindow,
+                      swiftRecoveryGap,
+                      solved: false,
+                    })
+                  }}
+                  className="mt-1.5 w-full accent-sky-500"
+                />
+                <span className="text-[10px] text-slate-500">
+                  Defect: 1.2s leaves hero helpless against fast counter-strikes. Sweet spot: ~0.45s.
+                </span>
               </div>
-              <input
-                type="range"
-                min={30}
-                max={110}
-                step={2}
-                value={hero.attackReach ?? 70}
-                onChange={(e) => {
-                  const val = Number(e.target.value)
-                  onUpdateHitbox(val, hero.attackArcDegrees ?? 110, false)
-                }}
-                className="mt-1.5 w-full accent-cyan-600 cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-[#75787b]">
-                <span>30px (Too short!)</span>
-                <span>Balanced: 70–85px</span>
-                <span>110px (Oversized)</span>
+
+              {/* Swift Recovery Gap Slider */}
+              <div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-300">Swift Flurry Recovery Gap</span>
+                  <span className="font-mono text-emerald-400">{swiftRecoveryGap.toFixed(2)}s</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.02}
+                  max={0.5}
+                  step={0.02}
+                  value={swiftRecoveryGap}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value)
+                    onUpdateTuning({
+                      heavyEndlag,
+                      heavyPoiseStartup,
+                      heavyDashCancelWindow,
+                      swiftRecoveryGap: val,
+                      solved: false,
+                    })
+                  }}
+                  className="mt-1.5 w-full accent-emerald-500"
+                />
+                <span className="text-[10px] text-slate-500">
+                  Defect: 0.05s is an oppressive infinite loop. Balance requires giving opponents reaction space (~0.25s).
+                </span>
+              </div>
+
+              {/* Poise Armor Toggle */}
+              <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-amber-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-slate-200">Heavy Poise Armor (Startup)</div>
+                      <div className="text-[10px] text-slate-400">Prevents light hit interruption during windup</div>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={heavyPoiseStartup}
+                    onChange={(e) => {
+                      onUpdateTuning({
+                        heavyEndlag,
+                        heavyPoiseStartup: e.target.checked,
+                        heavyDashCancelWindow,
+                        swiftRecoveryGap,
+                        solved: false,
+                      })
+                    }}
+                    className="h-4 w-4 accent-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* Dash-Cancel Window Toggle */}
+              <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-purple-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-slate-200">Dash-Cancel Window</div>
+                      <div className="text-[10px] text-slate-400">Allows dodging out of endlag upon counter-attack</div>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={heavyDashCancelWindow}
+                    onChange={(e) => {
+                      onUpdateTuning({
+                        heavyEndlag,
+                        heavyPoiseStartup,
+                        heavyDashCancelWindow: e.target.checked,
+                        swiftRecoveryGap,
+                        solved: false,
+                      })
+                    }}
+                    className="h-4 w-4 accent-purple-500"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Arc Slider */}
-            <div>
-              <div className="flex justify-between text-xs font-bold">
-                <span className="text-[#475569]">Hitbox Arc (Coverage Angle)</span>
-                <span className="font-mono text-cyan-700">{hero.attackArcDegrees ?? 110}°</span>
-              </div>
-              <input
-                type="range"
-                min={30}
-                max={160}
-                step={5}
-                value={hero.attackArcDegrees ?? 110}
-                onChange={(e) => {
-                  const val = Number(e.target.value)
-                  onUpdateHitbox(hero.attackReach ?? 70, val, false)
-                }}
-                className="mt-1.5 w-full accent-cyan-600 cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-[#75787b]">
-                <span>30° (Needle-thin)</span>
-                <span>Balanced: 110–130°</span>
-                <span>160° (Wide sweep)</span>
-              </div>
-            </div>
-
-            {/* Educational insight box */}
-            <div className="rounded-lg border border-cyan-200 bg-cyan-50/70 p-3 text-[11px] text-cyan-950 leading-relaxed">
-              <span className="font-bold">Game Dev Takeaway: </span>
-              A <strong>hitbox</strong> is the geometric trigger volume where an attack inflicts damage. If reach is shorter than the character sprite&rsquo;s weapon or too narrow, attacks &ldquo;whiff&rdquo; unfairly. If it&rsquo;s too huge, attacks connect without visual contact.
-            </div>
+            {/* Validation Trigger Button */}
+            <button
+              onClick={handleValidatePuzzle}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 py-3 text-sm font-bold text-white shadow-lg transition-all hover:from-sky-500 hover:to-indigo-500"
+            >
+              <Swords className="h-4 w-4" />
+              Run 3-Scenario Balance Verification
+            </button>
           </div>
 
-          {/* Validation Status */}
-          <div className="mt-4 border-t border-slate-200 pt-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-[#475569]">Validation Checklist</span>
-              <span className="font-mono font-bold text-[#003c6c]">{hitsLanded}/3 Verified Hits ({missesCount} misses)</span>
+          {/* Validation Feedback Card */}
+          {validationResult && (
+            <div
+              className={`rounded-xl border p-4 shadow-lg ${
+                validationResult.solved
+                  ? 'border-emerald-500/50 bg-emerald-950/20 text-emerald-200'
+                  : 'border-rose-500/50 bg-rose-950/20 text-rose-200'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {validationResult.solved ? (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 text-rose-400" />
+                )}
+                <span className="font-bold text-sm">
+                  {validationResult.solved ? 'COMBAT PARITY RESTORED' : 'BALANCE AUDIT FAILED'}
+                </span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                <div
+                  className={`rounded p-1.5 ${
+                    validationResult.heavyVsScoutPassed ? 'bg-emerald-900/40 text-emerald-300' : 'bg-rose-900/40 text-rose-300'
+                  }`}
+                >
+                  Heavy vs Scout: {validationResult.heavyVsScoutPassed ? 'PASS' : 'FAIL'}
+                </div>
+                <div
+                  className={`rounded p-1.5 ${
+                    validationResult.swiftVsSentinelPassed ? 'bg-emerald-900/40 text-emerald-300' : 'bg-rose-900/40 text-rose-300'
+                  }`}
+                >
+                  Swift vs Sentinel: {validationResult.swiftVsSentinelPassed ? 'PASS' : 'FAIL'}
+                </div>
+                <div
+                  className={`rounded p-1.5 ${
+                    validationResult.mirrorMatchBalanced ? 'bg-emerald-900/40 text-emerald-300' : 'bg-rose-900/40 text-rose-300'
+                  }`}
+                >
+                  Duel Symmetry: {validationResult.mirrorMatchBalanced ? 'PASS' : 'FAIL'}
+                </div>
+              </div>
+
+              <p className="mt-3 text-xs leading-relaxed">{validationResult.feedback}</p>
             </div>
-            <ul className="mt-1.5 space-y-1 text-[11px] text-[#5a6a85]">
-              <li className={`flex items-center gap-1.5 ${hero.attackReach >= 55 ? 'text-emerald-700 font-semibold' : 'text-amber-700'}`}>
-                {hero.attackReach >= 55 ? '✓' : '•'} Reach connects with target dummy (≥ 55px)
-              </li>
-              <li className={`flex items-center gap-1.5 ${hero.attackReach <= 95 ? 'text-emerald-700 font-semibold' : 'text-amber-700'}`}>
-                {hero.attackReach <= 95 ? '✓' : '•'} Reach does not exceed reasonable range (≤ 95px)
-              </li>
-              <li className={`flex items-center gap-1.5 ${hero.attackArcDegrees >= 70 ? 'text-emerald-700 font-semibold' : 'text-amber-700'}`}>
-                {hero.attackArcDegrees >= 70 ? '✓' : '•'} Hitbox arc is sufficiently wide (≥ 70°)
-              </li>
-              <li className={`flex items-center gap-1.5 ${hitsLanded >= 3 ? 'text-emerald-700 font-semibold' : 'text-amber-700'}`}>
-                {hitsLanded >= 3 ? '✓' : '•'} Land 3 successful test attacks on the dummy
-              </li>
-            </ul>
+          )}
+
+          {/* Educational Takeaway */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400">
+            <span className="font-bold text-slate-300">Engineering Takeaway: </span>
+            Action game design is governed by frame data (startup, active, and endlag). When an attack has excessive
+            recovery without poise, fast opponents get free turns. Meaningful balance comes from tuning vulnerability
+            windows, not just buffing damage.
           </div>
         </div>
       </div>
     </div>
   )
-}
-
-function renderLabRoom(
-  ctx: CanvasRenderingContext2D,
-  hero: { x: number; y: number; facing: number },
-  dummy: { x: number; y: number; radius: number },
-  movingDummy: { x: number; y: number; radius: number },
-  hasMovingDummy: boolean,
-  heroConfig: HeroConfig,
-  showHitboxOverlay: boolean,
-  swing: { active: boolean; timer: number; reach: number; arc: number } | null,
-  floaters: Array<{ x: number; y: number; text: string; color: string; life: number }>,
-) {
-  ctx.clearRect(0, 0, 420, 260)
-
-  // 1. Grid Floor
-  ctx.strokeStyle = '#1e293b'
-  ctx.lineWidth = 1
-  for (let x = 0; x < 420; x += 30) {
-    ctx.beginPath()
-    ctx.moveTo(x, 0)
-    ctx.lineTo(x, 260)
-    ctx.stroke()
-  }
-  for (let y = 0; y < 260; y += 30) {
-    ctx.beginPath()
-    ctx.moveTo(0, y)
-    ctx.lineTo(420, y)
-    ctx.stroke()
-  }
-
-  // 2. Range Ring from Hero
-  if (showHitboxOverlay) {
-    ctx.save()
-    ctx.translate(hero.x, hero.y)
-    ctx.beginPath()
-    const arcDeg = heroConfig.attackArcDegrees ?? 110
-    const reachPx = heroConfig.attackReach ?? 70
-    const halfArc = ((arcDeg / 2) * Math.PI) / 180
-    ctx.moveTo(0, 0)
-    ctx.arc(0, 0, reachPx, hero.facing - halfArc, hero.facing + halfArc)
-    ctx.closePath()
-    ctx.fillStyle = 'rgba(6, 182, 212, 0.15)'
-    ctx.fill()
-    ctx.strokeStyle = '#06b6d4'
-    ctx.lineWidth = 1.5
-    ctx.setLineDash([3, 3])
-    ctx.stroke()
-    ctx.setLineDash([])
-    ctx.restore()
-  }
-
-  // 3. Active Swing Arc
-  if (swing && swing.active) {
-    ctx.save()
-    ctx.translate(hero.x, hero.y)
-    ctx.beginPath()
-    ctx.moveTo(0, 0)
-    ctx.arc(0, 0, swing.reach, hero.facing - swing.arc / 2, hero.facing + swing.arc / 2)
-    ctx.closePath()
-    ctx.fillStyle = 'rgba(34, 211, 238, 0.45)'
-    ctx.fill()
-    ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = 3
-    ctx.stroke()
-    ctx.restore()
-  }
-
-  // 4. Hero
-  ctx.save()
-  ctx.translate(hero.x, hero.y)
-  ctx.beginPath()
-  ctx.arc(0, 0, 15, 0, Math.PI * 2)
-  ctx.fillStyle = '#06b6d4'
-  ctx.fill()
-  ctx.strokeStyle = '#ffffff'
-  ctx.lineWidth = 2
-  ctx.stroke()
-
-  // Facing line
-  ctx.beginPath()
-  ctx.moveTo(0, 0)
-  ctx.lineTo(Math.cos(hero.facing) * 22, Math.sin(hero.facing) * 22)
-  ctx.strokeStyle = '#ffffff'
-  ctx.lineWidth = 3
-  ctx.stroke()
-  ctx.restore()
-
-  // 5. Stationary Training Dummy
-  ctx.save()
-  ctx.translate(dummy.x, dummy.y)
-  ctx.beginPath()
-  ctx.arc(0, 0, dummy.radius, 0, Math.PI * 2)
-  ctx.fillStyle = '#f59e0b'
-  ctx.fill()
-  ctx.strokeStyle = '#fbbf24'
-  ctx.lineWidth = 2
-  ctx.stroke()
-
-  ctx.fillStyle = '#000000'
-  ctx.font = 'bold 10px monospace'
-  ctx.textAlign = 'center'
-  ctx.fillText('DUMMY', 0, 3)
-  ctx.restore()
-
-  // 6. Optional Moving Dummy
-  if (hasMovingDummy) {
-    ctx.save()
-    ctx.translate(movingDummy.x, movingDummy.y)
-    ctx.beginPath()
-    ctx.arc(0, 0, movingDummy.radius, 0, Math.PI * 2)
-    ctx.fillStyle = '#a855f7'
-    ctx.fill()
-    ctx.strokeStyle = '#c084fc'
-    ctx.lineWidth = 2
-    ctx.stroke()
-
-    ctx.fillStyle = '#ffffff'
-    ctx.font = 'bold 9px monospace'
-    ctx.textAlign = 'center'
-    ctx.fillText('PATROL', 0, 3)
-    ctx.restore()
-  }
-
-  // 7. Floaters
-  for (const f of floaters) {
-    ctx.save()
-    ctx.font = 'bold 12px monospace'
-    ctx.fillStyle = f.color
-    ctx.textAlign = 'center'
-    ctx.globalAlpha = Math.max(0, f.life)
-    ctx.fillText(f.text, f.x, f.y)
-    ctx.restore()
-  }
 }

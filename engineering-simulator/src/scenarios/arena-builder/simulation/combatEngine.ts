@@ -1,7 +1,7 @@
 import { ABILITY_SPECS, WEAPON_SPECS } from '../data/heroCatalog'
 import { BOSS_ATTACK_SPECS } from '../data/bossCatalog'
 import { TILE_SIZE, TILE_SPECS } from '../data/arenaCatalog'
-import type { ArenaLayout, BossConfig, HeroConfig, PlaytestResult } from '../types/project'
+import type { ArenaLayout, BossConfig, HeroConfig, PlaytestResult, QaSettings } from '../types/project'
 import { updateBossFsm } from './bossFsm'
 
 export interface Projectile {
@@ -81,6 +81,7 @@ export class CombatSimulation {
   readonly heroConfig: HeroConfig
   readonly bossConfig: BossConfig
   readonly arena: ArenaLayout
+  readonly qaSettings?: QaSettings
 
   // Hero state
   heroX: number
@@ -136,10 +137,11 @@ export class CombatSimulation {
   private hazardTickTimer = 0
   private nextId = 1
 
-  constructor(hero: HeroConfig, boss: BossConfig, arena: ArenaLayout) {
+  constructor(hero: HeroConfig, boss: BossConfig, arena: ArenaLayout, qaSettings?: QaSettings) {
     this.heroConfig = hero
     this.bossConfig = boss
     this.arena = arena
+    this.qaSettings = qaSettings
 
     const playerCol = arena?.playerSpawn?.col ?? 3
     const playerRow = arena?.playerSpawn?.row ?? 6
@@ -293,7 +295,8 @@ export class CombatSimulation {
 
     const dist = Math.hypot(this.bossX - this.heroX, this.bossY - this.heroY)
     const angleToBoss = Math.atan2(this.bossY - this.heroY, this.bossX - this.heroX)
-    let diff = Math.abs(angleToBoss - this.heroFacingAngle)
+    const offsetRad = ((this.heroConfig.attackOffsetAngle || 0) * Math.PI) / 180
+    let diff = Math.abs(angleToBoss - (this.heroFacingAngle + offsetRad))
     while (diff > Math.PI) diff = Math.abs(diff - 2 * Math.PI)
 
     // Hitbox check
@@ -337,7 +340,8 @@ export class CombatSimulation {
 
     const dist = Math.hypot(this.bossX - this.heroX, this.bossY - this.heroY)
     const angleToBoss = Math.atan2(this.bossY - this.heroY, this.bossX - this.heroX)
-    let diff = Math.abs(angleToBoss - this.heroFacingAngle)
+    const offsetRad = ((this.heroConfig.attackOffsetAngle || 0) * Math.PI) / 180
+    let diff = Math.abs(angleToBoss - (this.heroFacingAngle + offsetRad))
     while (diff > Math.PI) diff = Math.abs(diff - 2 * Math.PI)
 
     if (dist <= range + this.bossRadius && diff <= arcSpread / 2) {
@@ -524,7 +528,7 @@ export class CombatSimulation {
       const tileR = Math.floor(p.y / TILE_SIZE)
       const tile = this.arena.tiles[tileR]?.[tileC] ?? 'wall'
 
-      if (tile === 'wall' || tile === 'cover') {
+      if ((tile === 'wall' || tile === 'cover') && !(p.owner === 'boss' && this.qaSettings?.projectileWallRule === 'continue_moving')) {
         this.spawnBurstParticles(p.x, p.y, p.color, 6)
         continue // Destroyed
       }
@@ -596,14 +600,14 @@ export class CombatSimulation {
     this.soundEvents.push({ type: 'hit_player' })
   }
 
-  damageBoss(amount: number, _label: string) {
+  damageBoss(amount: number, label?: string) {
     let finalDamage = amount
     // Extra vulnerability bonus during recovery state
     if (this.bossIsVulnerable) {
       finalDamage = Math.round(finalDamage * 1.35)
       this.addFloater(this.bossX, this.bossY - 25, `CRIT! -${finalDamage}`, '#fbbf24')
     } else {
-      this.addFloater(this.bossX, this.bossY - 20, `-${finalDamage}`, '#f8fafc')
+      this.addFloater(this.bossX, this.bossY - 20, label ? `${label} -${finalDamage}` : `-${finalDamage}`, '#f8fafc')
     }
 
     this.bossHp = Math.max(0, this.bossHp - finalDamage)

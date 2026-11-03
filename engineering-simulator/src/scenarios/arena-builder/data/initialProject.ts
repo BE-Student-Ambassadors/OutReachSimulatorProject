@@ -5,9 +5,27 @@ import type {
   BossBehavior,
   BossConfig,
   HeroConfig,
+  QaSettings,
   TeamGameProject,
 } from '../types/project'
 import { createFlawedStarterArenaLayout } from './arenaCatalog'
+
+export function createInitialQaSettings(): QaSettings {
+  return {
+    projectileWallRule: 'continue_moving', // Flawed starter: ignores walls
+    diagnosedSystem: '',
+    bugReproduced: false,
+    bugFixed: false,
+    verificationWallPassed: false,
+    verificationOpenPassed: false,
+    triageCompleted: false,
+    experimentBudgetRemaining: 6,
+    testedRuns: [],
+    selectedRootCause: '',
+    selectedPhysicsPatch: null,
+    intermittentBugSolved: false,
+  }
+}
 
 export function createInitialGameProject(): TeamGameProject {
   return {
@@ -21,10 +39,17 @@ export function createInitialGameProject(): TeamGameProject {
       attackCooldown: 0.45,
       weapon: 'sword',
       ability: 'dash',
-      // Flawed starter attack hitbox (defect: too short reach & narrow arc)
+      // Flawed starter attack hitbox
       attackReach: 32,
       attackArcDegrees: 35,
+      attackOffsetAngle: 0,
       hitboxValidated: false,
+      // Role 1: Unwinnable Duel starting flaws
+      heavyEndlag: 1.2, // severe 1.2s lag
+      heavyPoiseStartup: false, // easily interrupted
+      heavyDashCancelWindow: false,
+      swiftRecoveryGap: 0.05, // instant spam
+      duelMysterySolved: false,
     },
     boss: {
       name: 'Goliath Prime',
@@ -35,15 +60,33 @@ export function createInitialGameProject(): TeamGameProject {
         chaseSpeed: 120,
         attackRange: 80,
         attackWindup: 0.7,
-        recoveryDuration: 0.1, // Defect: recovery is 0.1s in Relentless Loop!
+        recoveryDuration: 0.8,
         retreatThreshold: 25,
         attackType: 'heavy_cleave',
         stateAfterAttack: 'ATTACK', // Defect: loops directly to attack without recovery!
         activeBugId: 'relentless_loop',
         bugResolved: false,
+        logicSequence: ['ATTACK', 'CHASE', 'ATTACK', 'CHECK_RANGE'],
+        distanceOperator: '>',
+        // Role 2: Initial behavior graph with flawed edges
+        graphEdges: [
+          { id: 'e1', from: 'CHASE', to: 'TELEGRAPH_SLAM', condition: 'Target In Range <= 80', enabled: true },
+          { id: 'e2', from: 'CHASE', to: 'TELEGRAPH_BEAM', condition: 'Target In Range <= 250', enabled: true }, // FLAW: ignores line-of-sight!
+          { id: 'e3', from: 'TELEGRAPH_SLAM', to: 'ATTACK', condition: 'Target Angle <= 45', enabled: true }, // FLAW: no timer fallback if player rolls behind!
+          { id: 'e4', from: 'TELEGRAPH_BEAM', to: 'ATTACK', condition: 'Timer Expired', enabled: true },
+          { id: 'e5', from: 'ATTACK', to: 'RECOVER', condition: 'Always', enabled: true },
+          { id: 'e6', from: 'RECOVER', to: 'CHASE', condition: 'Always', enabled: true }, // FLAW: always loops to chase, skipping sub-30% retreat!
+          { id: 'e7', from: 'RECOVER', to: 'RETREAT_SHIELD', condition: 'Health < 30%', enabled: false }, // disabled initially!
+        ],
+        behaviorGraphValidated: false,
       },
     },
-    arena: createFlawedStarterArenaLayout(),
+    arena: {
+      ...createFlawedStarterArenaLayout(),
+      hasSafeSpotCheese: false,
+      chokepointCount: 0,
+      spatialPuzzleSolved: false,
+    },
     balance: {
       targetDurationCategory: 'medium',
       targetPlayerHitsToWin: 12,
@@ -63,6 +106,7 @@ export function createInitialGameProject(): TeamGameProject {
       reflection: '',
       investigationCompleted: false,
     },
+    qa: createInitialQaSettings(),
     roleCompletion: {
       gameplay: false,
       programming: false,
@@ -72,13 +116,12 @@ export function createInitialGameProject(): TeamGameProject {
     playtestHistory: [],
     published: false,
     activeBugChallengeId: 'relentless_loop',
+    activeViewMode: 'puzzles',
   }
 }
 
 /**
  * Robust normalizer for TeamGameProject.
- * Safely guards against missing or partial fields from older local storage versions,
- * incomplete network states, or concurrent editing updates.
  */
 export function normalizeGameProject(raw?: unknown): TeamGameProject {
   const base = createInitialGameProject()
@@ -98,7 +141,13 @@ export function normalizeGameProject(raw?: unknown): TeamGameProject {
     ability: h.ability || base.hero.ability,
     attackReach: typeof h.attackReach === 'number' ? h.attackReach : base.hero.attackReach,
     attackArcDegrees: typeof h.attackArcDegrees === 'number' ? h.attackArcDegrees : base.hero.attackArcDegrees,
+    attackOffsetAngle: typeof h.attackOffsetAngle === 'number' ? h.attackOffsetAngle : base.hero.attackOffsetAngle ?? 0,
     hitboxValidated: typeof h.hitboxValidated === 'boolean' ? h.hitboxValidated : false,
+    heavyEndlag: typeof h.heavyEndlag === 'number' ? h.heavyEndlag : base.hero.heavyEndlag ?? 1.2,
+    heavyPoiseStartup: typeof h.heavyPoiseStartup === 'boolean' ? h.heavyPoiseStartup : base.hero.heavyPoiseStartup ?? false,
+    heavyDashCancelWindow: typeof h.heavyDashCancelWindow === 'boolean' ? h.heavyDashCancelWindow : base.hero.heavyDashCancelWindow ?? false,
+    swiftRecoveryGap: typeof h.swiftRecoveryGap === 'number' ? h.swiftRecoveryGap : base.hero.swiftRecoveryGap ?? 0.05,
+    duelMysterySolved: typeof h.duelMysterySolved === 'boolean' ? h.duelMysterySolved : false,
   }
 
   // 2. Boss
@@ -119,6 +168,10 @@ export function normalizeGameProject(raw?: unknown): TeamGameProject {
       stateAfterAttack: bb.stateAfterAttack || base.boss.behavior.stateAfterAttack,
       activeBugId: bb.activeBugId !== undefined ? bb.activeBugId : base.boss.behavior.activeBugId,
       bugResolved: typeof bb.bugResolved === 'boolean' ? bb.bugResolved : false,
+      logicSequence: Array.isArray(bb.logicSequence) ? bb.logicSequence : base.boss.behavior.logicSequence,
+      distanceOperator: bb.distanceOperator || base.boss.behavior.distanceOperator,
+      graphEdges: Array.isArray(bb.graphEdges) ? bb.graphEdges : base.boss.behavior.graphEdges,
+      behaviorGraphValidated: typeof bb.behaviorGraphValidated === 'boolean' ? bb.behaviorGraphValidated : false,
     },
   }
 
@@ -137,6 +190,10 @@ export function normalizeGameProject(raw?: unknown): TeamGameProject {
         : base.arena.bossSpawn,
     tiles: Array.isArray(a.tiles) && a.tiles.length === base.arena.rows ? a.tiles : base.arena.tiles,
     hasTestedWalk: typeof a.hasTestedWalk === 'boolean' ? a.hasTestedWalk : false,
+    wallEditsCount: typeof a.wallEditsCount === 'number' ? a.wallEditsCount : 0,
+    hasSafeSpotCheese: typeof a.hasSafeSpotCheese === 'boolean' ? a.hasSafeSpotCheese : false,
+    chokepointCount: typeof a.chokepointCount === 'number' ? a.chokepointCount : 0,
+    spatialPuzzleSolved: typeof a.spatialPuzzleSolved === 'boolean' ? a.spatialPuzzleSolved : false,
   }
 
   // 4. Balance
@@ -165,7 +222,24 @@ export function normalizeGameProject(raw?: unknown): TeamGameProject {
     investigationCompleted: typeof bal.investigationCompleted === 'boolean' ? bal.investigationCompleted : false,
   }
 
-  // 5. Meta
+  // 5. QA
+  const q = (r.qa ?? {}) as Partial<QaSettings>
+  const qa: QaSettings = {
+    projectileWallRule: q.projectileWallRule || base.qa.projectileWallRule,
+    diagnosedSystem: typeof q.diagnosedSystem === 'string' ? q.diagnosedSystem : '',
+    bugReproduced: Boolean(q.bugReproduced),
+    bugFixed: Boolean(q.bugFixed),
+    verificationWallPassed: Boolean(q.verificationWallPassed),
+    verificationOpenPassed: Boolean(q.verificationOpenPassed),
+    triageCompleted: Boolean(q.triageCompleted),
+    experimentBudgetRemaining: typeof q.experimentBudgetRemaining === 'number' ? q.experimentBudgetRemaining : 6,
+    testedRuns: Array.isArray(q.testedRuns) ? q.testedRuns : [],
+    selectedRootCause: typeof q.selectedRootCause === 'string' ? q.selectedRootCause : '',
+    selectedPhysicsPatch: q.selectedPhysicsPatch || null,
+    intermittentBugSolved: Boolean(q.intermittentBugSolved),
+  }
+
+  // 6. Meta
   const rc = (r.roleCompletion ?? {}) as Partial<TeamGameProject['roleCompletion']>
   const roleCompletion = {
     gameplay: Boolean(rc.gameplay),
@@ -181,9 +255,11 @@ export function normalizeGameProject(raw?: unknown): TeamGameProject {
     boss,
     arena,
     balance,
+    qa,
     roleCompletion,
     playtestHistory: Array.isArray(r.playtestHistory) ? r.playtestHistory : [],
     published: Boolean(r.published),
     activeBugChallengeId: r.activeBugChallengeId || base.activeBugChallengeId,
+    activeViewMode: r.activeViewMode || 'puzzles',
   }
 }

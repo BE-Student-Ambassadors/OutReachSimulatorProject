@@ -32,7 +32,7 @@ export function computeBalanceTelemetry(hero: HeroConfig, boss: BossConfig): Bal
   const estSeconds = Math.round(hitsToDefeatBoss * (hero.attackCooldown + 1.2))
   const expectedDurationEstimate = `~${Math.max(15, estSeconds - 5)}–${estSeconds + 15}s`
 
-  let balanceSummary = ''
+  let balanceSummary: string
   if (hitsToDefeatHero <= 3) {
     balanceSummary = 'High lethality: Hero can only withstand 3 or fewer boss strikes. Consider increasing hero health or lowering boss attack damage.'
   } else if (hitsToDefeatBoss > 25) {

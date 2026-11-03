@@ -9,7 +9,7 @@ import { GameIntegrationModal } from './components/integration/GameIntegrationMo
 import { PlayableArenaCanvas } from './components/gameplay/PlayableArenaCanvas'
 import { PublishScreen } from './components/publish/PublishScreen'
 import { createInitialGameProject } from './data/initialProject'
-import { createStarterArenaLayout } from './data/arenaCatalog'
+import { createFlawedStarterArenaLayout } from './data/arenaCatalog'
 import type { ArenaPartKey } from './teamSync'
 import type {
   ActiveTab,
@@ -18,6 +18,7 @@ import type {
   BossConfig,
   HeroConfig,
   PlaytestResult,
+  QaSettings,
   TeamGameProject,
 } from './types/project'
 
@@ -43,6 +44,7 @@ export function ArenaBuilderApp({ project, onUpdatePart, onResetProject }: Arena
       roleCompletion: patch.roleCompletion ?? project.roleCompletion,
       playtestHistory: patch.playtestHistory ?? project.playtestHistory,
       published: patch.published ?? project.published,
+      activeViewMode: patch.activeViewMode ?? project.activeViewMode,
     })
   }
 
@@ -64,7 +66,7 @@ export function ArenaBuilderApp({ project, onUpdatePart, onResetProject }: Arena
   }
 
   const handleResetArena = () => {
-    onUpdatePart('arena', createStarterArenaLayout())
+    onUpdatePart('arena', createFlawedStarterArenaLayout())
     updateMeta({
       roleCompletion: { ...project.roleCompletion, arena: false },
     })
@@ -73,6 +75,7 @@ export function ArenaBuilderApp({ project, onUpdatePart, onResetProject }: Arena
   const handleResetBalance = () => {
     const initial = createInitialGameProject()
     onUpdatePart('balance', initial.balance)
+    onUpdatePart('qa', initial.qa)
     updateMeta({
       roleCompletion: { ...project.roleCompletion, balance: false },
     })
@@ -93,10 +96,6 @@ export function ArenaBuilderApp({ project, onUpdatePart, onResetProject }: Arena
     const updatedHistory = [...project.playtestHistory, result]
     updateMeta({
       playtestHistory: updatedHistory,
-      roleCompletion: {
-        ...project.roleCompletion,
-        balance: true, // Playing a test satisfies balance test requirement
-      },
     })
   }
 
@@ -129,7 +128,8 @@ export function ArenaBuilderApp({ project, onUpdatePart, onResetProject }: Arena
                 devMode ||
                 (project.roleCompletion.gameplay &&
                   project.roleCompletion.programming &&
-                  project.roleCompletion.arena)
+                  project.roleCompletion.arena &&
+                  project.roleCompletion.balance)
               if (ready) {
                 setActiveTab('playtest')
               } else {
@@ -178,13 +178,27 @@ export function ArenaBuilderApp({ project, onUpdatePart, onResetProject }: Arena
             hero={project.hero}
             boss={project.boss}
             balance={project.balance}
+            qa={project.qa}
             onUpdateBalance={(bal: BalanceSettings) => onUpdatePart('balance', bal)}
+            onUpdateQa={(qa: QaSettings) => onUpdatePart('qa', qa)}
             onResetBalance={handleResetBalance}
             playtestHistory={project.playtestHistory}
             onOpenPlaytest={() => setActiveTab('playtest')}
             onMarkComplete={() => setRoleComplete('balance')}
             isComplete={project.roleCompletion.balance}
-            onNextRole={() => setActiveTab('playtest')}
+            onNextRole={() => {
+              const ready =
+                devMode ||
+                (project.roleCompletion.gameplay &&
+                  project.roleCompletion.programming &&
+                  project.roleCompletion.arena &&
+                  project.roleCompletion.balance)
+              if (ready) {
+                setActiveTab('playtest')
+              } else {
+                setShowIntegrationModal(true)
+              }
+            }}
           />
         )}
 
@@ -193,6 +207,7 @@ export function ArenaBuilderApp({ project, onUpdatePart, onResetProject }: Arena
             hero={project.hero}
             boss={project.boss}
             arena={project.arena}
+            qa={project.qa}
             attemptNumber={project.playtestHistory.length + 1}
             onFinishCombat={handleFinishCombat}
             onNavigate={(tab) => {

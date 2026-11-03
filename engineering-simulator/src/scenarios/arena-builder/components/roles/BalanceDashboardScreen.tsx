@@ -1,27 +1,40 @@
 import {
+  AlertTriangle,
   ArrowRight,
+  Bug,
   CheckCircle2,
-  FileText,
+  Cpu,
   FlaskConical,
-  History,
-  Lightbulb,
-  Play,
+  HelpCircle,
   RotateCcw,
   Scale,
   Sparkles,
 } from 'lucide-react'
 import { useState } from 'react'
+import { gameAudio } from '../../audio/gameAudio'
+import { computeBalanceTelemetry } from '../../simulation/balanceMath'
 import {
-  computeBalanceTelemetry,
-  generatePlaytestObservations,
-} from '../../simulation/balanceMath'
-import type { BalanceSettings, BossConfig, HeroConfig, PlaytestResult } from '../../types/project'
+  runQaExperiment,
+  runQaRegressionSuite,
+  type ExperimentParams,
+  type RegressionTestItem,
+} from '../../simulation/qaInvestigationPuzzle'
+import type {
+  BalanceSettings,
+  BossConfig,
+  HeroConfig,
+  PlaytestResult,
+  QaExperimentRun,
+  QaSettings,
+} from '../../types/project'
 
 interface BalanceDashboardScreenProps {
   hero: HeroConfig
   boss: BossConfig
   balance: BalanceSettings
+  qa: QaSettings
   onUpdateBalance(balance: BalanceSettings): void
+  onUpdateQa(qa: QaSettings): void
   onResetBalance(): void
   playtestHistory: PlaytestResult[]
   onOpenPlaytest(): void
@@ -30,86 +43,122 @@ interface BalanceDashboardScreenProps {
   onNextRole(): void
 }
 
-const HYPOTHESIS_OPTIONS = [
-  {
-    id: 'hypo-boss-damage',
-    label: 'Boss damage is too lethal (hero collapses in ~3-4 strikes).',
-    recommendation: 'Reduce boss strike damage or increase hero maximum health.',
-    paramKey: 'bossDamage',
-  },
-  {
-    id: 'hypo-boss-windup',
-    label: 'Boss attack windup is too fast, leaving no time to react and dodge.',
-    recommendation: 'Increase boss attack windup to 0.8s+ so players can read telegraphs.',
-    paramKey: 'attackWindup',
-  },
-  {
-    id: 'hypo-boss-recovery',
-    label: 'Boss recovery window is too short to safely counter-attack.',
-    recommendation: 'Lengthen recovery duration to 1.0s+ so players have openings to punish.',
-    paramKey: 'recoveryDuration',
-  },
-  {
-    id: 'hypo-hero-damage',
-    label: 'Hero damage is too weak to pressure the boss effectively.',
-    recommendation: 'Increase hero attack damage to make attacks impactful.',
-    paramKey: 'heroDamage',
-  },
-]
-
 export function BalanceDashboardScreen({
   hero,
   boss,
-  balance,
-  onUpdateBalance,
+  qa,
+  onUpdateQa,
   onResetBalance,
-  playtestHistory,
-  onOpenPlaytest,
   onMarkComplete,
   isComplete,
   onNextRole,
 }: BalanceDashboardScreenProps) {
-  const [activeTab, setActiveTab] = useState<'investigation' | 'telemetry'>('investigation')
+  const [activeTab, setActiveTab] = useState<'puzzle' | 'creative'>('puzzle')
 
-  const telemetry = computeBalanceTelemetry(hero, boss)
-  const baseline = balance.baselineCase ?? {
-    id: 'baseline-test-01',
-    fightDurationSeconds: 14,
-    playerHitsLanded: 2,
-    bossHitsLanded: 6,
-    playerHealthRemaining: 0,
-    bossHealthRemaining: 85,
-    issueReported: 'The boss attacks relentlessly without pause and the hero collapses in 14 seconds before being able to dodge.',
+  // Experiment parameters for the test chamber
+  const [heroAction, setHeroAction] = useState<ExperimentParams['heroAction']>('shield')
+  const [bossAction, setBossAction] = useState<ExperimentParams['bossAction']>('ground_slam')
+  const [environment, setEnvironment] = useState<ExperimentParams['environment']>('near_wall')
+
+  const [isRunningExperiment, setIsRunningExperiment] = useState(false)
+  const [, setLatestRun] = useState<QaExperimentRun | null>(null)
+
+  // Hypothesis selections
+  const [hypHero, setHypHero] = useState<string>('')
+  const [hypBoss, setHypBoss] = useState<string>('')
+  const [hypEnv, setHypEnv] = useState<string>('')
+
+  // Patch selection
+  const [selectedPatch, setSelectedPatch] = useState<QaSettings['selectedPhysicsPatch']>(qa.selectedPhysicsPatch || null)
+  const [regressionResults, setRegressionResults] = useState<{ allPassed: boolean; tests: RegressionTestItem[]; feedback: string } | null>(null)
+
+  // Hints
+  const [showHints, setShowHints] = useState(false)
+  const [activeHintIndex, setActiveHintIndex] = useState(0)
+
+  const budget = qa.experimentBudgetRemaining ?? 6
+  const testedRuns = qa.testedRuns ?? []
+  const hasReproduced = testedRuns.some((r) => r.bugTriggered)
+
+  const hints = [
+    'The bug report mentions massive damage spikes during boss melee attacks near obstacles. Look at how physical knockback interacts with solid boundaries.',
+    'Test Shield Guard against Ground Slam in an open arena vs against a wall. Notice the difference in knockback velocity and shield re-triggering.',
+    'The defect is caused by wall rebound velocity resetting the shield collision on the same frame. Select the wall-bounce immunity patch to prevent multi-hit loops without disabling walls.',
+  ]
+
+  // Run experimental test
+  const handleRunExperiment = () => {
+    if (budget <= 0) return
+
+    setIsRunningExperiment(true)
+    gameAudio.play('boss_windup')
+
+    setTimeout(() => {
+      const run = runQaExperiment({ heroAction, bossAction, environment }, selectedPatch)
+      setLatestRun(run)
+      setIsRunningExperiment(false)
+
+      const nextRuns = [run, ...testedRuns]
+      const nextBudget = budget - 1
+      const isBug = run.bugTriggered
+
+      if (isBug) {
+        gameAudio.play('hit_player')
+      } else {
+        gameAudio.play('hit_boss')
+      }
+
+      onUpdateQa({
+        ...qa,
+        experimentBudgetRemaining: nextBudget,
+        testedRuns: nextRuns,
+        bugReproduced: hasReproduced || isBug,
+      })
+    }, 350)
   }
-  const latestRun = playtestHistory.length > 0 ? playtestHistory[playtestHistory.length - 1] : null
-  const observations = latestRun ? generatePlaytestObservations(latestRun, hero, boss) : []
 
-  const updateSetting = <K extends keyof BalanceSettings>(key: K, val: BalanceSettings[K]) => {
-    onUpdateBalance({ ...balance, [key]: val })
+  // Run Regression Suite
+  const handleRunRegression = () => {
+    const res = runQaRegressionSuite(selectedPatch ?? null)
+    setRegressionResults(res)
+
+    const fullHypothesis = `${hypHero}_${hypBoss}_${hypEnv}`
+    const updatedQa: QaSettings = {
+      ...qa,
+      selectedRootCause: fullHypothesis,
+      selectedPhysicsPatch: selectedPatch,
+      intermittentBugSolved: res.allPassed,
+      bugFixed: res.allPassed,
+      projectileWallRule: 'stop_despawn', // restores wall blocking
+    }
+
+    onUpdateQa(updatedQa)
+
+    if (res.allPassed) {
+      gameAudio.play('victory')
+      if (!isComplete) {
+        onMarkComplete()
+      }
+    } else {
+      gameAudio.play('hit_player')
+    }
   }
 
-  // Verification requirements:
-  // 1. Has selected a hypothesis
-  // 2. Has completed at least one real playtest after the baseline
-  // 3. Has filled or selected a reflection
-  const hasHypothesis = Boolean(balance.selectedHypothesis)
-  const hasCompletedPlaytest = playtestHistory.length > 0
-  const hasReflection = Boolean(balance.reflection?.trim())
-
-  const canComplete = hasHypothesis && hasCompletedPlaytest && hasReflection
+  const isSolved = qa.intermittentBugSolved || isComplete
 
   return (
     <div className="mx-auto flex h-full max-w-5xl flex-col gap-6 overflow-y-auto p-6 text-[#0b1d2e]">
-      {/* Header Banner */}
-      <div className="flex flex-col gap-4 rounded-2xl border border-purple-500/20 bg-gradient-to-r from-purple-50/70 via-white to-slate-50 p-6 shadow-sm md:flex-row md:items-center md:justify-between">
+      {/* Role Header Banner */}
+      <div className="flex flex-col gap-4 rounded-2xl border border-rose-500/20 bg-gradient-to-r from-rose-50/70 via-white to-slate-50 p-6 shadow-sm md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-600/10 px-3 py-1 text-xs font-bold text-purple-800">
-            <Sparkles className="size-3 text-purple-600" />
-            Role 4: Producer & Balance QA
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-rose-600/10 px-3 py-1 text-xs font-bold text-rose-800">
+            <Sparkles className="size-3 text-rose-600" />
+            Role 4: QA Tester & Producer
           </div>
-          <h1 className="mt-1 font-sans text-2xl font-black text-[#003c6c]">Game Balance Investigation Lab</h1>
+          <h1 className="mt-1 font-sans text-2xl font-black text-[#003c6c]">The Intermittent Bug</h1>
           <p className="mt-1 text-sm text-[#5a6a85]">
-            Investigate an initial failing playtest case. Form a balance hypothesis, test adjustments in real combat, compare Before vs After metrics, and document your findings.
+            Playtesters report sporadic 400% lethal damage spikes and physics glitches. You have a limited budget of 6 experiments.
+            Systematically isolate the 3-factor trigger, formulate your hypothesis, and verify the physics engine repair!
           </p>
         </div>
 
@@ -120,15 +169,15 @@ export function BalanceDashboardScreen({
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
           >
             <RotateCcw className="size-3.5" />
-            Reset Balance
+            Reset Investigation
           </button>
 
           <button
             type="button"
             onClick={onMarkComplete}
-            disabled={!canComplete}
+            disabled={!isSolved}
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs cursor-pointer ${
-              canComplete
+              isSolved
                 ? isComplete
                   ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                   : 'bg-[#003c6c] text-white hover:bg-[#002b4d]'
@@ -136,360 +185,416 @@ export function BalanceDashboardScreen({
             }`}
           >
             <CheckCircle2 className="size-4" />
-            <span>{isComplete ? 'QA Approved ✓' : 'Approve QA Review'}</span>
+            <span>{isComplete ? 'Bug Resolved ✓' : 'Validate & Mark Complete'}</span>
           </button>
         </div>
       </div>
 
-      {/* Navigation Pills */}
+      {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         <button
           type="button"
-          onClick={() => setActiveTab('investigation')}
+          onClick={() => setActiveTab('puzzle')}
           className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer ${
-            activeTab === 'investigation'
+            activeTab === 'puzzle'
               ? 'bg-[#003c6c] text-white shadow-xs'
               : 'bg-white border border-slate-200 text-[#475569] hover:bg-slate-50'
           }`}
         >
-          <FlaskConical className="size-3.5" />
-          <span>1. Balance Investigation & Testing</span>
-          {canComplete && (
-            <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 text-[10px] text-emerald-300">
-              Completed ✓
+          <Bug className="size-3.5" />
+          <span>1. The Intermittent Bug (Investigation Lab)</span>
+          {isSolved && (
+            <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700">
+              Fixed ✓
             </span>
           )}
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab('telemetry')}
+          onClick={() => setActiveTab('creative')}
           className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer ${
-            activeTab === 'telemetry'
+            activeTab === 'creative'
               ? 'bg-[#003c6c] text-white shadow-xs'
               : 'bg-white border border-slate-200 text-[#475569] hover:bg-slate-50'
           }`}
         >
           <Scale className="size-3.5" />
-          <span>2. Full Combat History Log</span>
-          <span className="rounded bg-slate-100 px-1.5 py-0.2 font-mono text-[10px] text-slate-600">
-            {playtestHistory.length} Runs
-          </span>
+          <span>2. Telemetry & Combat Balance Dashboard</span>
         </button>
       </div>
 
-      {activeTab === 'investigation' && (
-        <div className="flex flex-col gap-6">
-          {/* Step 1: Clearly Labeled Baseline Playtest Report (The Problem) */}
-          <div className="rounded-2xl border border-red-300 bg-red-50/50 p-5 shadow-sm">
-            <div className="flex items-center justify-between border-b border-red-200 pb-2.5">
-              <div>
-                <span className="font-mono text-[10px] font-black uppercase tracking-wider text-red-800">
-                  YOUR PROBLEM: FAILING BASELINE PLAYTEST REPORT
-                </span>
-                <h3 className="font-sans text-base font-black text-red-950 mt-0.5">
-                  Pre-Tuning Telemetry Case (Baseline Test #01)
-                </h3>
-              </div>
-              <span className="rounded-full bg-red-200 px-2.5 py-0.5 font-mono text-[10px] font-bold text-red-800">
-                Deliberate Baseline Example
-              </span>
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 font-mono text-xs">
-              <div className="rounded-xl bg-white/80 p-3 border border-red-200 text-center">
-                <span className="text-[10px] uppercase text-slate-500">Outcome</span>
-                <div className="font-black text-red-600 mt-0.5">DEFEAT</div>
-              </div>
-              <div className="rounded-xl bg-white/80 p-3 border border-red-200 text-center">
-                <span className="text-[10px] uppercase text-slate-500">Duration</span>
-                <div className="font-black text-[#003c6c] mt-0.5">{baseline.fightDurationSeconds}s</div>
-              </div>
-              <div className="rounded-xl bg-white/80 p-3 border border-red-200 text-center">
-                <span className="text-[10px] uppercase text-slate-500">Hits (Hero / Boss)</span>
-                <div className="font-black text-slate-700 mt-0.5">
-                  {baseline.playerHitsLanded} / {baseline.bossHitsLanded}
-                </div>
-              </div>
-              <div className="rounded-xl bg-white/80 p-3 border border-red-200 text-center">
-                <span className="text-[10px] uppercase text-slate-500">Hero Remaining</span>
-                <div className="font-black text-red-600 mt-0.5">{baseline.playerHealthRemaining} HP</div>
-              </div>
-            </div>
-
-            <div className="mt-3 rounded-lg border border-red-200 bg-white p-3 text-xs text-red-950">
-              <span className="font-bold">Playtester Feedback: </span>
-              &ldquo;{baseline.issueReported}&rdquo;
+      {/* Hints Accordion */}
+      {showHints && (
+        <div className="rounded-lg border border-amber-900/40 bg-amber-950/20 p-4">
+          <div className="flex items-center justify-between text-xs font-semibold text-amber-300">
+            <span>HINT {activeHintIndex + 1} OF 3</span>
+            <div className="flex gap-1">
+              {[0, 1, 2].map((idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setActiveHintIndex(idx)}
+                  className={`h-2 w-6 rounded-full transition-colors ${
+                    activeHintIndex === idx ? 'bg-amber-400' : 'bg-slate-700'
+                  }`}
+                />
+              ))}
             </div>
           </div>
+          <p className="mt-2 text-sm text-amber-200/90">{hints[activeHintIndex]}</p>
+        </div>
+      )}
 
-          {/* Step 2: Form a Balance Hypothesis */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <span className="font-mono text-[10px] font-black uppercase tracking-wider text-[#75787b]">
-              YOUR TOOLS & HYPOTHESIS
-            </span>
-            <h2 className="font-sans text-base font-bold text-[#003c6c] mt-0.5 flex items-center gap-2">
-              <Lightbulb className="size-4 text-purple-600" />
-              Identify the Root Cause & State Your Hypothesis
-            </h2>
-            <p className="mt-1 text-xs text-[#5a6a85]">
-              Game balance is not guessing—it begins with an educated hypothesis about what makes combat feel unfair.
-            </p>
-
-            <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-              {HYPOTHESIS_OPTIONS.map((hypo) => {
-                const isSelected = balance.selectedHypothesis === hypo.id
-                return (
-                  <div
-                    key={hypo.id}
-                    onClick={() => {
-                      updateSetting('selectedHypothesis', hypo.id)
-                      updateSetting('testedParameter', hypo.paramKey)
-                    }}
-                    className={`rounded-xl border p-3.5 transition cursor-pointer ${
-                      isSelected
-                        ? 'border-purple-600 bg-purple-50 ring-2 ring-purple-600/30'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
+      {/* View 1: Deductive Investigation Lab */}
+      {activeTab === 'puzzle' && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          {/* Left: Test Chamber & Experiment Runner */}
+          <div className="flex flex-col gap-4 lg:col-span-7">
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-md">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">
+                    Experimental Combat Test Chamber
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Isolate variable combinations to reproduce the defect.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 font-mono text-xs font-bold ${
+                      budget > 0 ? 'bg-sky-500/20 text-sky-400' : 'bg-rose-500/20 text-rose-400'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs text-[#003c6c]">{hypo.label}</span>
-                      {isSelected && <CheckCircle2 className="size-4 text-purple-600 shrink-0" />}
-                    </div>
-                    <div className="mt-1.5 text-[11px] text-[#5a6a85] font-mono">
-                      Target action: {hypo.recommendation}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Step 3: Test Solution & Compare Results */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3">
-              <div>
-                <span className="font-mono text-[10px] font-black uppercase tracking-wider text-[#75787b]">
-                  TEST YOUR SOLUTION & COMPARE RESULTS
-                </span>
-                <h3 className="font-sans text-base font-bold text-[#003c6c]">
-                  Before (Baseline) vs After (Empirical Playtest) Comparison
-                </h3>
+                    Budget: {budget} / 6 Runs
+                  </span>
+                  <button
+                    onClick={() => setShowHints(!showHints)}
+                    className="flex items-center gap-1 rounded bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700"
+                  >
+                    <HelpCircle className="h-3.5 w-3.5 text-amber-400" />
+                    Hints
+                  </button>
+                </div>
               </div>
+
+              {/* Three Variable Selectors */}
+              <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
+                {/* Hero Action */}
+                <div>
+                  <span className="font-semibold text-slate-400">Hero Action:</span>
+                  <select
+                    value={heroAction}
+                    onChange={(e) => setHeroAction(e.target.value as ExperimentParams['heroAction'])}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-200"
+                  >
+                    <option value="normal">Normal Movement</option>
+                    <option value="dash">Dash (I-frames)</option>
+                    <option value="shield">Shield Guard</option>
+                    <option value="heavy_attack">Heavy Attack</option>
+                  </select>
+                </div>
+
+                {/* Boss Attack */}
+                <div>
+                  <span className="font-semibold text-slate-400">Boss Attack:</span>
+                  <select
+                    value={bossAction}
+                    onChange={(e) => setBossAction(e.target.value as ExperimentParams['bossAction'])}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-200"
+                  >
+                    <option value="ranged_orb">Energy Orb (Ranged)</option>
+                    <option value="ground_slam">Ground Slam (Knockback)</option>
+                    <option value="cleave">Cleave Arc</option>
+                    <option value="idle">Idle / Recovery</option>
+                  </select>
+                </div>
+
+                {/* Environment */}
+                <div>
+                  <span className="font-semibold text-slate-400">Environment:</span>
+                  <select
+                    value={environment}
+                    onChange={(e) => setEnvironment(e.target.value as ExperimentParams['environment'])}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-200"
+                  >
+                    <option value="open">Open Arena Floor</option>
+                    <option value="near_wall">Near Wall Barrier (&lt;35px)</option>
+                    <option value="hazard">Inside Hazard Zone</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Run Experiment Button */}
               <button
-                type="button"
-                onClick={onOpenPlaytest}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[#008542] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#006e36] shadow-md cursor-pointer transition active:translate-y-0.5"
+                onClick={handleRunExperiment}
+                disabled={budget <= 0 || isRunningExperiment}
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 py-3 text-sm font-bold text-white shadow-lg transition-all hover:from-rose-500 hover:to-amber-500 disabled:opacity-50"
               >
-                <Play className="size-4 fill-current" />
-                <span>Launch Test Duel</span>
+                <FlaskConical className="h-4 w-4" />
+                {isRunningExperiment
+                  ? 'Executing Simulation...'
+                  : budget > 0
+                    ? `Execute Test Run (${budget} remaining)`
+                    : 'Budget Exhausted (Reset to retry)'}
               </button>
             </div>
 
-            {/* Comparison Cards */}
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              {/* BEFORE */}
-              <div className="rounded-xl border border-red-200 bg-red-50/40 p-4">
-                <span className="font-mono text-xs font-bold uppercase text-red-800">
-                  BEFORE (Baseline Test #01)
+            {/* Experiment History & Telemetry Log */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-md">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Telemetry Recorder ({testedRuns.length} runs logged)
                 </span>
-                <div className="mt-3 space-y-2 text-xs font-mono">
-                  <div className="flex justify-between border-b border-red-100 pb-1">
-                    <span className="text-slate-500">Outcome:</span>
-                    <span className="font-bold text-red-600">DEFEAT</span>
-                  </div>
-                  <div className="flex justify-between border-b border-red-100 pb-1">
-                    <span className="text-slate-500">Duration:</span>
-                    <span className="font-bold text-slate-800">14.0s (Too fast)</span>
-                  </div>
-                  <div className="flex justify-between border-b border-red-100 pb-1">
-                    <span className="text-slate-500">Hits Landed:</span>
-                    <span className="font-bold text-slate-800">2 strikes</span>
-                  </div>
-                  <div className="flex justify-between border-b border-red-100 pb-1">
-                    <span className="text-slate-500">Hits Taken:</span>
-                    <span className="font-bold text-red-600">6 strikes</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Dodges:</span>
-                    <span className="font-bold text-slate-800">0 dodges</span>
-                  </div>
-                </div>
+                {hasReproduced && (
+                  <span className="rounded bg-rose-500/20 px-2 py-0.5 text-xs font-bold text-rose-400">
+                    BUG REPRODUCED!
+                  </span>
+                )}
               </div>
 
-              {/* AFTER */}
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-bold uppercase text-emerald-800">
-                    AFTER (Run #{latestRun ? latestRun.attemptNumber : 'None'})
-                  </span>
-                  {latestRun && (
-                    <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                      Empirical Data
-                    </span>
-                  )}
-                </div>
-
-                {latestRun ? (
-                  <div className="mt-3 space-y-2 text-xs font-mono">
-                    <div className="flex justify-between border-b border-emerald-100 pb-1">
-                      <span className="text-slate-500">Outcome:</span>
-                      <span className={`font-bold ${latestRun.winner === 'player' ? 'text-emerald-700' : 'text-slate-800'}`}>
-                        {latestRun.winner === 'player' ? 'VICTORY' : 'DEFEAT'}
-                      </span>
+              <div className="mt-3 h-44 overflow-y-auto space-y-2 font-mono text-xs">
+                {testedRuns.length > 0 ? (
+                  testedRuns.map((run, idx) => (
+                    <div
+                      key={run.id || idx}
+                      className={`rounded border p-2.5 ${
+                        run.bugTriggered
+                          ? 'border-rose-500/50 bg-rose-950/30 text-rose-200 font-bold'
+                          : 'border-slate-800 bg-slate-950 text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span>
+                          Run #{testedRuns.length - idx}: {run.heroAction.toUpperCase()} + {run.bossAction.toUpperCase()} @ {run.environment.toUpperCase()}
+                        </span>
+                        <span className={run.bugTriggered ? 'text-rose-400' : 'text-slate-500'}>
+                          {run.bugTriggered ? 'GLITCH DETECTED (112 dmg)' : `Normal (${run.damageDealt} dmg)`}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[11px] leading-relaxed">{run.log}</div>
                     </div>
-                    <div className="flex justify-between border-b border-emerald-100 pb-1">
-                      <span className="text-slate-500">Duration:</span>
-                      <span className="font-bold text-slate-800">{latestRun.durationSeconds}s</span>
-                    </div>
-                    <div className="flex justify-between border-b border-emerald-100 pb-1">
-                      <span className="text-slate-500">Hits Landed:</span>
-                      <span className="font-bold text-emerald-700">{latestRun.hitsLanded} strikes</span>
-                    </div>
-                    <div className="flex justify-between border-b border-emerald-100 pb-1">
-                      <span className="text-slate-500">Hits Taken:</span>
-                      <span className="font-bold text-slate-800">{latestRun.hitsReceived} strikes</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Dodges:</span>
-                      <span className="font-bold text-purple-700">{latestRun.attacksDodged} dodges</span>
-                    </div>
-                  </div>
+                  ))
                 ) : (
-                  <div className="mt-6 text-center text-xs text-[#75787b] italic">
-                    Launch a test duel to collect your first empirical &ldquo;After&rdquo; playtest dataset.
+                  <div className="flex h-full items-center justify-center text-slate-500">
+                    No experiments logged yet. Configure test conditions and execute a test run.
                   </div>
                 )}
               </div>
             </div>
+          </div>
 
-            {/* Step 4: Producer Reflection */}
-            <div className="mt-6 border-t border-slate-100 pt-4">
-              <label className="block text-xs font-bold uppercase tracking-wider text-[#003c6c] flex items-center gap-1.5">
-                <FileText className="size-4" />
-                Producer QA Reflection
-              </label>
-              <p className="mt-0.5 text-xs text-[#5a6a85]">
-                How did your changes alter the fight? Did the player have readable dodge windows? (Winning is not required; creating a fair, readable fight is!).
+          {/* Right: Hypothesis Isolation & Engine Patch Verification */}
+          <div className="flex flex-col gap-4 lg:col-span-5">
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-md">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Root Cause Hypothesis
+              </span>
+              <p className="mt-1 text-xs text-slate-400">
+                Identify the exact 3 conditions that cause the collision loop:
               </p>
-              <textarea
-                value={balance.reflection || ''}
-                onChange={(e) => updateSetting('reflection', e.target.value)}
-                placeholder="e.g. By extending boss recovery to 0.9s and attack windup to 0.7s, the player was able to evade 3 telegraphed strikes and fight extended to 34s, giving real opportunities to punish."
-                rows={3}
-                className="mt-2 w-full rounded-xl border border-slate-300 p-3 text-xs text-[#0b1d2e] outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-600/20"
-              />
+
+              <div className="mt-3 space-y-2.5 text-xs">
+                <div>
+                  <span className="text-slate-300">Required Hero Action:</span>
+                  <select
+                    value={hypHero}
+                    onChange={(e) => setHypHero(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-800 p-1.5 text-slate-200"
+                  >
+                    <option value="">-- Select Action --</option>
+                    <option value="normal">Normal Movement</option>
+                    <option value="dash">Dash Ability</option>
+                    <option value="shield">Shield Guard Barrier</option>
+                  </select>
+                </div>
+
+                <div>
+                  <span className="text-slate-300">Required Boss Attack:</span>
+                  <select
+                    value={hypBoss}
+                    onChange={(e) => setHypBoss(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-800 p-1.5 text-slate-200"
+                  >
+                    <option value="">-- Select Attack --</option>
+                    <option value="ranged">Energy Orb (Ranged)</option>
+                    <option value="slam">Ground Slam (Knockback)</option>
+                    <option value="cleave">Cleave Arc</option>
+                  </select>
+                </div>
+
+                <div>
+                  <span className="text-slate-300">Required Position:</span>
+                  <select
+                    value={hypEnv}
+                    onChange={(e) => setHypEnv(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-800 p-1.5 text-slate-200"
+                  >
+                    <option value="">-- Select Position --</option>
+                    <option value="open">Open Floor</option>
+                    <option value="wall">Near Wall Barrier (&lt;35px)</option>
+                    <option value="hazard">Hazard Pool</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Patch Selection */}
+              <div className="mt-5 border-t border-slate-800 pt-4">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Physics Engine Patch
+                </span>
+                <div className="mt-2 space-y-2 text-xs">
+                  {[
+                    {
+                      id: 'patch_disable_wall',
+                      title: 'Patch A: Disable Wall Collisions in Combat',
+                      desc: 'Crude fix: allows walking through solid walls.',
+                    },
+                    {
+                      id: 'patch_remove_shield',
+                      title: 'Patch B: Remove Shield Ability',
+                      desc: 'Deletes the shield ability entirely from combat.',
+                    },
+                    {
+                      id: 'patch_wall_iframe',
+                      title: 'Patch C: Wall-Bounce Rebound Immunity (0.15s)',
+                      desc: 'Surgical fix: preserves wall physics, prevents re-triggering damage.',
+                    },
+                  ].map((patchOpt) => (
+                    <label
+                      key={patchOpt.id}
+                      className={`flex flex-col rounded-lg border p-2.5 cursor-pointer transition ${
+                        selectedPatch === patchOpt.id
+                          ? 'border-indigo-500 bg-indigo-950/40 text-slate-200'
+                          : 'border-slate-800 bg-slate-950 text-slate-400 hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="patch"
+                          value={patchOpt.id}
+                          checked={selectedPatch === patchOpt.id}
+                          onChange={() => setSelectedPatch(patchOpt.id as QaSettings['selectedPhysicsPatch'])}
+                          className="accent-indigo-500"
+                        />
+                        <span className="font-semibold">{patchOpt.title}</span>
+                      </div>
+                      <span className="mt-1 text-[11px] text-slate-500 pl-5">{patchOpt.desc}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Run Regression Suite Button */}
+              <button
+                onClick={handleRunRegression}
+                disabled={!selectedPatch}
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-600 py-3 text-sm font-bold text-white shadow-lg transition-all hover:from-emerald-500 hover:to-sky-500 disabled:opacity-50"
+              >
+                <Cpu className="h-4 w-4" />
+                Run 5-Stage Regression Verification
+              </button>
+            </div>
+
+            {/* Regression Results Card */}
+            {regressionResults && (
+              <div
+                className={`rounded-xl border p-4 shadow-lg ${
+                  regressionResults.allPassed
+                    ? 'border-emerald-500/50 bg-emerald-950/20 text-emerald-200'
+                    : 'border-rose-500/50 bg-rose-950/20 text-rose-200'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {regressionResults.allPassed ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                  ) : (
+                    <AlertTriangle className="h-5 w-5 text-rose-400" />
+                  )}
+                  <span className="font-bold text-sm">
+                    {regressionResults.allPassed ? 'ALL REGRESSION TESTS PASSED' : 'REGRESSION DETECTED'}
+                  </span>
+                </div>
+
+                <div className="mt-3 space-y-1.5 text-xs">
+                  {regressionResults.tests.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between">
+                      <span className="text-slate-300">{t.name}</span>
+                      <span className={`font-mono font-bold ${t.passed ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {t.passed ? 'PASS' : 'FAIL'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="mt-3 text-xs leading-relaxed">{regressionResults.feedback}</p>
+              </div>
+            )}
+
+            {/* Educational Takeaway */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400">
+              <span className="font-bold text-slate-300">Engineering Takeaway: </span>
+              Heisenbugs occur when multiple interacting systems (physics knockback, wall bounce inversion, and hitbox
+              re-triggering) collide under specific edge conditions. Quick hacks that break other systems fail regression;
+              surgical fixes solve the root cause.
             </div>
           </div>
         </div>
       )}
 
-      {/* Tab 2: Full History & Telemetry Log */}
-      {activeTab === 'telemetry' && (
+      {/* View 2: Telemetry & Combat Balance Dashboard */}
+      {activeTab === 'creative' && (
         <div className="flex flex-col gap-6">
-          {/* Mathematical Model */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="rounded-xl bg-slate-50 p-3">
-              <span className="text-[10px] font-bold uppercase text-[#75787b]">Hero Hits To Win</span>
-              <p className="font-mono text-xl font-bold text-[#003c6c]">{telemetry.hitsToDefeatBoss}</p>
-              <span className="text-[10px] text-[#5a6a85]">Effective Dmg: {telemetry.effectiveHeroDamage}</span>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <span className="text-[10px] font-bold uppercase text-[#75787b]">Boss Hits To Defeat Hero</span>
-              <p className="font-mono text-xl font-bold text-red-600">{telemetry.hitsToDefeatHero}</p>
-              <span className="text-[10px] text-[#5a6a85]">Boss Strike: {boss.attackDamage}</span>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <span className="text-[10px] font-bold uppercase text-[#75787b]">Boss Recovery Rating</span>
-              <p className="font-mono text-sm font-bold text-purple-700">{telemetry.bossRecoveryRating}</p>
-              <span className="text-[10px] text-[#5a6a85]">Punish window rating</span>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <span className="text-[10px] font-bold uppercase text-[#75787b]">Expected Fight Duration</span>
-              <p className="font-mono text-xl font-bold text-emerald-700">{telemetry.expectedDurationEstimate}</p>
-              <span className="text-[10px] text-[#5a6a85]">Mathematical estimate</span>
-            </div>
-          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+            <h3 className="font-sans text-base font-bold text-[#003c6c]">Combat Telemetry & Time-To-Kill</h3>
+            <p className="mt-0.5 text-xs text-[#5a6a85]">
+              Empirical balance predictions based on current Hero and Boss parameters.
+            </p>
 
-          {/* Observations from latest run */}
-          {observations.length > 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="font-sans text-xs font-bold uppercase tracking-wider text-[#003c6c] mb-2">
-                Factual Post-Test Observations
-              </h3>
-              <ul className="space-y-1.5 text-xs text-[#475569]">
-                {observations.map((obs, idx) => (
-                  <li key={idx} className="flex items-start gap-2">
-                    <span className="font-mono text-emerald-600 font-bold">•</span>
-                    <span>{obs}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-sans text-base font-bold text-[#003c6c] flex items-center gap-2">
-                <History className="size-4 text-[#f29813]" />
-                Historical Combat Telemetry
-              </h2>
-              <span className="text-xs text-[#75787b]">{playtestHistory.length} attempts recorded</span>
-            </div>
-
-          {playtestHistory.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase text-[#75787b]">
-                  <tr>
-                    <th className="py-2.5 px-3">Run</th>
-                    <th className="py-2.5 px-3">Outcome</th>
-                    <th className="py-2.5 px-3">Duration</th>
-                    <th className="py-2.5 px-3">Damage Dealt</th>
-                    <th className="py-2.5 px-3">Damage Taken</th>
-                    <th className="py-2.5 px-3">Hits (L / R)</th>
-                    <th className="py-2.5 px-3">Dodges</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                  {playtestHistory.map((run) => (
-                    <tr key={run.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 font-bold text-[#003c6c]">#{run.attemptNumber}</td>
-                      <td className="py-2 px-3">
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${run.winner === 'player' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
-                          {run.winner === 'player' ? 'Victory' : 'Defeat'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3">{run.durationSeconds}s</td>
-                      <td className="py-2 px-3 text-emerald-700">{run.heroDamageDealt}</td>
-                      <td className="py-2 px-3 text-red-600">{run.bossDamageDealt}</td>
-                      <td className="py-2 px-3">{run.hitsLanded} / {run.hitsReceived}</td>
-                      <td className="py-2 px-3 text-purple-700">{run.attacksDodged}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="p-6 text-center text-xs text-[#75787b]">No playtests recorded yet.</div>
-          )}
+            {(() => {
+              const tel = computeBalanceTelemetry(hero, boss)
+              return (
+                <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <span className="text-xs text-[#5a6a85]">Hits to Defeat Boss</span>
+                    <div className="mt-1 font-mono text-2xl font-black text-[#003c6c]">{tel.hitsToDefeatBoss}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <span className="text-xs text-[#5a6a85]">Hits to Defeat Hero</span>
+                    <div className="mt-1 font-mono text-2xl font-black text-[#003c6c]">{tel.hitsToDefeatHero}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <span className="text-xs text-[#5a6a85]">Hero Est. DPS</span>
+                    <div className="mt-1 font-mono text-2xl font-black text-[#003c6c]">{tel.heroDpsEstimated}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <span className="text-xs text-[#5a6a85]">Expected Match Duration</span>
+                    <div className="mt-1 font-mono text-xl font-bold text-[#003c6c]">{tel.expectedDurationEstimate}</div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}
 
       {/* Footer Navigation */}
-      <div className="flex items-center justify-between border-t border-slate-200 pt-4">
-        <span className="text-xs text-[#75787b]">
-          {!canComplete
-            ? 'Action required: Select a hypothesis, run a test duel, and write your QA reflection.'
-            : 'Balance investigation completed.'}
-        </span>
+      <div className="mt-auto flex items-center justify-between border-t border-slate-200 pt-4">
+        <div className="text-xs text-[#5a6a85]">
+          {isComplete ? (
+            <span className="font-bold text-emerald-700">✓ Role 4: QA Tester Complete</span>
+          ) : (
+            <span>Isolate the intermittent defect and verify the engine patch.</span>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={onNextRole}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] px-4 py-2 text-xs font-bold text-white hover:bg-[#002b4d] shadow-xs cursor-pointer"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] px-4 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-[#002b4d] cursor-pointer"
         >
-          <span>Enter Live Playtest</span>
+          <span>Team Integration Screen</span>
           <ArrowRight className="size-4" />
         </button>
       </div>
