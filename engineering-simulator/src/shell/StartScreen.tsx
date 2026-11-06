@@ -15,7 +15,7 @@ export function StartScreen({
   onHost?(): void
 }) {
   return (
-    <div className="min-h-full flex flex-col bg-[#f4f6fa] text-[#0b1d2e] antialiased">
+    <div className="min-h-full flex flex-col bg-[#f4f6fa] text-[#0b1d2e] antialiased font-sans">
       {/* Top Institutional Bar */}
       <header className="border-b border-[#002b4d]/20 bg-[#003c6c] px-4 py-3 sm:px-6 lg:px-8 text-white shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
@@ -72,7 +72,7 @@ export function StartScreen({
 
       {/* Main Challenge Grid */}
       <main className="mx-auto flex-1 w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {scenarios.map((s, i) => (
             <div
               key={s.id}
@@ -86,7 +86,13 @@ export function StartScreen({
                   Track 0{i + 1}
                 </span>
                 <span className="absolute bottom-2.5 right-3 rounded bg-black/50 px-2 py-0.5 font-mono text-[11px] font-semibold text-white backdrop-blur-xs">
-                  ${(s.budget / 1000).toFixed(0)}k budget
+                  {s.id === 'cyberlock'
+                    ? '15m · CTF'
+                    : s.id === 'battlebots'
+                    ? '30 lb max'
+                    : s.id === 'arena-builder'
+                    ? '100 pt limit'
+                    : `$${(s.budget / 1000).toFixed(0)}k budget`}
                 </span>
               </div>
 

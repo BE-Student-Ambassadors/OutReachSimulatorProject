@@ -11,7 +11,7 @@ import { StartScreen } from './shell/StartScreen'
 type Mode = { kind: 'start' } | { kind: 'solo'; scenario: AnyScenario; intro: boolean } | { kind: 'join'; code: string } | { kind: 'host' }
 
 /**
- * URL shortcuts: `?play` / `?play=fsae` opens a solo challenge, `?join=123456`
+ * URL shortcuts: `?play` / `?play=cyberlock` / `?cyberlock` opens a solo challenge, `?join=123456`
  * opens the join form with the code filled in, `?host` opens the instructor screen.
  */
 function initialMode(): Mode {
@@ -21,8 +21,17 @@ function initialMode(): Mode {
   // A refresh (or reopened tab) goes straight back into a live game this browser is in.
   if (savedGame('student')) return { kind: 'join', code: '' }
   if (savedGame('host')) return { kind: 'host' }
+
+  if (q.has('cyberlock')) {
+    const cyber = scenarios.find((s) => s.id === 'cyberlock') ?? scenarios[0]
+    return { kind: 'solo', scenario: cyber, intro: false }
+  }
+
   const play = q.get('play')
-  if (play !== null) return { kind: 'solo', scenario: scenarios.find((s) => s.id === play) ?? scenarios[0], intro: false }
+  if (play !== null) {
+    const chosen = scenarios.find((s) => s.id === play) ?? scenarios[0]
+    return { kind: 'solo', scenario: chosen, intro: chosen.id !== 'cyberlock' }
+  }
   return { kind: 'start' }
 }
 
@@ -49,7 +58,7 @@ export default function App() {
       return (
         <StartScreen
           scenarios={scenarios}
-          onStart={(s) => setMode({ kind: 'solo', scenario: s, intro: true })}
+          onStart={(s) => setMode({ kind: 'solo', scenario: s, intro: s.id !== 'cyberlock' })}
           onJoin={() => setMode({ kind: 'join', code: '' })}
           onHost={() => setMode({ kind: 'host' })}
         />
