@@ -56,11 +56,9 @@ export function HintModal({
         </div>
 
         {/* Penalty Warning Notice */}
-        <div className="px-6 py-3 bg-amber-50 border-b border-amber-200/60 flex items-center gap-2.5 text-xs text-amber-800">
-          <AlertTriangle className="size-4 text-amber-600 shrink-0" />
-          <span>
-            <strong>Scoring Note:</strong> Each unlocked hint deducts 25 points from your mission score. Try investigating with your team first before unlocking!
-          </span>
+        <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-200/60 flex items-center gap-2 text-xs text-amber-800">
+          <AlertTriangle className="size-3.5 text-amber-600 shrink-0" />
+          <span>Each unlocked hint deducts 25 points from your score.</span>
         </div>
 
         {/* Hints List */}

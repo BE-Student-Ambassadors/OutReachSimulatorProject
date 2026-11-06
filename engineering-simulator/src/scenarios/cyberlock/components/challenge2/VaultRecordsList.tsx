@@ -136,20 +136,20 @@ export function VaultRecordsList({ onNavigateUrl, targetRecordId }: VaultRecords
               </div>
             </div>
 
-            <div className="rounded-xl bg-slate-950 border border-slate-800 p-4 text-xs font-mono text-slate-300 space-y-2">
+            <div className="rounded-xl bg-slate-950 border border-slate-800 p-3.5 text-xs font-mono text-slate-300 space-y-1.5">
               <p>
-                User: <span className="text-amber-400">amorgan</span> (Clearance Level 1)
+                User: <span className="text-amber-400">amorgan</span> (Level 1)
               </p>
               <p>
-                Requested Object: <span className="text-red-400">Record #{deniedModal}</span>
+                Target: <span className="text-red-400">Record #{deniedModal}</span> (Level 3 required)
               </p>
-              <p className="text-red-300 pt-2 border-t border-slate-800">
-                The portal directory interface blocks Level 1 staff from clicking restricted vault records. Level 3 clearance is required to view confidential asset codes from this list.
+              <p className="text-red-400 pt-1.5 border-t border-slate-800 text-[11px]">
+                Button blocked in UI: Level 1 staff cannot click restricted records.
               </p>
             </div>
 
             <p className="text-xs text-slate-400 italic">
-              Notice: Standard records such as #1001 or #1002 can be inspected normally. Pay attention to how the application identifies records in the browser.
+              Tip: Accessible records like #1001 load via URL in the browser address bar.
             </p>
 
             <button

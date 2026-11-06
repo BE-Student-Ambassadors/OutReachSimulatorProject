@@ -9,6 +9,7 @@ import { Vulnerability1Card } from './components/challenge1/Vulnerability1Card'
 import { InternalDashboard } from './components/challenge2/InternalDashboard'
 import { Vulnerability2Card } from './components/challenge2/Vulnerability2Card'
 import { DecoderWorkspace } from './components/challenge3/DecoderWorkspace'
+import { Vulnerability3Card } from './components/challenge3/Vulnerability3Card'
 import { FinalSuccessScreen } from './components/FinalSuccessScreen'
 import {
   loadSavedSession,
@@ -53,6 +54,7 @@ export function CyberlockApp() {
   // Modals
   const [showVulnerability1Modal, setShowVulnerability1Modal] = useState(false)
   const [showVulnerability2Modal, setShowVulnerability2Modal] = useState(false)
+  const [showVulnerability3Modal, setShowVulnerability3Modal] = useState(false)
   const [showHintModal, setShowHintModal] = useState(false)
   const [showFacilitatorModal, setShowFacilitatorModal] = useState(false)
 
@@ -156,6 +158,11 @@ export function CyberlockApp() {
         recalculateScore(prev.c1Points, prev.c2Points, 150, prev.physicalLockBonus, prev.hintsUsed),
       )
     }
+    setShowVulnerability3Modal(true)
+  }
+
+  const handleAdvanceToSuccess = () => {
+    setShowVulnerability3Modal(false)
     setCurrentStage('success')
   }
 
@@ -301,6 +308,13 @@ export function CyberlockApp() {
 
       {showVulnerability2Modal && (
         <Vulnerability2Card onContinue={handleAdvanceToChallenge3} />
+      )}
+
+      {showVulnerability3Modal && (
+        <Vulnerability3Card
+          combination={finalCombination}
+          onContinue={handleAdvanceToSuccess}
+        />
       )}
 
       {showHintModal && (

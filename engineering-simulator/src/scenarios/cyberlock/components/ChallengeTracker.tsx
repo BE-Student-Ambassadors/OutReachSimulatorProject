@@ -1,14 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
-  Shield,
-  KeyRound,
-  FileCode,
-  CheckCircle2,
   Lightbulb,
   Clock,
   Settings,
-  Flame,
-  type LucideIcon,
+  Target,
+  X,
 } from 'lucide-react'
 import type { ChallengeStage } from '../types'
 
@@ -24,6 +20,14 @@ interface ChallengeTrackerProps {
   onOpenFacilitator: () => void
 }
 
+const OBJECTIVES: Record<ChallengeStage, string> = {
+  onboarding: 'Initialize team lockbox session.',
+  challenge1: 'Find a way into the employee portal.',
+  challenge2: 'Access the restricted record linked to your lockbox.',
+  challenge3: 'Decode the data to recover your 4-digit code.',
+  success: 'Enter the code on your physical lockbox.',
+}
+
 export function ChallengeTracker({
   currentStage,
   completedStages,
@@ -36,6 +40,7 @@ export function ChallengeTracker({
   onOpenFacilitator,
 }: ChallengeTrackerProps) {
   const [elapsed, setElapsed] = useState(0)
+  const [showMenu, setShowMenu] = useState(false)
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -50,98 +55,117 @@ export function ChallengeTracker({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
 
-  const stages: { id: ChallengeStage; label: string; icon: LucideIcon }[] = [
-    { id: 'challenge1', label: '1. Gain Access', icon: KeyRound },
-    { id: 'challenge2', label: '2. Find Flaw', icon: Shield },
-    { id: 'challenge3', label: '3. Decode', icon: FileCode },
-  ]
+  const stageNumber =
+    currentStage === 'challenge1'
+      ? '1/3'
+      : currentStage === 'challenge2'
+      ? '2/3'
+      : currentStage === 'challenge3'
+      ? '3/3'
+      : 'Complete'
 
   return (
-    <div className="w-full bg-[#002b4d] text-white border-b border-[#003c6c] px-4 py-2.5 sm:px-6 shadow-md select-none font-sans">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-        {/* Left: Mission Info */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs font-bold text-[#fdc700] uppercase tracking-wider bg-white/10 px-2 py-0.5 rounded border border-white/20">
-              {serial}
-            </span>
-            <span className="text-xs font-semibold text-slate-200 hidden md:inline">
-              {teamName}
+    <header className="w-full bg-[#002b4d] text-white border-b border-[#003c6c] px-4 py-2 sm:px-6 shadow-sm select-none font-sans">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+        {/* Left: Stage & Serial */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <span className="rounded-lg bg-[#f29813] px-2.5 py-1 text-xs font-black uppercase tracking-wider text-slate-950">
+            Stage {stageNumber}
+          </span>
+          <span className="font-mono text-xs font-bold text-[#fdc700] bg-white/10 px-2 py-0.5 rounded border border-white/20">
+            {serial}
+          </span>
+        </div>
+
+        {/* Center: Prominent Objective */}
+        <div className="flex-1 flex items-center justify-center min-w-0 px-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-1 text-xs font-medium text-slate-100 max-w-full border border-white/15">
+            <Target className="size-3.5 text-[#f29813] shrink-0" />
+            <span className="truncate font-semibold tracking-wide text-white">
+              {OBJECTIVES[currentStage]}
             </span>
           </div>
+        </div>
 
-          <div className="h-4 w-px bg-white/20" />
-
+        {/* Right: Timer, Hint, Secondary Menu */}
+        <div className="flex items-center gap-2 shrink-0">
           {/* Timer */}
-          <div className="flex items-center gap-1.5 font-mono text-xs text-slate-300">
-            <Clock className="size-3.5 text-[#f29813]" />
+          <div className="flex items-center gap-1.5 font-mono text-xs text-slate-300 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
+            <Clock className="size-3.5 text-[#fdc700]" />
             <span>{formatTime(elapsed)}</span>
           </div>
-        </div>
 
-        {/* Center: Stage Stepper */}
-        <div className="flex items-center gap-1.5 sm:gap-3 text-xs">
-          {stages.map((st) => {
-            const isCompleted = completedStages.includes(st.id)
-            const isCurrent = currentStage === st.id
-            const Icon = st.icon
-
-            return (
-              <div
-                key={st.id}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full transition ${
-                  isCompleted
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-semibold'
-                    : isCurrent
-                    ? 'bg-[#f29813]/25 text-[#fdc700] border border-[#f29813]/60 font-bold ring-1 ring-[#f29813]/30'
-                    : 'bg-white/5 text-slate-400 border border-white/10 opacity-70'
-                }`}
-              >
-                {isCompleted ? (
-                  <CheckCircle2 className="size-3.5 text-emerald-400" />
-                ) : (
-                  <Icon className="size-3.5" />
-                )}
-                <span className="text-[11px] whitespace-nowrap">{st.label}</span>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Right: Score & Hint Buttons */}
-        <div className="flex items-center gap-2.5">
-          {/* Score pill */}
-          <div className="flex items-center gap-1 rounded-lg bg-white/10 px-2.5 py-1 font-mono text-xs font-bold text-white border border-white/15">
-            <Flame className="size-3.5 text-[#f29813]" />
-            <span>{score} pts</span>
-          </div>
-
-          {/* Hint Trigger Button */}
+          {/* Hint Button */}
           <button
             type="button"
             onClick={onOpenHints}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#f29813] hover:bg-[#d98207] px-3 py-1 text-xs font-bold uppercase tracking-wider text-white shadow-xs transition active:translate-y-0.5 cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#f29813] hover:bg-[#d98207] px-3 py-1 text-xs font-bold uppercase tracking-wider text-slate-950 transition active:translate-y-0.5 cursor-pointer shadow-xs"
           >
             <Lightbulb className="size-3.5" />
             <span>Hints</span>
             {hintsUsedCount > 0 && (
-              <span className="ml-0.5 rounded-full bg-black/40 px-1.5 py-0.2 text-[10px] font-mono">
+              <span className="rounded-full bg-slate-950 text-[#fdc700] px-1.5 py-0.2 text-[10px] font-mono">
                 {hintsUsedCount}
               </span>
             )}
           </button>
 
-          {/* Ambassador settings gear */}
-          <button
-            type="button"
-            onClick={onOpenFacilitator}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
-            title="Facilitator settings"
-          >
-            <Settings className="size-4" />
-          </button>
+          {/* Compact Info & Facilitator Menu Toggle */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              title="More details"
+            >
+              <Settings className="size-4" />
+            </button>
+
+            {showMenu && (
+              <div className="absolute right-0 mt-2 w-52 rounded-xl bg-slate-900 border border-slate-700 p-3 shadow-xl z-50 text-xs font-sans animate-fadeIn">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <span className="font-bold text-slate-200">{teamName}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMenu(false)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+                <div className="py-2.5 space-y-1.5 text-slate-300 font-mono text-[11px]">
+                  <div className="flex justify-between">
+                    <span>Solved:</span>
+                    <span className="text-emerald-400 font-bold">{completedStages.length} / 3</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Score:</span>
+                    <span className="text-[#fdc700] font-bold">{score} pts</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Hints Used:</span>
+                    <span>{hintsUsedCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Box Serial:</span>
+                    <span className="text-slate-100">{serial}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMenu(false)
+                    onOpenFacilitator()
+                  }}
+                  className="w-full mt-1 pt-2 border-t border-slate-800 text-left text-[#fdc700] hover:underline font-mono text-[11px]"
+                >
+                  ⚙ Facilitator Panel
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </header>
   )
 }
