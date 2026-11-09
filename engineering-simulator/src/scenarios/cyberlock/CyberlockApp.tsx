@@ -91,7 +91,7 @@ export function CyberlockApp() {
     bonus: number,
     hints: string[],
   ): ScoreState => {
-    const penalties = hints.length * 25
+    const penalties = 0 // Hints are free to encourage learning - no penalties deducted
     const total = Math.max(0, c1 + c2 + c3 + bonus - penalties)
     return {
       c1Points: c1,

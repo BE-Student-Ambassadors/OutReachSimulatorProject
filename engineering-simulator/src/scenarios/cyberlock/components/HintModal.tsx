@@ -2,7 +2,6 @@ import {
   Lightbulb,
   X,
   Unlock,
-  AlertTriangle,
 } from 'lucide-react'
 import { play } from '../../../shared/audio/sfx'
 import { CHALLENGE_HINTS } from '../data/hints'
@@ -55,10 +54,10 @@ export function HintModal({
           </button>
         </div>
 
-        {/* Penalty Warning Notice */}
-        <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-200/60 flex items-center gap-2 text-xs text-amber-800">
-          <AlertTriangle className="size-3.5 text-amber-600 shrink-0" />
-          <span>Each unlocked hint deducts 25 points from your score.</span>
+        {/* Info Notice */}
+        <div className="px-6 py-2.5 bg-blue-50 border-b border-blue-200/60 flex items-center gap-2 text-xs text-[#003c6c]">
+          <Lightbulb className="size-3.5 text-[#f29813] shrink-0" />
+          <span>Need help? Hints are free and will guide your team step-by-step.</span>
         </div>
 
         {/* Hints List */}
@@ -97,7 +96,7 @@ export function HintModal({
 
                   {isRevealed && (
                     <span className="text-[11px] font-mono text-emerald-700 font-semibold flex items-center gap-1">
-                      <Unlock className="size-3" /> Unlocked (-25 pts)
+                      <Unlock className="size-3" /> Unlocked
                     </span>
                   )}
                 </div>
@@ -110,7 +109,7 @@ export function HintModal({
                   <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
                     <p className="text-xs text-slate-500 italic">
                       {previousRevealed
-                        ? 'Click to reveal this clue (-25 points)'
+                        ? 'Click to reveal this hint'
                         : `Unlock Hint ${hint.level - 1} first to view this hint.`}
                     </p>
 
@@ -124,7 +123,7 @@ export function HintModal({
                       className="inline-flex items-center gap-1.5 rounded-lg bg-[#003c6c] hover:bg-[#f29813] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white shadow-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
                       <Lightbulb className="size-3.5" />
-                      <span>Reveal (-25 pts)</span>
+                      <span>Reveal Hint</span>
                     </button>
                   </div>
                 )}
