@@ -110,6 +110,8 @@ A batch of special 3D-printed field lockbox containers has been prepared and dis
       'Reminder regarding internal portal access credentials and role separation policies across staff accounts.',
     body: `All personnel are reminded that employee portal accounts are restricted to assigned clearance levels. 
 
-Standard administrative accounts (Clearance Level 1) are authorized for routine maintenance and telemetry inspection only. Restricted vault records require elevated Level 3 authorization. Note: password recovery hints based on public projects or joining years are strictly discouraged under updated company cybersecurity policies.`,
+Standard administrative accounts (Clearance Level 1) are authorized for routine maintenance and telemetry inspection only. Restricted vault records require elevated Level 3 authorization.
+
+Audit Warning: Internal scans show several staff members are still creating predictable passwords by concatenating their favorite robotics project and the year they joined (e.g. ProjectNameYYYY). Anyone using this format must update their credentials immediately to comply with VaultTech security standards.`,
   },
 ]

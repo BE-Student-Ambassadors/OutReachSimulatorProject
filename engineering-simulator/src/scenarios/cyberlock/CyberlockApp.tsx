@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { RotateCcw } from 'lucide-react'
 import { MissionBriefing } from './components/MissionBriefing'
 import { ChallengeTracker } from './components/ChallengeTracker'
 import { HintModal } from './components/HintModal'
@@ -59,6 +60,7 @@ export function CyberlockApp() {
   const [showVulnerability3Modal, setShowVulnerability3Modal] = useState(false)
   const [showHintModal, setShowHintModal] = useState(false)
   const [showFacilitatorModal, setShowFacilitatorModal] = useState(false)
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false)
 
   // Dev Mode state (strictly enabled via URL parameter ?dev=true)
   const [devMode, setDevMode] = useState<boolean>(() => isCyberlockDevMode())
@@ -225,6 +227,14 @@ export function CyberlockApp() {
     }
   }
 
+  // 9. Free stage navigation from HUD
+  const handleSelectStage = (stage: ChallengeStage) => {
+    setCurrentStage(stage)
+    if (stage === 'challenge2' && !browserUrl) {
+      setBrowserUrl('/portal')
+    }
+  }
+
   return (
     <div className="relative flex flex-col h-full w-full bg-[#f4f6fa] overflow-hidden select-none">
       {/* Top Challenge Tracker (Active during challenges & debrief) */}
@@ -245,6 +255,8 @@ export function CyberlockApp() {
             play('click')
             setShowFacilitatorModal(true)
           }}
+          onSelectStage={handleSelectStage}
+          onResetGame={() => setShowResetConfirmModal(true)}
         />
       )}
 
@@ -344,6 +356,46 @@ export function CyberlockApp() {
           onJumpStage={handleJumpStage}
           onResetSession={handleReset}
         />
+      )}
+
+      {/* Reset Game Confirmation Modal */}
+      {showResetConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="w-full max-w-sm rounded-2xl bg-white border border-slate-200 p-6 shadow-2xl text-center space-y-4">
+            <div className="mx-auto size-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
+              <RotateCcw className="size-6" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Reset Game?</h3>
+              <p className="mt-1.5 text-xs text-slate-600 leading-relaxed">
+                Are you sure you want to restart Operation Vaultbreak? All current progress, unlocked stages, and timer data will be reset to the beginning.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  play('click')
+                  setShowResetConfirmModal(false)
+                }}
+                className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  play('click')
+                  setShowResetConfirmModal(false)
+                  handleReset()
+                }}
+                className="flex-1 rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-700 transition cursor-pointer shadow-sm"
+              >
+                Reset Game
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Dev Mode Toolbar (strictly active when opened via ?dev=true) */}

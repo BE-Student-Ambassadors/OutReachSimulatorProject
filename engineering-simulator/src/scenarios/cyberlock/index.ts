@@ -44,7 +44,7 @@ export const cyberlockScenario: Scenario<CyberlockObject, CyberlockResult> = {
     ],
   },
   instructions: [
-    'Enter your physical lockbox serial number (e.g. BESA-0427) to initialize your team’s investigation.',
+    'Enter your physical lockbox serial number (e.g. BESA-0005) to initialize your team’s investigation.',
     'Investigate public staff profiles and press releases to discover internal portal credentials.',
     'Find your lockbox internal record ID in the shipping manifest and exploit IDOR via the address bar.',
     'Decode the hexadecimal ASCII byte stream to recover your physical 4-digit combination!',

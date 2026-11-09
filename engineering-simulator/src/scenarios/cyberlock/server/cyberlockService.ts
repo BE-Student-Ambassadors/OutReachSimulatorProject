@@ -13,11 +13,11 @@ export { combinationToHexAscii, hexAsciiToCombination }
 
 /** Default lockboxes configured for BESA workshops */
 const DEFAULT_LOCKBOXES: LockboxConfig[] = [
-  { serial: 'BESA-0427', recordId: '1003', combination: '4826', label: 'Vault DTI Special' },
   { serial: 'BESA-0001', recordId: '1003', combination: '4826', label: 'Vault Alpha' },
   { serial: 'BESA-0002', recordId: '1014', combination: '1937', label: 'Vault Bravo' },
   { serial: 'BESA-0003', recordId: '1027', combination: '6504', label: 'Vault Charlie' },
   { serial: 'BESA-0004', recordId: '1038', combination: '2719', label: 'Vault Delta' },
+  { serial: 'BESA-0005', recordId: '1003', combination: '4826', label: 'Vault Echo' },
 ]
 
 export interface ActiveSession {
@@ -88,7 +88,7 @@ export class CyberlockService {
     if (!lockbox) {
       return {
         success: false,
-        error: `Unrecognized serial number "${serial}". Please verify the serial label printed on your physical lockbox (e.g. BESA-0001, BESA-0002, BESA-0427).`,
+        error: `Unrecognized serial number "${serial}". Please verify the serial label printed on your physical lockbox (e.g. BESA-0001, BESA-0002, BESA-0005).`,
       }
     }
 

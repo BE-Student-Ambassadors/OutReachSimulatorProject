@@ -34,10 +34,10 @@ describe('CyberLock — Operation Vaultbreak', () => {
 
   describe('Session Initialization & Serial Validation', () => {
     it('initializes a scoped session for valid physical lockbox serial', () => {
-      const res = cyberlockService.createSession('BESA-0427', 'Test Slug Team')
+      const res = cyberlockService.createSession('BESA-0005', 'Test Slug Team')
       expect(res.success).toBe(true)
       expect(res.session).toBeDefined()
-      expect(res.session?.serial).toBe('BESA-0427')
+      expect(res.session?.serial).toBe('BESA-0005')
       expect(res.session?.targetRecordId).toBe('1003')
     })
 

@@ -68,6 +68,10 @@ export function LoginPortal({ onLoginSuccess, devMode }: LoginPortalProps) {
           <p className="mt-1 text-xs text-slate-300 font-mono">
             Authorized Personnel Only · Clearance Level 1+
           </p>
+          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-mono text-slate-200 border border-white/15">
+            <span className="text-slate-300">Managed by IT Admin:</span>
+            <span className="font-bold text-[#fdc700]">Alex Morgan (@amorgan)</span>
+          </div>
         </div>
 
         {/* Login Form */}
@@ -177,7 +181,7 @@ export function LoginPortal({ onLoginSuccess, devMode }: LoginPortalProps) {
         </form>
 
         <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 text-center text-[11px] text-slate-500 font-mono">
-          VaultTech Directory & Identity Provider v4.2
+          Gateway Admin: Alex Morgan (@amorgan) · Identity Provider v4.2
         </div>
       </div>
 
@@ -187,32 +191,31 @@ export function LoginPortal({ onLoginSuccess, devMode }: LoginPortalProps) {
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
             <div className="flex items-center gap-2.5 text-[#003c6c]">
               <HelpCircle className="size-6 text-[#f29813]" />
-              <h3 className="font-bold text-base">Account Security Hint</h3>
+              <h3 className="font-bold text-base">Account Security Verification</h3>
             </div>
 
             {username.trim().toLowerCase() === 'amorgan' ? (
-              <>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  VaultTech directory self-service recovery hint for user{' '}
-                  <strong className="text-slate-900 font-mono">amorgan</strong> (Alex Morgan):
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-900 space-y-1.5">
+                <span className="block font-bold uppercase text-[10px] tracking-wider text-amber-800">
+                  Security Question
+                </span>
+                <p className="italic font-medium text-slate-800 text-sm">
+                  "What is your favorite robotics project and the year you joined?"
                 </p>
-
-                <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-900">
-                  <span className="block font-bold uppercase text-[10px] tracking-wider text-amber-800 mb-1">
-                    Security Recovery Prompt
-                  </span>
-                  <p className="italic font-medium">"My favorite robot and the year I joined."</p>
-                </div>
-              </>
+              </div>
             ) : username.trim() ? (
               <div className="rounded-xl bg-slate-100 p-4 text-xs text-slate-600 space-y-1">
-                <p>No password recovery hint configured for user <strong className="font-mono text-slate-800">{username.trim()}</strong>.</p>
-                <p className="text-slate-500">Check the employee directory to investigate staff accounts.</p>
+                <p className="font-semibold text-slate-800">No Remote Gateway Access</p>
+                <p className="text-slate-500">
+                  User <strong className="font-mono text-slate-800">{username.trim()}</strong> is not authorized for remote gateway administration. Enter the Gateway Administrator's username (<strong className="font-mono text-[#003c6c]">amorgan</strong>) to verify credentials.
+                </p>
               </div>
             ) : (
               <div className="rounded-xl bg-slate-100 p-4 text-xs text-slate-600 space-y-1">
-                <p>Please enter a username in the login form to look up its password recovery prompt.</p>
-                <p className="text-slate-500">Tip: Check the employee directory to discover staff usernames.</p>
+                <p className="font-semibold text-slate-800">Enter Username First</p>
+                <p className="text-slate-500">
+                  Please enter the Gateway Administrator's username (<strong className="font-mono text-[#003c6c]">amorgan</strong>) in the login form to retrieve account verification details.
+                </p>
               </div>
             )}
 

@@ -40,7 +40,7 @@ export function DevToolbar({
 }: DevToolbarProps) {
   const [collapsed, setCollapsed] = useState(false)
 
-  const activeSerial = session?.serial || 'BESA-0427'
+  const activeSerial = session?.serial || 'BESA-0001'
   const currentPreset =
     DEV_LOCKBOX_PRESETS.find((p) => p.serial === activeSerial) || DEV_LOCKBOX_PRESETS[0]
 
