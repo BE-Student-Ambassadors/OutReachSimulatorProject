@@ -15,9 +15,10 @@ import { cyberlockApi } from '../../client/apiClient'
 
 interface LoginPortalProps {
   onLoginSuccess: (user: { username: string; name: string; department: string }) => void
+  devMode?: boolean
 }
 
-export function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
+export function LoginPortal({ onLoginSuccess, devMode }: LoginPortalProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -103,7 +104,7 @@ export function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. amorgan"
+                placeholder="Enter username"
                 required
                 className="w-full pl-9 pr-4 py-2.5 text-xs rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#003c6c] focus:ring-1 focus:ring-[#003c6c] focus:outline-none transition font-mono"
               />
@@ -157,6 +158,22 @@ export function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
             <span>{loading ? 'Authenticating...' : 'Sign In to Portal'}</span>
             <ArrowRight className="size-4" />
           </button>
+
+          {devMode && (
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setUsername('amorgan')
+                  setPassword('Atlas2022')
+                  play('sparkle')
+                }}
+                className="w-full py-1.5 px-3 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 font-mono text-[11px] font-bold transition cursor-pointer"
+              >
+                🛠 Dev: Auto-Fill (amorgan / Atlas2022)
+              </button>
+            </div>
+          )}
         </form>
 
         <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 text-center text-[11px] text-slate-500 font-mono">
@@ -173,22 +190,31 @@ export function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
               <h3 className="font-bold text-base">Account Security Hint</h3>
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              VaultTech directory self-service recovery hint for user{' '}
-              <strong className="text-slate-900 font-mono">amorgan</strong> (Alex Morgan):
-            </p>
+            {username.trim().toLowerCase() === 'amorgan' ? (
+              <>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  VaultTech directory self-service recovery hint for user{' '}
+                  <strong className="text-slate-900 font-mono">amorgan</strong> (Alex Morgan):
+                </p>
 
-            <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-900">
-              <span className="block font-bold uppercase text-[10px] tracking-wider text-amber-800 mb-1">
-                Security Recovery Prompt
-              </span>
-              <p className="italic font-medium">"My favorite robot and the year I joined."</p>
-            </div>
-
-            <p className="text-[11px] text-slate-500">
-              Tip: Explore the public employee directory and company news pages to discover Alex's
-              favorite robot and the year Alex joined VaultTech.
-            </p>
+                <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-900">
+                  <span className="block font-bold uppercase text-[10px] tracking-wider text-amber-800 mb-1">
+                    Security Recovery Prompt
+                  </span>
+                  <p className="italic font-medium">"My favorite robot and the year I joined."</p>
+                </div>
+              </>
+            ) : username.trim() ? (
+              <div className="rounded-xl bg-slate-100 p-4 text-xs text-slate-600 space-y-1">
+                <p>No password recovery hint configured for user <strong className="font-mono text-slate-800">{username.trim()}</strong>.</p>
+                <p className="text-slate-500">Check the employee directory to investigate staff accounts.</p>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-slate-100 p-4 text-xs text-slate-600 space-y-1">
+                <p>Please enter a username in the login form to look up its password recovery prompt.</p>
+                <p className="text-slate-500">Tip: Check the employee directory to discover staff usernames.</p>
+              </div>
+            )}
 
             <button
               type="button"

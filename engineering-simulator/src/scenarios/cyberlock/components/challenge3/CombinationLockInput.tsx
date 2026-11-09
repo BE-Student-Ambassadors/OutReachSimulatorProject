@@ -13,12 +13,16 @@ interface CombinationLockInputProps {
   sessionId: string
   serial: string
   onUnlockSuccess: (combination: string) => void
+  devMode?: boolean
+  devCombination?: string
 }
 
 export function CombinationLockInput({
   sessionId,
   serial,
   onUnlockSuccess,
+  devMode,
+  devCombination,
 }: CombinationLockInputProps) {
   const [digits, setDigits] = useState(['', '', '', ''])
   const [loading, setLoading] = useState(false)
@@ -177,6 +181,22 @@ export function CombinationLockInput({
                 <ArrowRight className="size-4" />
               </button>
             </div>
+
+            {devMode && (
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const code = devCombination || '4826'
+                    setDigits(code.split('').slice(0, 4))
+                    play('sparkle')
+                  }}
+                  className="w-full py-1.5 px-3 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-mono text-[11px] font-bold transition cursor-pointer"
+                >
+                  🛠 Dev: Auto-Fill Combination ({devCombination || '4826'})
+                </button>
+              </div>
+            )}
           </form>
         )}
       </div>

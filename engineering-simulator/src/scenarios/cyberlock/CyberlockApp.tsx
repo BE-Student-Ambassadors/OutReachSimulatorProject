@@ -9,7 +9,10 @@ import { Vulnerability1Card } from './components/challenge1/Vulnerability1Card'
 import { InternalDashboard } from './components/challenge2/InternalDashboard'
 import { Vulnerability2Card } from './components/challenge2/Vulnerability2Card'
 import { DecoderWorkspace } from './components/challenge3/DecoderWorkspace'
+import { Vulnerability3Card } from './components/challenge3/Vulnerability3Card'
 import { FinalSuccessScreen } from './components/FinalSuccessScreen'
+import { DevToolbar } from './components/dev/DevToolbar'
+import { isCyberlockDevMode } from './services/devMode'
 import {
   loadSavedSession,
   saveSession,
@@ -53,10 +56,16 @@ export function CyberlockApp() {
   // Modals
   const [showVulnerability1Modal, setShowVulnerability1Modal] = useState(false)
   const [showVulnerability2Modal, setShowVulnerability2Modal] = useState(false)
+  const [showVulnerability3Modal, setShowVulnerability3Modal] = useState(false)
   const [showHintModal, setShowHintModal] = useState(false)
   const [showFacilitatorModal, setShowFacilitatorModal] = useState(false)
 
-  // Track elapsed time without impure render calls
+  // Dev Mode state (strictly enabled via URL parameter ?dev=true)
+  const [devMode, setDevMode] = useState<boolean>(() => isCyberlockDevMode())
+
+  const handleCloseDevMode = () => {
+    setDevMode(false)
+  }
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   useEffect(() => {
     if (!session) return
@@ -89,7 +98,7 @@ export function CyberlockApp() {
     bonus: number,
     hints: string[],
   ): ScoreState => {
-    const penalties = hints.length * 25
+    const penalties = 0 // Hints are free to encourage learning - no penalties deducted
     const total = Math.max(0, c1 + c2 + c3 + bonus - penalties)
     return {
       c1Points: c1,
@@ -156,6 +165,11 @@ export function CyberlockApp() {
         recalculateScore(prev.c1Points, prev.c2Points, 150, prev.physicalLockBonus, prev.hintsUsed),
       )
     }
+    setShowVulnerability3Modal(true)
+  }
+
+  const handleAdvanceToSuccess = () => {
+    setShowVulnerability3Modal(false)
     setCurrentStage('success')
   }
 
@@ -245,7 +259,10 @@ export function CyberlockApp() {
 
         {currentStage === 'challenge1' && (
           <div className="h-full">
-            <VaultTechPublicSite onLoginSuccess={handleLoginSuccess} />
+            <VaultTechPublicSite
+              onLoginSuccess={handleLoginSuccess}
+              devMode={devMode}
+            />
           </div>
         )}
 
@@ -266,6 +283,7 @@ export function CyberlockApp() {
                 targetRecordId={session.targetRecordId}
                 sessionId={session.sessionId}
                 onCapturePayload={handleCapturePayload}
+                devMode={devMode}
               />
             </SimulatedBrowser>
           </div>
@@ -277,6 +295,7 @@ export function CyberlockApp() {
             serial={session.serial}
             sessionId={session.sessionId}
             onUnlockSuccess={handleUnlockSuccess}
+            devMode={devMode}
           />
         )}
 
@@ -303,6 +322,13 @@ export function CyberlockApp() {
         <Vulnerability2Card onContinue={handleAdvanceToChallenge3} />
       )}
 
+      {showVulnerability3Modal && (
+        <Vulnerability3Card
+          combination={finalCombination}
+          onContinue={handleAdvanceToSuccess}
+        />
+      )}
+
       {showHintModal && (
         <HintModal
           currentStage={currentStage}
@@ -317,6 +343,27 @@ export function CyberlockApp() {
           onClose={() => setShowFacilitatorModal(false)}
           onJumpStage={handleJumpStage}
           onResetSession={handleReset}
+        />
+      )}
+
+      {/* Dev Mode Toolbar (strictly active when opened via ?dev=true) */}
+      {devMode && (
+        <DevToolbar
+          currentStage={currentStage}
+          session={session}
+          onJumpStage={handleJumpStage}
+          onSetSession={setSession}
+          onSetRecoveredRecord={setRecoveredRecord}
+          onSetBrowserUrl={setBrowserUrl}
+          onTriggerModal={(modal) => {
+            if (modal === 'vuln1') setShowVulnerability1Modal(true)
+            else if (modal === 'vuln2') setShowVulnerability2Modal(true)
+            else if (modal === 'vuln3') setShowVulnerability3Modal(true)
+            else if (modal === 'hint') setShowHintModal(true)
+            else if (modal === 'facilitator') setShowFacilitatorModal(true)
+          }}
+          onResetSession={handleReset}
+          onCloseDevMode={handleCloseDevMode}
         />
       )}
     </div>

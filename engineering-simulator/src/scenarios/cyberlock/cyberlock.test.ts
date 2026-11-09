@@ -38,7 +38,7 @@ describe('CyberLock — Operation Vaultbreak', () => {
       expect(res.success).toBe(true)
       expect(res.session).toBeDefined()
       expect(res.session?.serial).toBe('BESA-0427')
-      expect(res.session?.targetRecordId).toBe('1042')
+      expect(res.session?.targetRecordId).toBe('1003')
     })
 
     it('rejects invalid or unknown serial numbers with informative error', () => {

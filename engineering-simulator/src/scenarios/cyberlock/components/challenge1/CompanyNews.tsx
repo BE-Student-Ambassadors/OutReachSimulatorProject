@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import {
   Calendar,
-  Clock,
-  User,
   ArrowRight,
   ArrowLeft,
 } from 'lucide-react'
@@ -13,51 +11,44 @@ export function CompanyNews() {
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null)
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3 font-sans">
       {selectedArticle ? (
-        /* Full Article View */
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs animate-fadeIn">
+        /* Concise Article View */
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs animate-fadeIn">
           <button
             type="button"
             onClick={() => {
               play('click')
               setSelectedArticle(null)
             }}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-[#003c6c] hover:underline mb-4 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-[#003c6c] hover:underline mb-3 cursor-pointer"
           >
-            <ArrowLeft className="size-3.5" /> Back to News Index
+            <ArrowLeft className="size-3.5" /> Back to Articles
           </button>
 
-          <div className="space-y-2">
-            <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-mono font-bold uppercase tracking-wider">
+          <div>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#f29813]">
               {selectedArticle.category}
             </span>
-            <h2 className="text-xl sm:text-2xl font-black text-[#0b1d2e]">
+            <h2 className="text-lg font-black text-[#0b1d2e] mt-0.5">
               {selectedArticle.title}
             </h2>
-            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 pt-1 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 pb-3 border-b border-slate-100">
               <span className="flex items-center gap-1">
-                <Calendar className="size-3.5 text-slate-400" />
+                <Calendar className="size-3" />
                 {selectedArticle.date}
               </span>
-              <span className="flex items-center gap-1">
-                <User className="size-3.5 text-slate-400" />
-                {selectedArticle.author}
-              </span>
-              <span className="flex items-center gap-1">
-                <Clock className="size-3.5 text-slate-400" />
-                {selectedArticle.readTime}
-              </span>
+              <span>· {selectedArticle.author}</span>
             </div>
           </div>
 
-          <div className="mt-5 prose prose-slate max-w-none text-xs sm:text-sm leading-relaxed text-slate-700 whitespace-pre-line">
+          <div className="mt-4 text-xs leading-relaxed text-slate-700 whitespace-pre-line space-y-2">
             {selectedArticle.body}
           </div>
         </div>
       ) : (
-        /* News List */
-        <div className="grid grid-cols-1 gap-4">
+        /* Concise News List */
+        <div className="grid grid-cols-1 gap-2.5">
           {VAULTTECH_NEWS.map((article) => (
             <div
               key={article.id}
@@ -65,32 +56,24 @@ export function CompanyNews() {
                 play('click')
                 setSelectedArticle(article)
               }}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:border-[#003c6c] hover:shadow-md transition cursor-pointer flex flex-col justify-between"
+              className="group bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs hover:border-[#003c6c] transition cursor-pointer flex items-center justify-between gap-4"
             >
-              <div>
-                <div className="flex items-center justify-between text-[11px] text-slate-500 mb-2">
-                  <span className="font-mono font-bold text-[#f29813] uppercase tracking-wider">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[10px] text-slate-400 mb-0.5">
+                  <span className="font-mono font-bold text-[#f29813] uppercase">
                     {article.category}
                   </span>
-                  <span className="flex items-center gap-1 text-slate-400">
-                    <Calendar className="size-3" />
-                    {article.date}
-                  </span>
+                  <span>· {article.date}</span>
                 </div>
-
-                <h3 className="font-sans text-base font-bold text-[#0b1d2e] group-hover:text-[#003c6c] transition">
+                <h3 className="font-bold text-xs sm:text-sm text-[#0b1d2e] group-hover:text-[#003c6c] transition truncate">
                   {article.title}
                 </h3>
-
-                <p className="mt-2 text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">
                   {article.summary}
                 </p>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-[#003c6c]">
-                <span>Read Full Article</span>
-                <ArrowRight className="size-3.5 group-hover:translate-x-1 transition-transform" />
-              </div>
+              <ArrowRight className="size-4 text-slate-400 group-hover:text-[#003c6c] group-hover:translate-x-0.5 transition shrink-0" />
             </div>
           ))}
         </div>

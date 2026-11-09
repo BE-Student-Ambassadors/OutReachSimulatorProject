@@ -64,7 +64,7 @@ export interface ScoreState {
   c3Points: number // default 150
   physicalLockBonus: number // default 50
   hintsUsed: string[] // IDs of revealed hints
-  hintPenalties: number // 25 per hint
+  hintPenalties: number // 0 (hints are free)
   total: number
 }
 
