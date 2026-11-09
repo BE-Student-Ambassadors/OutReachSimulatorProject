@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { Wrench } from 'lucide-react'
 import { MissionBriefing } from './components/MissionBriefing'
 import { ChallengeTracker } from './components/ChallengeTracker'
 import { HintModal } from './components/HintModal'
@@ -13,7 +12,7 @@ import { DecoderWorkspace } from './components/challenge3/DecoderWorkspace'
 import { Vulnerability3Card } from './components/challenge3/Vulnerability3Card'
 import { FinalSuccessScreen } from './components/FinalSuccessScreen'
 import { DevToolbar } from './components/dev/DevToolbar'
-import { isCyberlockDevMode, setCyberlockDevModeStored } from './services/devMode'
+import { isCyberlockDevMode } from './services/devMode'
 import {
   loadSavedSession,
   saveSession,
@@ -61,29 +60,12 @@ export function CyberlockApp() {
   const [showHintModal, setShowHintModal] = useState(false)
   const [showFacilitatorModal, setShowFacilitatorModal] = useState(false)
 
-  // Dev Mode state
+  // Dev Mode state (strictly enabled via URL parameter ?dev=true)
   const [devMode, setDevMode] = useState<boolean>(() => isCyberlockDevMode())
 
-  const handleToggleDevMode = () => {
-    setDevMode((prev) => {
-      const next = !prev
-      setCyberlockDevModeStored(next)
-      play(next ? 'sparkle' : 'pop')
-      return next
-    })
+  const handleCloseDevMode = () => {
+    setDevMode(false)
   }
-
-  // Keyboard shortcut Ctrl+Shift+D to toggle dev mode
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
-        e.preventDefault()
-        handleToggleDevMode()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   useEffect(() => {
     if (!session) return
@@ -263,8 +245,6 @@ export function CyberlockApp() {
             play('click')
             setShowFacilitatorModal(true)
           }}
-          devMode={devMode}
-          onToggleDevMode={handleToggleDevMode}
         />
       )}
 
@@ -274,8 +254,6 @@ export function CyberlockApp() {
           <MissionBriefing
             onStartSession={handleStartSession}
             onOpenFacilitator={() => setShowFacilitatorModal(true)}
-            devMode={devMode}
-            onToggleDevMode={handleToggleDevMode}
           />
         )}
 
@@ -368,8 +346,8 @@ export function CyberlockApp() {
         />
       )}
 
-      {/* Dev Mode Floating Trigger / Toolbar */}
-      {devMode ? (
+      {/* Dev Mode Toolbar (strictly active when opened via ?dev=true) */}
+      {devMode && (
         <DevToolbar
           currentStage={currentStage}
           session={session}
@@ -385,18 +363,8 @@ export function CyberlockApp() {
             else if (modal === 'facilitator') setShowFacilitatorModal(true)
           }}
           onResetSession={handleReset}
-          onCloseDevMode={handleToggleDevMode}
+          onCloseDevMode={handleCloseDevMode}
         />
-      ) : (
-        <button
-          type="button"
-          onClick={handleToggleDevMode}
-          className="fixed bottom-3 right-3 z-40 inline-flex items-center gap-1.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-slate-400 hover:text-amber-400 px-3 py-1.5 text-[11px] font-mono border border-slate-700/60 shadow-lg backdrop-blur-xs transition cursor-pointer"
-          title="Enable Dev Mode (Ctrl+Shift+D)"
-        >
-          <Wrench className="size-3" />
-          <span>Dev Mode</span>
-        </button>
       )}
     </div>
   )
