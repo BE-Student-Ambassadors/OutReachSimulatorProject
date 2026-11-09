@@ -11,7 +11,7 @@ import {
   KeyRound,
 } from 'lucide-react'
 import { DEV_LOCKBOX_PRESETS } from '../../services/devMode'
-import { combinationToHexAscii } from '../../server/cyberlockService'
+import { combinationToHexAscii } from '../../utils/cipherUtils'
 import { play } from '../../../../shared/audio/sfx'
 import type { ChallengeStage, SessionData, VaultRecord } from '../../types'
 

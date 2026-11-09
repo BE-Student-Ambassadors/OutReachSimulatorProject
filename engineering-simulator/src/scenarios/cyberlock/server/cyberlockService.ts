@@ -7,21 +7,9 @@
  */
 
 import type { LockboxConfig, VaultRecord, ShippingManifestEntry } from '../types.ts'
+import { combinationToHexAscii, hexAsciiToCombination } from '../utils/cipherUtils.ts'
 
-export function combinationToHexAscii(code: string): string {
-  return code
-    .split('')
-    .map((ch) => ch.charCodeAt(0).toString(16).toLowerCase())
-    .join(' ')
-}
-
-export function hexAsciiToCombination(hex: string): string {
-  return hex
-    .trim()
-    .split(/\s+/)
-    .map((h) => String.fromCharCode(parseInt(h, 16)))
-    .join('')
-}
+export { combinationToHexAscii, hexAsciiToCombination }
 
 /** Default lockboxes configured for BESA workshops */
 const DEFAULT_LOCKBOXES: LockboxConfig[] = [
@@ -43,7 +31,9 @@ export interface ActiveSession {
 export class CyberlockService {
   private lockboxes: Map<string, LockboxConfig> = new Map()
   private sessions: Map<string, ActiveSession> = new Map()
-  private adminToken: string = process.env.CYBERLOCK_ADMIN_KEY || 'besa-facilitator-2026'
+  private adminToken: string =
+    (typeof process !== 'undefined' && process?.env?.CYBERLOCK_ADMIN_KEY) ||
+    'besa-facilitator-2026'
 
   constructor() {
     this.resetToDefaults()

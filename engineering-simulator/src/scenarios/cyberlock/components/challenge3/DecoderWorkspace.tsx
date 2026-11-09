@@ -2,7 +2,7 @@ import { FileCode } from 'lucide-react'
 import { HexPrimer } from './HexPrimer'
 import { AsciiTableTool } from './AsciiTableTool'
 import { CombinationLockInput } from './CombinationLockInput'
-import { hexAsciiToCombination } from '../../server/cyberlockService'
+import { hexAsciiToCombination } from '../../utils/cipherUtils'
 import type { VaultRecord } from '../../types'
 
 interface DecoderWorkspaceProps {
