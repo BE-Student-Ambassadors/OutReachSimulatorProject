@@ -15,9 +15,10 @@ import { cyberlockApi } from '../../client/apiClient'
 
 interface LoginPortalProps {
   onLoginSuccess: (user: { username: string; name: string; department: string }) => void
+  devMode?: boolean
 }
 
-export function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
+export function LoginPortal({ onLoginSuccess, devMode }: LoginPortalProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -157,6 +158,22 @@ export function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
             <span>{loading ? 'Authenticating...' : 'Sign In to Portal'}</span>
             <ArrowRight className="size-4" />
           </button>
+
+          {devMode && (
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setUsername('amorgan')
+                  setPassword('Atlas2022')
+                  play('sparkle')
+                }}
+                className="w-full py-1.5 px-3 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 font-mono text-[11px] font-bold transition cursor-pointer"
+              >
+                🛠 Dev: Auto-Fill (amorgan / Atlas2022)
+              </button>
+            </div>
+          )}
         </form>
 
         <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 text-center text-[11px] text-slate-500 font-mono">

@@ -18,6 +18,8 @@ interface ChallengeTrackerProps {
   hintsUsedCount: number
   onOpenHints: () => void
   onOpenFacilitator: () => void
+  devMode?: boolean
+  onToggleDevMode?: () => void
 }
 
 const OBJECTIVES: Record<ChallengeStage, string> = {
@@ -38,6 +40,8 @@ export function ChallengeTracker({
   hintsUsedCount,
   onOpenHints,
   onOpenFacilitator,
+  devMode,
+  onToggleDevMode,
 }: ChallengeTrackerProps) {
   const [elapsed, setElapsed] = useState(0)
   const [showMenu, setShowMenu] = useState(false)
@@ -161,6 +165,18 @@ export function ChallengeTracker({
                 >
                   ⚙ Facilitator Panel
                 </button>
+                {onToggleDevMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMenu(false)
+                      onToggleDevMode()
+                    }}
+                    className="w-full mt-1 pt-1.5 border-t border-slate-800 text-left text-amber-400 hover:underline font-mono text-[11px]"
+                  >
+                    🛠 {devMode ? 'Disable Dev Mode' : 'Enable Dev Mode'}
+                  </button>
+                )}
               </div>
             )}
           </div>

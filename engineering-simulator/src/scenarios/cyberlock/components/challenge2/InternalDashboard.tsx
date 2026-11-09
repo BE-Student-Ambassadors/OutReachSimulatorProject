@@ -19,6 +19,7 @@ interface InternalDashboardProps {
   targetRecordId: string
   sessionId: string
   onCapturePayload: (record: VaultRecord) => void
+  devMode?: boolean
 }
 
 export function InternalDashboard({
@@ -28,6 +29,7 @@ export function InternalDashboard({
   targetRecordId,
   sessionId,
   onCapturePayload,
+  devMode,
 }: InternalDashboardProps) {
   // Check if current URL is a specific vault record, e.g. /vault/1001 or /vault/1003
   const vaultMatch = url.match(/\/vault\/([0-9a-zA-Z_-]+)/)
@@ -67,18 +69,34 @@ export function InternalDashboard({
           </div>
         </div>
 
-        {/* User profile badge */}
-        <div className="flex items-center gap-3 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
-          <div className="size-7 rounded-lg bg-[#003c6c] flex items-center justify-center font-bold text-xs text-white">
-            AM
-          </div>
-          <div className="text-right">
-            <span className="text-xs font-bold text-slate-200 block leading-tight">
-              Alex Morgan
-            </span>
-            <span className="text-[10px] font-mono text-amber-400 block leading-tight">
-              Clearance: Level 1 (Standard)
-            </span>
+        {/* User profile badge & dev helper */}
+        <div className="flex items-center gap-2">
+          {devMode && activeRecordId !== targetRecordId && (
+            <button
+              type="button"
+              onClick={() => {
+                play('sparkle')
+                onNavigateUrl(`/vault/${targetRecordId}`)
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-mono text-[11px] font-bold transition cursor-pointer"
+              title={`Direct navigate to assigned record #${targetRecordId}`}
+            >
+              🛠 Dev: Go to /vault/{targetRecordId}
+            </button>
+          )}
+
+          <div className="flex items-center gap-3 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+            <div className="size-7 rounded-lg bg-[#003c6c] flex items-center justify-center font-bold text-xs text-white">
+              AM
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-bold text-slate-200 block leading-tight">
+                Alex Morgan
+              </span>
+              <span className="text-[10px] font-mono text-amber-400 block leading-tight">
+                Clearance: Level 1 (Standard)
+              </span>
+            </div>
           </div>
         </div>
       </div>

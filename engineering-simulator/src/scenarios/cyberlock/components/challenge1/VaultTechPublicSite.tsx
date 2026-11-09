@@ -13,6 +13,7 @@ import { play } from '../../../../shared/audio/sfx'
 
 interface VaultTechPublicSiteProps {
   onLoginSuccess: (user: { username: string; name: string; department: string }) => void
+  devMode?: boolean
 }
 
 interface NavItem {
@@ -22,7 +23,7 @@ interface NavItem {
   highlight?: boolean
 }
 
-export function VaultTechPublicSite({ onLoginSuccess }: VaultTechPublicSiteProps) {
+export function VaultTechPublicSite({ onLoginSuccess, devMode }: VaultTechPublicSiteProps) {
   const [activeTab, setActiveTab] = useState<'directory' | 'news' | 'login'>('directory')
 
   const navItems: NavItem[] = [
@@ -83,7 +84,7 @@ export function VaultTechPublicSite({ onLoginSuccess }: VaultTechPublicSiteProps
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
         {activeTab === 'directory' && <EmployeeDirectory />}
         {activeTab === 'news' && <CompanyNews />}
-        {activeTab === 'login' && <LoginPortal onLoginSuccess={onLoginSuccess} />}
+        {activeTab === 'login' && <LoginPortal onLoginSuccess={onLoginSuccess} devMode={devMode} />}
       </main>
     </div>
   )

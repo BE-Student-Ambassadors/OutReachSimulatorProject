@@ -2,6 +2,7 @@ import { FileCode } from 'lucide-react'
 import { HexPrimer } from './HexPrimer'
 import { AsciiTableTool } from './AsciiTableTool'
 import { CombinationLockInput } from './CombinationLockInput'
+import { hexAsciiToCombination } from '../../server/cyberlockService'
 import type { VaultRecord } from '../../types'
 
 interface DecoderWorkspaceProps {
@@ -9,6 +10,7 @@ interface DecoderWorkspaceProps {
   serial: string
   sessionId: string
   onUnlockSuccess: (combination: string) => void
+  devMode?: boolean
 }
 
 export function DecoderWorkspace({
@@ -16,8 +18,10 @@ export function DecoderWorkspace({
   serial,
   sessionId,
   onUnlockSuccess,
+  devMode,
 }: DecoderWorkspaceProps) {
   const hexPayload = recoveredRecord?.hexPayload || '34 38 32 36'
+  const devCombination = hexAsciiToCombination(hexPayload)
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-5 font-sans">
@@ -62,6 +66,8 @@ export function DecoderWorkspace({
             sessionId={sessionId}
             serial={serial}
             onUnlockSuccess={onUnlockSuccess}
+            devMode={devMode}
+            devCombination={devCombination}
           />
         </div>
       </div>

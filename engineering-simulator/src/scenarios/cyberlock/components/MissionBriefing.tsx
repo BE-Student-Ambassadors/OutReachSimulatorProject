@@ -14,9 +14,16 @@ import type { SessionData } from '../types'
 interface MissionBriefingProps {
   onStartSession: (session: SessionData) => void
   onOpenFacilitator: () => void
+  devMode?: boolean
+  onToggleDevMode?: () => void
 }
 
-export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBriefingProps) {
+export function MissionBriefing({
+  onStartSession,
+  onOpenFacilitator,
+  devMode,
+  onToggleDevMode,
+}: MissionBriefingProps) {
   const [serial, setSerial] = useState('BESA-0427')
   const [teamName, setTeamName] = useState('Team Slug')
   const [loading, setLoading] = useState(false)
@@ -165,13 +172,24 @@ export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBr
           </div>
 
           <div className="pt-3 border-t border-[#d8e0ea] flex items-center justify-between">
-            <button
-              type="button"
-              onClick={onOpenFacilitator}
-              className="text-xs font-mono text-slate-500 hover:text-[#003c6c] hover:underline cursor-pointer"
-            >
-              Facilitator Mode
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onOpenFacilitator}
+                className="text-xs font-mono text-slate-500 hover:text-[#003c6c] hover:underline cursor-pointer"
+              >
+                Facilitator Mode
+              </button>
+              {onToggleDevMode && (
+                <button
+                  type="button"
+                  onClick={onToggleDevMode}
+                  className="text-xs font-mono text-amber-600 hover:text-amber-700 hover:underline cursor-pointer"
+                >
+                  {devMode ? 'Exit Dev' : 'Dev Mode'}
+                </button>
+              )}
+            </div>
 
             <button
               type="submit"
