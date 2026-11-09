@@ -51,7 +51,7 @@ export interface DevPresetLockbox {
 }
 
 export const DEV_LOCKBOX_PRESETS: DevPresetLockbox[] = [
-  { serial: 'BESA-0427', recordId: '1042', combination: '5183', label: 'Vault DTI Special' },
+  { serial: 'BESA-0427', recordId: '1003', combination: '4826', label: 'Vault DTI Special' },
   { serial: 'BESA-0001', recordId: '1003', combination: '4826', label: 'Vault Alpha' },
   { serial: 'BESA-0002', recordId: '1014', combination: '1937', label: 'Vault Bravo' },
   { serial: 'BESA-0003', recordId: '1027', combination: '6504', label: 'Vault Charlie' },

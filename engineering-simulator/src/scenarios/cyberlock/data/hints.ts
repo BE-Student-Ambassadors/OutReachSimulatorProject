@@ -49,15 +49,6 @@ export const CHALLENGE_HINTS: Record<'challenge1' | 'challenge2' | 'challenge3',
         'Open Record #1001 or #1002 from the Vault Records list. Observe the simulated browser address bar at the top: notice how the URL ends with "/vault/1001" or "/vault/1002".',
       pointsDeducted: 0,
     },
-    {
-      id: 'c2_h3',
-      challenge: 'challenge2',
-      level: 3,
-      title: 'Edit the Record Number in the Address Bar',
-      content:
-        'Although the internal web buttons block Level 1 users from restricted records, the backend does not verify permissions on direct object URLs! Click the address bar, replace the number with your lockbox’s record ID (e.g. /vault/1003 or your record ID), and press Enter.',
-      pointsDeducted: 0,
-    },
   ],
   challenge3: [
     {
