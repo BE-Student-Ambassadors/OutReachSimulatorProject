@@ -5,7 +5,7 @@
 export type ChallengeStage = 'onboarding' | 'challenge1' | 'challenge2' | 'challenge3' | 'success'
 
 export interface LockboxConfig {
-  serial: string // e.g. "BESA-0427"
+  serial: string // e.g. "BESA-0005"
   recordId: string // e.g. "1003"
   combination: string // 4 digits, e.g. "4826"
   label?: string

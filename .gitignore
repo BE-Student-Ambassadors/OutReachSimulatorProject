@@ -1,3 +1,6 @@
+node_modules/
+dist/
+.DS_Store
 
 # Firebase emulator logs
 firestore-debug.log

@@ -5,7 +5,11 @@ import {
   Settings,
   Target,
   X,
+  CheckCircle2,
+  Lock,
+  RotateCcw,
 } from 'lucide-react'
+import { play } from '../../../shared/audio/sfx'
 import type { ChallengeStage } from '../types'
 
 interface ChallengeTrackerProps {
@@ -18,6 +22,8 @@ interface ChallengeTrackerProps {
   hintsUsedCount: number
   onOpenHints: () => void
   onOpenFacilitator: () => void
+  onSelectStage?: (stage: ChallengeStage) => void
+  onResetGame?: () => void
 }
 
 const OBJECTIVES: Record<ChallengeStage, string> = {
@@ -27,6 +33,12 @@ const OBJECTIVES: Record<ChallengeStage, string> = {
   challenge3: 'Decode the data to recover your 4-digit code.',
   success: 'Enter the code on your physical lockbox.',
 }
+
+const STAGES: { id: ChallengeStage; step: number; shortLabel: string; title: string }[] = [
+  { id: 'challenge1', step: 1, shortLabel: '1. Access', title: 'Stage 1: Gain Access (Staff Directory & Portal)' },
+  { id: 'challenge2', step: 2, shortLabel: '2. Find Flaw', title: 'Stage 2: Find Flaw (Intranet & Restricted Vault)' },
+  { id: 'challenge3', step: 3, shortLabel: '3. Decode', title: 'Stage 3: Decode (Hex ASCII Combination Lock)' },
+]
 
 export function ChallengeTracker({
   currentStage,
@@ -38,6 +50,8 @@ export function ChallengeTracker({
   hintsUsedCount,
   onOpenHints,
   onOpenFacilitator,
+  onSelectStage,
+  onResetGame,
 }: ChallengeTrackerProps) {
   const [elapsed, setElapsed] = useState(0)
   const [showMenu, setShowMenu] = useState(false)
@@ -55,24 +69,103 @@ export function ChallengeTracker({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
 
-  const stageNumber =
-    currentStage === 'challenge1'
-      ? '1/3'
-      : currentStage === 'challenge2'
-      ? '2/3'
-      : currentStage === 'challenge3'
-      ? '3/3'
-      : 'Complete'
+  // Determine which stages have been accessed/unlocked
+  const isStageUnlocked = (stageId: ChallengeStage): boolean => {
+    if (stageId === 'challenge1') return true
+    if (stageId === 'challenge2') {
+      return (
+        completedStages.includes('challenge1') ||
+        currentStage === 'challenge2' ||
+        currentStage === 'challenge3' ||
+        currentStage === 'success'
+      )
+    }
+    if (stageId === 'challenge3') {
+      return (
+        completedStages.includes('challenge2') ||
+        currentStage === 'challenge3' ||
+        currentStage === 'success'
+      )
+    }
+    if (stageId === 'success') {
+      return completedStages.includes('challenge3') || currentStage === 'success'
+    }
+    return false
+  }
 
   return (
     <header className="w-full bg-[#002b4d] text-white border-b border-[#003c6c] px-4 py-2 sm:px-6 shadow-sm select-none font-sans">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
-        {/* Left: Stage & Serial */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <span className="rounded-lg bg-[#f29813] px-2.5 py-1 text-xs font-black uppercase tracking-wider text-slate-950">
-            Stage {stageNumber}
-          </span>
-          <span className="font-mono text-xs font-bold text-[#fdc700] bg-white/10 px-2 py-0.5 rounded border border-white/20">
+        {/* Left: Interactive Stage Navigation & Serial */}
+        <div className="flex items-center gap-2 shrink-0">
+          <nav aria-label="Stages" className="inline-flex items-center rounded-xl bg-black/30 p-1 border border-white/10 shadow-inner">
+            {STAGES.map((s) => {
+              const isActive = currentStage === s.id
+              const isCompleted = completedStages.includes(s.id)
+              const isUnlocked = isStageUnlocked(s.id)
+
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  disabled={!isUnlocked}
+                  onClick={() => {
+                    if (isUnlocked) {
+                      play('click')
+                      onSelectStage?.(s.id)
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                    isActive
+                      ? 'bg-[#f29813] text-slate-950 shadow-md font-black scale-100 cursor-default'
+                      : !isUnlocked
+                      ? 'text-slate-500/50 cursor-not-allowed opacity-60'
+                      : isCompleted
+                      ? 'text-emerald-400 hover:text-white hover:bg-white/10 cursor-pointer'
+                      : 'text-slate-200 hover:text-white hover:bg-white/10 cursor-pointer'
+                  }`}
+                  title={
+                    !isUnlocked
+                      ? `Complete Stage ${s.step - 1} to unlock`
+                      : s.title
+                  }
+                >
+                  {isActive ? (
+                    <span className="size-1.5 rounded-full shrink-0 bg-slate-950" />
+                  ) : !isUnlocked ? (
+                    <Lock className="size-3 text-slate-500/70 shrink-0" />
+                  ) : isCompleted ? (
+                    <CheckCircle2 className="size-3 text-emerald-400 shrink-0" />
+                  ) : (
+                    <span className="size-1.5 rounded-full shrink-0 bg-amber-400" />
+                  )}
+                  <span className="hidden sm:inline">{s.shortLabel}</span>
+                  <span className="sm:hidden">{s.step}</span>
+                </button>
+              )
+            })}
+
+            {/* Debrief tab if unlocked or currently on victory screen */}
+            {(completedStages.includes('challenge3') || currentStage === 'success') && (
+              <button
+                type="button"
+                onClick={() => {
+                  play('click')
+                  onSelectStage?.('success')
+                }}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  currentStage === 'success'
+                    ? 'bg-[#f29813] text-slate-950 shadow-md font-black'
+                    : 'text-[#fdc700] hover:text-white hover:bg-white/10'
+                }`}
+                title="Mission Complete Debrief"
+              >
+                <span>★ Debrief</span>
+              </button>
+            )}
+          </nav>
+
+          <span className="font-mono text-xs font-bold text-[#fdc700] bg-white/10 px-2.5 py-1 rounded-lg border border-white/20">
             {serial}
           </span>
         </div>
@@ -109,6 +202,22 @@ export function ChallengeTracker({
               </span>
             )}
           </button>
+
+          {/* Reset Game Button */}
+          {onResetGame && (
+            <button
+              type="button"
+              onClick={() => {
+                play('click')
+                onResetGame()
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 hover:bg-rose-500/20 hover:text-rose-200 hover:border-rose-400/40 border border-white/15 px-2.5 py-1 text-xs font-semibold text-slate-300 transition active:translate-y-0.5 cursor-pointer"
+              title="Reset Mission"
+            >
+              <RotateCcw className="size-3.5" />
+              <span className="hidden sm:inline">Reset</span>
+            </button>
+          )}
 
           {/* Compact Info & Facilitator Menu Toggle */}
           <div className="relative">
@@ -157,10 +266,24 @@ export function ChallengeTracker({
                     setShowMenu(false)
                     onOpenFacilitator()
                   }}
-                  className="w-full mt-1 pt-2 border-t border-slate-800 text-left text-[#fdc700] hover:underline font-mono text-[11px]"
+                  className="w-full mt-1 pt-2 border-t border-slate-800 text-left text-[#fdc700] hover:underline font-mono text-[11px] cursor-pointer"
                 >
                   ⚙ Facilitator Panel
                 </button>
+                {onResetGame && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMenu(false)
+                      play('click')
+                      onResetGame()
+                    }}
+                    className="w-full mt-1.5 pt-2 border-t border-slate-800 text-left text-rose-400 hover:text-rose-300 hover:underline font-mono text-[11px] flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw className="size-3" />
+                    <span>Reset Game</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
