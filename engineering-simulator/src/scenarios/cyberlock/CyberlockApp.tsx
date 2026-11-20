@@ -14,6 +14,7 @@ import { Vulnerability3Card } from './components/challenge3/Vulnerability3Card'
 import { FinalSuccessScreen } from './components/FinalSuccessScreen'
 import { DevToolbar } from './components/dev/DevToolbar'
 import { isCyberlockDevMode } from './services/devMode'
+import { cyberlockService } from './server/cyberlockService'
 import {
   loadSavedSession,
   saveSession,
@@ -233,6 +234,48 @@ export function CyberlockApp() {
     if (stage === 'challenge2' && !browserUrl) {
       setBrowserUrl('/portal')
     }
+    // In dev mode, ensure mock recovered record is available when jumping straight to challenge3 or success
+    if ((stage === 'challenge3' || stage === 'success') && !recoveredRecord) {
+      setRecoveredRecord({
+        id: session?.targetRecordId || '1003',
+        title: `Classified Vault Asset - Storage Unit ${session?.serial || 'BESA-0001'}`,
+        classification: 'Restricted',
+        isRestricted: true,
+        accessAllowedInUI: false,
+        serial: session?.serial || 'BESA-0001',
+        hexPayload: '34 38 32 36',
+        encodingFormat: 'Hexadecimal ASCII Byte Sequence (Base-16)',
+        content: `AUTHORIZED LOGISTICS DATA DUMP:\nPhysical Hardware Asset: ${session?.serial || 'BESA-0001'} (Vault DTI Special)\nRouting Code: Baskin Engineering / DTI Outreach\nSecurity Protocol: Encoded Lock Register (Hardware Lockbox Model 4-Dial)`,
+        timestamp: '2026-11-06 09:44:22 PST',
+      })
+    }
+  }
+
+  // 10. Skip directly to end & unlock physical lockbox
+  const handleSkipToUnlock = (serialInput: string, teamNameInput: string) => {
+    const cleanSerial = serialInput.trim().toUpperCase() || 'BESA-0001'
+    const lockbox = cyberlockService.getLockbox(cleanSerial)
+    const code = lockbox ? lockbox.combination : '4826'
+    const targetRecordId = lockbox ? lockbox.recordId : '1003'
+
+    const newSession: SessionData = {
+      sessionId: 'unlock_session_' + Date.now().toString(36),
+      serial: cleanSerial,
+      teamName: teamNameInput.trim() || 'Team Vaultbreak',
+      currentStage: 'success',
+      completedStages: ['challenge1', 'challenge2', 'challenge3'],
+      revealedHints: [],
+      startTime: Date.now(),
+      completionTime: Date.now(),
+      targetRecordId,
+      physicalLockOpened: false,
+    }
+
+    setSession(newSession)
+    setFinalCombination(code)
+    setCompletedStages(['challenge1', 'challenge2', 'challenge3'])
+    setScoreState(recalculateScore(100, 200, 150, 0, []))
+    setCurrentStage('success')
   }
 
   return (
@@ -257,6 +300,7 @@ export function CyberlockApp() {
           }}
           onSelectStage={handleSelectStage}
           onResetGame={() => setShowResetConfirmModal(true)}
+          devMode={devMode}
         />
       )}
 
@@ -266,6 +310,32 @@ export function CyberlockApp() {
           <MissionBriefing
             onStartSession={handleStartSession}
             onOpenFacilitator={() => setShowFacilitatorModal(true)}
+            onSkipToUnlock={handleSkipToUnlock}
+            onQuickJump={(stage) => {
+              const cleanSerial = 'BESA-0001'
+              const devSession: SessionData = {
+                sessionId: 'dev_session_' + Date.now().toString(36),
+                serial: cleanSerial,
+                teamName: 'Team Dev',
+                currentStage: stage,
+                completedStages:
+                  stage === 'challenge2'
+                    ? ['challenge1']
+                    : stage === 'challenge3'
+                    ? ['challenge1', 'challenge2']
+                    : stage === 'success'
+                    ? ['challenge1', 'challenge2', 'challenge3']
+                    : [],
+                revealedHints: [],
+                startTime: Date.now(),
+                completionTime: stage === 'success' ? Date.now() : null,
+                targetRecordId: '1003',
+                physicalLockOpened: stage === 'success',
+              }
+              setSession(devSession)
+              handleSelectStage(stage)
+            }}
+            devMode={devMode}
           />
         )}
 

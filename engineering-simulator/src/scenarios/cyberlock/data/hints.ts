@@ -26,7 +26,7 @@ export const CHALLENGE_HINTS: Record<'challenge1' | 'challenge2' | 'challenge3',
       level: 3,
       title: 'Combine Favorite Project and Year Joined',
       content:
-        'In Company News, Alex oversaw deployment of the "Atlas" robotic arm when he joined in 2022 and warned staff against passwords formatted as [Project][Year]. Try combining them: "Atlas2022" (capital A).',
+        'In Company News, Alex oversaw deployment of the "Atlas" robotic arm when he joined in 2022 and warned staff against passwords formatted as [Project][Year].',
       pointsDeducted: 0,
     },
   ],
