@@ -8,8 +8,6 @@ import {
   KeyRound,
   Shield,
   FileCode,
-  CheckCircle2,
-  XCircle,
   Scale,
   Lock,
   Unlock,
@@ -121,16 +119,16 @@ export function MissionBriefing({
                   </div>
 
                   <ul className="space-y-2 text-xs text-slate-700">
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
+                    <li className="flex items-start gap-2.5">
+                      <span className="size-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
                       <span><strong>Authorized:</strong> Hired by companies to test defenses with clear permission.</span>
                     </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
+                    <li className="flex items-start gap-2.5">
+                      <span className="size-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
                       <span><strong>Fixes Flaws:</strong> Privately reports vulnerabilities so engineers can patch them.</span>
                     </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
+                    <li className="flex items-start gap-2.5">
+                      <span className="size-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
                       <span><strong>Real Career:</strong> High-paying roles like Penetration Tester & Security Engineer.</span>
                     </li>
                   </ul>
@@ -148,16 +146,16 @@ export function MissionBriefing({
                   </div>
 
                   <ul className="space-y-2 text-xs text-slate-700">
-                    <li className="flex items-start gap-2">
-                      <XCircle className="size-4 shrink-0 text-rose-500 mt-0.5" />
+                    <li className="flex items-start gap-2.5">
+                      <span className="size-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
                       <span><strong>No Consent:</strong> Breaking into networks or accounts without permission is illegal trespassing.</span>
                     </li>
-                    <li className="flex items-start gap-2">
-                      <XCircle className="size-4 shrink-0 text-rose-500 mt-0.5" />
+                    <li className="flex items-start gap-2.5">
+                      <span className="size-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
                       <span><strong>Causes Harm:</strong> Stealing data, deploying ransomware, or selling private info.</span>
                     </li>
-                    <li className="flex items-start gap-2">
-                      <XCircle className="size-4 shrink-0 text-rose-500 mt-0.5" />
+                    <li className="flex items-start gap-2.5">
+                      <span className="size-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
                       <span><strong>Federal Crime:</strong> Carries severe prison sentences under the CFAA and a felony record.</span>
                     </li>
                   </ul>
