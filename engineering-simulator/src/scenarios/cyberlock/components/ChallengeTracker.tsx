@@ -24,6 +24,7 @@ interface ChallengeTrackerProps {
   onOpenFacilitator: () => void
   onSelectStage?: (stage: ChallengeStage) => void
   onResetGame?: () => void
+  devMode?: boolean
 }
 
 const OBJECTIVES: Record<ChallengeStage, string> = {
@@ -52,9 +53,11 @@ export function ChallengeTracker({
   onOpenFacilitator,
   onSelectStage,
   onResetGame,
+  devMode,
 }: ChallengeTrackerProps) {
   const [elapsed, setElapsed] = useState(0)
   const [showMenu, setShowMenu] = useState(false)
+  const isDev = Boolean(import.meta.env.DEV || devMode)
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -71,6 +74,8 @@ export function ChallengeTracker({
 
   // Determine which stages have been accessed/unlocked
   const isStageUnlocked = (stageId: ChallengeStage): boolean => {
+    // In dev mode, allow navigating freely between all stages without prerequisites
+    if (isDev) return true
     if (stageId === 'challenge1') return true
     if (stageId === 'challenge2') {
       return (
@@ -145,8 +150,8 @@ export function ChallengeTracker({
               )
             })}
 
-            {/* Debrief tab if unlocked or currently on victory screen */}
-            {(completedStages.includes('challenge3') || currentStage === 'success') && (
+            {/* Debrief tab if unlocked or in dev mode */}
+            {(isDev || completedStages.includes('challenge3') || currentStage === 'success') && (
               <button
                 type="button"
                 onClick={() => {

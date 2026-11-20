@@ -12,22 +12,33 @@ import {
   XCircle,
   Scale,
   Lock,
+  Unlock,
 } from 'lucide-react'
 import { play } from '../../../shared/audio/sfx'
 import { cyberlockApi } from '../client/apiClient'
-import type { SessionData } from '../types'
+import type { ChallengeStage, SessionData } from '../types'
 
 interface MissionBriefingProps {
   onStartSession: (session: SessionData) => void
   onOpenFacilitator: () => void
+  onSkipToUnlock: (serial: string, teamName: string) => void
+  onQuickJump?: (stage: ChallengeStage) => void
+  devMode?: boolean
 }
 
-export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBriefingProps) {
+export function MissionBriefing({
+  onStartSession,
+  onOpenFacilitator,
+  onSkipToUnlock,
+  onQuickJump,
+  devMode,
+}: MissionBriefingProps) {
   const [step, setStep] = useState<'ethics' | 'setup'>('ethics')
   const [serial, setSerial] = useState('BESA-0001')
   const [teamName, setTeamName] = useState('Team Slug')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isDev = Boolean(import.meta.env.DEV || devMode)
 
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -83,16 +94,16 @@ export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBr
           <div className="bg-gradient-to-r from-[#002b4d] via-[#003c6c] to-[#0b1d2e] p-6 text-white text-center">
             <div className="inline-flex items-center gap-1.5 rounded-full bg-[#f29813]/20 border border-[#f29813]/40 px-3 py-0.5 text-xs font-mono font-bold uppercase tracking-wider text-[#fdc700] mb-2">
               <Scale className="size-3.5 text-[#f29813]" />
-              Rules of Engagement · Cybersecurity Ethics
+              Rules of Engagement
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-              Ethical vs. Non-Ethical Hacking
+              The Golden Rule: Permission
             </h1>
 
             <p className="mt-2 text-sm text-slate-200 leading-relaxed max-w-lg mx-auto">
-              In cybersecurity, technical capability must always be paired with ethical responsibility.
-              What separates a defender from a criminal is <strong>permission</strong>, <strong>intent</strong>, and <strong>accountability</strong>.
+              The same skills that protect a hospital or bank can also cause serious harm.
+              What separates a cybersecurity defender from a criminal is simple: <strong>permission</strong>.
             </p>
           </div>
 
@@ -100,84 +111,54 @@ export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBr
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* White Hat (Ethical) */}
-              <div className="rounded-xl border-2 border-emerald-500/30 bg-emerald-50/40 p-4 flex flex-col justify-between">
+              <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-4 flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="inline-flex items-center gap-1.5 text-emerald-800 font-bold text-sm">
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-emerald-200/60">
+                    <div className="inline-flex items-center gap-2 text-emerald-900 font-bold text-sm">
                       <ShieldCheck className="size-5 text-emerald-600" />
-                      <span>Ethical Hacking</span>
+                      <span>White Hat (Defender)</span>
                     </div>
-                    <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">
-                      White Hat
-                    </span>
                   </div>
 
-                  <ul className="space-y-2.5 text-xs text-slate-700">
+                  <ul className="space-y-2 text-xs text-slate-700">
                     <li className="flex items-start gap-2">
                       <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
-                      <span>
-                        <strong>Explicit Permission:</strong> Always authorized under written contracts and strict rules of engagement.
-                      </span>
+                      <span><strong>Authorized:</strong> Hired by companies to test defenses with clear permission.</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
-                      <span>
-                        <strong>Protective Mission:</strong> Identifies security flaws to help organizations patch and defend systems.
-                      </span>
+                      <span><strong>Fixes Flaws:</strong> Privately reports vulnerabilities so engineers can patch them.</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
-                      <span>
-                        <strong>Responsible Disclosure:</strong> Reports findings privately to system owners without public data leaks.
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
-                      <span>
-                        <strong>Career Path:</strong> High-impact, respected profession (Penetration Tester, Security Analyst, Bug Bounty Hunter).
-                      </span>
+                      <span><strong>Real Career:</strong> High-paying roles like Penetration Tester & Security Engineer.</span>
                     </li>
                   </ul>
                 </div>
               </div>
 
               {/* Black Hat (Non-Ethical) */}
-              <div className="rounded-xl border-2 border-rose-500/30 bg-rose-50/40 p-4 flex flex-col justify-between">
+              <div className="rounded-xl border border-rose-300 bg-rose-50/50 p-4 flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="inline-flex items-center gap-1.5 text-rose-800 font-bold text-sm">
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-rose-200/60">
+                    <div className="inline-flex items-center gap-2 text-rose-900 font-bold text-sm">
                       <ShieldAlert className="size-5 text-rose-600" />
-                      <span>Malicious Hacking</span>
+                      <span>Black Hat (Criminal)</span>
                     </div>
-                    <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200">
-                      Black Hat
-                    </span>
                   </div>
 
-                  <ul className="space-y-2.5 text-xs text-slate-700">
+                  <ul className="space-y-2 text-xs text-slate-700">
                     <li className="flex items-start gap-2">
                       <XCircle className="size-4 shrink-0 text-rose-500 mt-0.5" />
-                      <span>
-                        <strong>Zero Consent:</strong> Trespasses and infiltrates networks or devices without owner knowledge.
-                      </span>
+                      <span><strong>No Consent:</strong> Breaking into networks or accounts without permission is illegal trespassing.</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <XCircle className="size-4 shrink-0 text-rose-500 mt-0.5" />
-                      <span>
-                        <strong>Malicious Intent:</strong> Steals private credentials, deploys ransomware, extorts money, or defaces websites.
-                      </span>
+                      <span><strong>Causes Harm:</strong> Stealing data, deploying ransomware, or selling private info.</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <XCircle className="size-4 shrink-0 text-rose-500 mt-0.5" />
-                      <span>
-                        <strong>Exploitation & Leaks:</strong> Sells confidential records on dark-web forums or causes disruption.
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <XCircle className="size-4 shrink-0 text-rose-500 mt-0.5" />
-                      <span>
-                        <strong>Criminal Prosecution:</strong> Severe federal felonies under the CFAA, prison sentences, and criminal record.
-                      </span>
+                      <span><strong>Federal Crime:</strong> Carries severe prison sentences under the CFAA and a felony record.</span>
                     </li>
                   </ul>
                 </div>
@@ -190,9 +171,9 @@ export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBr
                 <Lock className="size-5" />
               </div>
               <div className="text-xs text-slate-700 leading-relaxed">
-                <p className="font-bold text-[#002b4d]">Your Role Today: Authorized White Hat Analysts</p>
+                <p className="font-bold text-[#002b4d]">Your mission today:</p>
                 <p className="text-slate-600">
-                  You are authorized to investigate VaultTech's simulated environment. Your goal is to uncover security oversights and recover your team's lockbox code.
+                  You are an authorized White Hat analyst. You have full permission to investigate VaultTech's simulated intranet, find their security flaws, and crack the lockbox code!
                 </p>
               </div>
             </div>
@@ -215,7 +196,7 @@ export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBr
                 }}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] hover:bg-[#f29813] px-5 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-white shadow-sm transition active:translate-y-0.5 cursor-pointer"
               >
-                <span>Accept Rules & Continue</span>
+                <span>I Understand — Let's Hack</span>
                 <ArrowRight className="size-4" />
               </button>
             </div>
@@ -318,8 +299,57 @@ export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBr
               ))}
             </div>
 
+            {/* Dev Mode Quick Jump Bar */}
+            {isDev && onQuickJump && (
+              <div className="pt-2 border-t border-dashed border-amber-300/80 bg-amber-50/70 -mx-6 px-6 py-2 flex flex-wrap items-center justify-between gap-1 text-xs">
+                <span className="font-mono font-bold text-amber-800 text-[11px]">🛠 Dev Stage Jump:</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      play('click')
+                      onQuickJump('challenge1')
+                    }}
+                    className="px-2 py-0.5 rounded bg-white border border-amber-300 text-amber-900 font-bold text-[11px] hover:bg-amber-100 cursor-pointer"
+                  >
+                    1. Access
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      play('click')
+                      onQuickJump('challenge2')
+                    }}
+                    className="px-2 py-0.5 rounded bg-white border border-amber-300 text-amber-900 font-bold text-[11px] hover:bg-amber-100 cursor-pointer"
+                  >
+                    2. Flaw
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      play('click')
+                      onQuickJump('challenge3')
+                    }}
+                    className="px-2 py-0.5 rounded bg-white border border-amber-300 text-amber-900 font-bold text-[11px] hover:bg-amber-100 cursor-pointer"
+                  >
+                    3. Decode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      play('click')
+                      onQuickJump('success')
+                    }}
+                    className="px-2 py-0.5 rounded bg-white border border-amber-300 text-amber-900 font-bold text-[11px] hover:bg-amber-100 cursor-pointer"
+                  >
+                    ★ Debrief
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Footer Navigation */}
-            <div className="pt-3 border-t border-[#d8e0ea] flex items-center justify-between">
+            <div className="pt-3 border-t border-[#d8e0ea] flex flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -329,17 +359,32 @@ export function MissionBriefing({ onStartSession, onOpenFacilitator }: MissionBr
                 className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-[#003c6c] cursor-pointer"
               >
                 <ArrowLeft className="size-3.5" />
-                <span>Review Ethics Briefing</span>
+                <span>Review Ethics</span>
               </button>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] hover:bg-[#f29813] px-5 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-white shadow-sm transition active:translate-y-0.5 cursor-pointer disabled:opacity-50"
-              >
-                <span>{loading ? 'Starting...' : 'Start Mission'}</span>
-                <ArrowRight className="size-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    play('sparkle')
+                    onSkipToUnlock(serial, teamName)
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 px-3.5 py-2.5 font-sans text-xs font-bold text-amber-900 transition active:translate-y-0.5 cursor-pointer shadow-2xs"
+                  title="Reveal the 4-digit combination for your physical lockbox immediately"
+                >
+                  <Unlock className="size-3.5 text-amber-600" />
+                  <span>Get Code & Unlock</span>
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] hover:bg-[#f29813] px-5 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-white shadow-sm transition active:translate-y-0.5 cursor-pointer disabled:opacity-50"
+                >
+                  <span>{loading ? 'Starting...' : 'Start Mission'}</span>
+                  <ArrowRight className="size-4" />
+                </button>
+              </div>
             </div>
           </form>
         </div>
