@@ -215,7 +215,9 @@ export function MissionBriefing({
             </h1>
 
             <p className="mt-2 text-sm text-slate-200 leading-relaxed max-w-md mx-auto">
-              Your lockbox contains a secret prize. Hack into VaultTech's simulated system to recover its 4-digit code.
+              Your lockbox contains a secret prize.
+              <br />
+              Hack into VaultTech's simulated system to recover its 4-digit code.
             </p>
 
             {/* 3 Compact Stage Indicators */}
