@@ -8,7 +8,6 @@ import {
   KeyRound,
   Shield,
   FileCode,
-  Scale,
   Lock,
   Unlock,
 } from 'lucide-react'
@@ -89,14 +88,9 @@ export function MissionBriefing({
         /* STEP 1: Ethical vs Non-Ethical Hacking Rules of Engagement */
         <div className="w-full max-w-2xl bg-white border border-[#d8e0ea] rounded-2xl shadow-xl overflow-hidden">
           {/* Header */}
-          <div className="bg-gradient-to-r from-[#002b4d] via-[#003c6c] to-[#0b1d2e] p-6 text-white text-center">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-[#f29813]/20 border border-[#f29813]/40 px-3 py-0.5 text-xs font-mono font-bold uppercase tracking-wider text-[#fdc700] mb-2">
-              <Scale className="size-3.5 text-[#f29813]" />
-              Rules of Engagement
-            </div>
-
+          <div className="bg-[#002b4d] p-6 text-white text-center">
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-              The Golden Rule: Permission
+              Rules of Engagement
             </h1>
 
             <p className="mt-2 text-sm text-slate-200 leading-relaxed max-w-lg mx-auto">
@@ -109,53 +103,59 @@ export function MissionBriefing({
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* White Hat (Ethical) */}
-              <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-4 flex flex-col justify-between">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-emerald-200/60">
-                    <div className="inline-flex items-center gap-2 text-emerald-900 font-bold text-sm">
-                      <ShieldCheck className="size-5 text-emerald-600" />
-                      <span>White Hat (Defender)</span>
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200">
+                    <div className="inline-flex items-center gap-2 text-[#002b4d] font-bold text-sm">
+                      <ShieldCheck className="size-4 text-[#003c6c]" />
+                      <span>White Hat (Defenders)</span>
                     </div>
+                    <span className="text-[10px] font-mono font-semibold uppercase px-2 py-0.5 rounded bg-white text-slate-600 border border-slate-200">
+                      Ethical
+                    </span>
                   </div>
 
-                  <ul className="space-y-2 text-xs text-slate-700">
-                    <li className="flex items-start gap-2.5">
-                      <span className="size-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-                      <span><strong>Authorized:</strong> Hired by companies to test defenses with clear permission.</span>
+                  <ul className="space-y-2.5 text-xs text-slate-700">
+                    <li className="flex items-start gap-2">
+                      <span className="size-1.5 rounded-full bg-[#003c6c] mt-1.5 shrink-0" />
+                      <span><strong>Authorized:</strong> Hired by companies to test defenses with explicit permission.</span>
                     </li>
-                    <li className="flex items-start gap-2.5">
-                      <span className="size-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+                    <li className="flex items-start gap-2">
+                      <span className="size-1.5 rounded-full bg-[#003c6c] mt-1.5 shrink-0" />
                       <span><strong>Fixes Flaws:</strong> Privately reports vulnerabilities so engineers can patch them.</span>
                     </li>
-                    <li className="flex items-start gap-2.5">
-                      <span className="size-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-                      <span><strong>Real Career:</strong> High-paying roles like Penetration Tester & Security Engineer.</span>
+                    <li className="flex items-start gap-2">
+                      <span className="size-1.5 rounded-full bg-[#003c6c] mt-1.5 shrink-0" />
+                      <span><strong>Real Career:</strong> High-paying roles like Security Analyst & Penetration Tester.</span>
                     </li>
                   </ul>
                 </div>
               </div>
 
               {/* Black Hat (Non-Ethical) */}
-              <div className="rounded-xl border border-rose-300 bg-rose-50/50 p-4 flex flex-col justify-between">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-rose-200/60">
-                    <div className="inline-flex items-center gap-2 text-rose-900 font-bold text-sm">
-                      <ShieldAlert className="size-5 text-rose-600" />
-                      <span>Black Hat (Criminal)</span>
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200">
+                    <div className="inline-flex items-center gap-2 text-slate-800 font-bold text-sm">
+                      <ShieldAlert className="size-4 text-slate-600" />
+                      <span>Black Hat (Criminals)</span>
                     </div>
+                    <span className="text-[10px] font-mono font-semibold uppercase px-2 py-0.5 rounded bg-white text-slate-600 border border-slate-200">
+                      Malicious
+                    </span>
                   </div>
 
-                  <ul className="space-y-2 text-xs text-slate-700">
-                    <li className="flex items-start gap-2.5">
-                      <span className="size-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
-                      <span><strong>No Consent:</strong> Breaking into networks or accounts without permission is illegal trespassing.</span>
+                  <ul className="space-y-2.5 text-xs text-slate-700">
+                    <li className="flex items-start gap-2">
+                      <span className="size-1.5 rounded-full bg-slate-400 mt-1.5 shrink-0" />
+                      <span><strong>No Consent:</strong> Infiltrating networks without permission is illegal trespassing.</span>
                     </li>
-                    <li className="flex items-start gap-2.5">
-                      <span className="size-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
+                    <li className="flex items-start gap-2">
+                      <span className="size-1.5 rounded-full bg-slate-400 mt-1.5 shrink-0" />
                       <span><strong>Causes Harm:</strong> Stealing data, deploying ransomware, or selling private info.</span>
                     </li>
-                    <li className="flex items-start gap-2.5">
-                      <span className="size-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
+                    <li className="flex items-start gap-2">
+                      <span className="size-1.5 rounded-full bg-slate-400 mt-1.5 shrink-0" />
                       <span><strong>Federal Crime:</strong> Carries severe prison sentences under the CFAA and a felony record.</span>
                     </li>
                   </ul>
@@ -164,9 +164,9 @@ export function MissionBriefing({
             </div>
 
             {/* Mission Role Callout */}
-            <div className="rounded-xl border border-[#003c6c]/20 bg-[#f4f7fb] p-3.5 flex items-center gap-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex items-center gap-3">
               <div className="size-9 rounded-lg bg-[#003c6c] text-[#fdc700] flex items-center justify-center shrink-0">
-                <Lock className="size-5" />
+                <Lock className="size-4.5" />
               </div>
               <div className="text-xs text-slate-700 leading-relaxed">
                 <p className="font-bold text-[#002b4d]">Your mission today:</p>
@@ -177,7 +177,7 @@ export function MissionBriefing({
             </div>
 
             {/* Footer Navigation */}
-            <div className="pt-3 border-t border-[#d8e0ea] flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
               <button
                 type="button"
                 onClick={onOpenFacilitator}
@@ -192,7 +192,7 @@ export function MissionBriefing({
                   play('click')
                   setStep('setup')
                 }}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] hover:bg-[#f29813] px-5 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-white shadow-sm transition active:translate-y-0.5 cursor-pointer"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#003c6c] hover:bg-[#002b4d] px-5 py-2.5 font-sans text-xs font-bold uppercase tracking-wider text-white shadow-sm transition active:translate-y-0.5 cursor-pointer"
               >
                 <span>I Understand — Let's Hack</span>
                 <ArrowRight className="size-4" />
@@ -204,7 +204,7 @@ export function MissionBriefing({
         /* STEP 2: Lockbox Setup & Mission Launch */
         <div className="w-full max-w-2xl bg-white border border-[#d8e0ea] rounded-2xl shadow-xl overflow-hidden">
           {/* Header */}
-          <div className="bg-gradient-to-r from-[#002b4d] via-[#003c6c] to-[#0b1d2e] p-6 text-white text-center">
+          <div className="bg-[#002b4d] p-6 text-white text-center">
             <div className="inline-flex items-center gap-1.5 rounded-full bg-[#f29813]/20 border border-[#f29813]/40 px-3 py-0.5 text-xs font-mono font-bold uppercase tracking-wider text-[#fdc700] mb-2">
               <ShieldAlert className="size-3.5 text-[#f29813]" />
               BESA Challenge · Track 05
