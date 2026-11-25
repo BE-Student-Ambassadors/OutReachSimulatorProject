@@ -5,9 +5,6 @@ import {
   AlertCircle,
   ArrowRight,
   ArrowLeft,
-  KeyRound,
-  Shield,
-  FileCode,
   Lock,
   Unlock,
 } from 'lucide-react'
@@ -204,35 +201,30 @@ export function MissionBriefing({
         /* STEP 2: Lockbox Setup & Mission Launch */
         <div className="w-full max-w-2xl bg-white border border-[#d8e0ea] rounded-2xl shadow-xl overflow-hidden">
           {/* Header */}
-          <div className="bg-[#002b4d] p-6 text-white text-center">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-[#f29813]/20 border border-[#f29813]/40 px-3 py-0.5 text-xs font-mono font-bold uppercase tracking-wider text-[#fdc700] mb-2">
-              <ShieldAlert className="size-3.5 text-[#f29813]" />
-              BESA Challenge · Track 05
-            </div>
-
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-              Operation Vaultbreak
+          <div className="bg-[#002b4d] p-7 text-white text-center">
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white drop-shadow-sm">
+              BESA Challenge Track 5
             </h1>
 
-            <p className="mt-2 text-sm text-slate-200 leading-relaxed max-w-md mx-auto">
+            <p className="mt-2.5 text-sm text-slate-200 leading-relaxed max-w-md mx-auto font-medium">
               Your lockbox contains a secret prize.
               <br />
               Hack into VaultTech's simulated system to recover its 4-digit code.
             </p>
 
             {/* 3 Compact Stage Indicators */}
-            <div className="mt-4 grid grid-cols-3 gap-2 max-w-sm mx-auto text-xs font-semibold">
-              <div className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-white/10 border border-white/15 text-slate-200">
-                <KeyRound className="size-3.5 text-[#fdc700]" />
-                <span>1. Gain Access</span>
+            <div className="mt-5 grid grid-cols-3 gap-2.5 max-w-md mx-auto text-xs font-bold">
+              <div className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-white/10 border border-white/20 text-white shadow-xs backdrop-blur-xs">
+                <span className="size-4.5 rounded-full bg-[#f29813] text-[#002b4d] font-black text-[10px] inline-flex items-center justify-center shrink-0">1</span>
+                <span>Gain Access</span>
               </div>
-              <div className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-white/10 border border-white/15 text-slate-200">
-                <Shield className="size-3.5 text-[#fdc700]" />
-                <span>2. Find Flaw</span>
+              <div className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-white/10 border border-white/20 text-white shadow-xs backdrop-blur-xs">
+                <span className="size-4.5 rounded-full bg-[#f29813] text-[#002b4d] font-black text-[10px] inline-flex items-center justify-center shrink-0">2</span>
+                <span>Find Flaw</span>
               </div>
-              <div className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-white/10 border border-white/15 text-slate-200">
-                <FileCode className="size-3.5 text-[#fdc700]" />
-                <span>3. Decode</span>
+              <div className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-white/10 border border-white/20 text-white shadow-xs backdrop-blur-xs">
+                <span className="size-4.5 rounded-full bg-[#f29813] text-[#002b4d] font-black text-[10px] inline-flex items-center justify-center shrink-0">3</span>
+                <span>Decode</span>
               </div>
             </div>
           </div>
