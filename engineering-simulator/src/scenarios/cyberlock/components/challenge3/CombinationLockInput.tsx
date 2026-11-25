@@ -100,7 +100,7 @@ export function CombinationLockInput({
   }
 
   return (
-    <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/30 border border-slate-700 rounded-2xl p-6 sm:p-8 shadow-xl font-sans text-center">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl font-sans text-center">
       <div className="max-w-md mx-auto space-y-5">
         <div className="flex flex-col items-center">
           <div
@@ -175,7 +175,7 @@ export function CombinationLockInput({
               <button
                 type="submit"
                 disabled={loading || digits.join('').length !== 4}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-[#f29813] hover:from-amber-400 hover:to-amber-500 px-6 py-3 font-sans text-xs font-bold uppercase tracking-wider text-slate-950 shadow-lg transition-all active:translate-y-0.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-[#f29813] hover:bg-amber-400 px-6 py-3 font-sans text-xs font-bold uppercase tracking-wider text-slate-950 shadow-md transition-all active:translate-y-0.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <span>{loading ? 'Verifying...' : 'Verify Combination'}</span>
                 <ArrowRight className="size-4" />

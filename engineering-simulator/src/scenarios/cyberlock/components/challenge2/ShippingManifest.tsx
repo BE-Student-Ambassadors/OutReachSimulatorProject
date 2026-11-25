@@ -3,7 +3,6 @@ import {
   Truck,
   Search,
   Package,
-  ShieldAlert,
 } from 'lucide-react'
 import { cyberlockApi } from '../../client/apiClient'
 import type { ShippingManifestEntry } from '../../types'
@@ -120,15 +119,12 @@ export function ShippingManifest({ targetSerial }: ShippingManifestProps) {
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
                             entry.classification === 'Restricted'
                               ? 'bg-red-950/80 text-red-400 border border-red-800/60'
                               : 'bg-slate-800 text-slate-300'
                           }`}
                         >
-                          {entry.classification === 'Restricted' && (
-                            <ShieldAlert className="size-3" />
-                          )}
                           {entry.classification}
                         </span>
                       </td>
