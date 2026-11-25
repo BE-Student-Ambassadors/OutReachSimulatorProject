@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-  Shield,
   Users,
   Newspaper,
   LogIn,
@@ -38,11 +37,8 @@ export function VaultTechPublicSite({ onLoginSuccess, devMode }: VaultTechPublic
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-xs">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
           {/* Logo */}
-          <div className="flex items-center gap-2.5">
-            <div className="size-8 rounded-lg bg-gradient-to-br from-[#003c6c] to-[#002b4d] flex items-center justify-center text-[#fdc700] shadow-xs">
-              <Shield className="size-4 text-[#f29813]" />
-            </div>
-            <span className="font-sans text-base font-black tracking-tight text-[#003c6c]">
+          <div className="flex items-center">
+            <span className="font-sans text-lg font-black tracking-tight text-[#003c6c]">
               VaultTech
             </span>
           </div>

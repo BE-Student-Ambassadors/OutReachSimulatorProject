@@ -41,7 +41,7 @@ export function AsciiTableTool() {
   return (
     <div className="space-y-4 font-sans text-xs">
       {/* Interactive Single-Byte Tester */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-950 border border-amber-500/30 rounded-2xl p-4 sm:p-5 shadow-md">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-md">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Cpu className="size-4 text-amber-400" />
